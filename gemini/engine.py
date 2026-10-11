@@ -16,7 +16,8 @@ from html.parser import HTMLParser
 API_ROOT = 'https://generativelanguage.googleapis.com/v1beta'
 DEFAULT_MODEL = 'gemini-2.5-flash'
 CONFIDENCE = {'low': 0, 'medium': 1, 'high': 2}
-FIELDS = ('title', 'authors', 'series', 'tags', 'language')
+FIELDS = ('title', 'authors', 'series', 'tags', 'language', 'isbn')
+IMAGE_LIMIT = 6_000_000  # bytes; a bigger cover or back page is skipped rather than uploaded
 RETRY_STATUS = {429, 500, 502, 503, 504}
 # A new title this unlike the old one is flagged as a big change and left unticked in the preview.
 BIG_CHANGE_RATIO = 0.5
@@ -30,6 +31,8 @@ Rules:
 - A series name must not contain the volume number, and the volume goes in series_index (for example title "Dune Messiah (Dune #2)" gives title "Dune Messiah", series "Dune", series_index 2).
 - Tags: return the complete cleaned tag list for the book (keep good tags, merge duplicates such as "sci-fi" and "Science Fiction" into one form, fix case). You may add at most 5 well-known genre tags you are certain of. Do not invent plot details.
 - language: only when the book has none; an ISO 639-2 three-letter code such as "eng".
+- Cover pictures: some books come with images, each labelled with the book id and where it is from ("front cover", "back cover"). Read the text printed on them: the title, author, series and volume number on the front, and on the back the blurb, publisher, language and ISBN. Text actually printed on a cover is better evidence than a file name or a messy title, so use it to fix the metadata, and put what you read in cover_text. Do not identify a book from artwork alone, and do not report text you cannot read clearly. An ISBN is only valid if you can read every digit; otherwise return null.
+- isbn: the ISBN printed on the back cover or copyright page, digits only (with X as the last character for an ISBN-10).
 - Never invent facts. If you are not sure, return null for that field, which means "leave it as it is". Returning a field identical to the current value is the same as null.
 - confidence says how sure you are about your suggestions for that book: high only when the correction is obvious from the data given.
 - reason is one short sentence.
@@ -47,6 +50,8 @@ RESPONSE_SCHEMA = {
             'series_index': {'type': 'NUMBER', 'nullable': True},
             'tags': {'type': 'ARRAY', 'items': {'type': 'STRING'}, 'nullable': True},
             'language': {'type': 'STRING', 'nullable': True},
+            'isbn': {'type': 'STRING', 'nullable': True},
+            'cover_text': {'type': 'STRING', 'nullable': True},
             'confidence': {'type': 'STRING', 'enum': ['low', 'medium', 'high']},
             'reason': {'type': 'STRING'},
         },
@@ -83,6 +88,8 @@ def describe_book(book):
         parts.append('files: ' + ', '.join(book['filenames']))
     if book.get('excerpt'):
         parts.append(f"+ {len(book['excerpt'])} characters of opening text")
+    if book.get('images'):
+        parts.append('+ picture: ' + ', '.join(i['label'] for i in book['images']))
     return ' | '.join(parts)
 
 
@@ -90,6 +97,8 @@ def describe_change(field, old, new):
     if field == 'series':
         fmt = lambda v: (f'{v[0]} #{v[1]:g}' if v[0] and v[1] is not None else v[0]) or '(none)'
         return f'series {fmt(old)} → {fmt(new)}'
+    if field == 'isbn':
+        return f'ISBN {old or "(none)"} → {new}'
     if isinstance(new, list):
         return f"{field} {', '.join(old) or '(none)'} → {', '.join(new)}"
     return f'{field} “{old}” → “{new}”'
@@ -182,10 +191,11 @@ def _request(method, url, api_key, body=None, retries=4, timeout=120, transport=
 
 
 def generate(api_key, model, prompt, **kw):
-    """Asks the model for JSON that matches RESPONSE_SCHEMA and returns the parsed list."""
+    """Asks the model for JSON that matches RESPONSE_SCHEMA and returns the parsed list. prompt is text, or a list of API parts."""
+    parts = [{'text': prompt}] if isinstance(prompt, str) else prompt
     body = json.dumps({
         'systemInstruction': {'parts': [{'text': INSTRUCTIONS}]},
-        'contents': [{'role': 'user', 'parts': [{'text': prompt}]}],
+        'contents': [{'role': 'user', 'parts': parts}],
         'generationConfig': {'temperature': 0.1, 'responseMimeType': 'application/json', 'responseSchema': RESPONSE_SCHEMA},
     }).encode('utf-8')
     data = _request('POST', f'{API_ROOT}/models/{model}:generateContent', api_key, body, **kw)
@@ -285,6 +295,55 @@ def build_prompt(books):
     return 'Books to check:\n' + json.dumps(rows, ensure_ascii=False, indent=1)
 
 
+def build_parts(books):
+    """The request parts: the text prompt first, then each book's pictures, every one labelled with its book id."""
+    parts = [{'text': build_prompt(books)}]
+    for b in books:
+        for image in b.get('images') or []:
+            parts.append({'text': f"Image for book id {b['id']} ({image['label']}):"})
+            parts.append({'inlineData': {'mimeType': image.get('mime', 'image/jpeg'), 'data': image['data']}})
+    return parts
+
+
+# ------------------------------------------------------------------------------------------------ covers and ISBNs
+
+BACK_NAME = re.compile(r'(^|[^a-z])(back|rear)([^a-z]|$)', re.I)
+IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.gif', '.webp')
+MIME = {'.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp'}
+
+
+def find_back_cover(path, fmt):
+    """(bytes, description) for the back cover of a book file, or None. Calibre stores only a front cover, so this looks inside
+    the file: an EPUB image whose name says back/rear (back-cover.jpg), or the last page of a CBZ comic. Never raises."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            images = [i for i in z.infolist() if i.filename.lower().endswith(IMAGE_EXT) and 0 < i.file_size <= IMAGE_LIMIT]
+            if fmt.upper() == 'CBZ' and images:
+                last = sorted(images, key=lambda i: i.filename.lower())[-1]
+                return z.read(last), f'last page ({last.filename.rsplit("/", 1)[-1]})'
+            if fmt.upper() == 'EPUB':
+                for info in images:
+                    name = info.filename.rsplit('/', 1)[-1]
+                    if BACK_NAME.search(name):
+                        return z.read(info), f'back cover ({name})'
+    except Exception:
+        pass
+    return None
+
+
+def clean_isbn(text):
+    """The ISBN-10 or ISBN-13 in text as digits (final X kept), or '' unless the check digit is right."""
+    text = re.sub(r'(?i)^\s*isbn(?:[- ]?1[03]\s*:|\s*:)?', '', str(text or ''))  # "ISBN-13:" / "ISBN:" / "ISBN "
+    digits = re.sub(r'[\s-]', '', text.upper())
+    if re.fullmatch(r'\d{13}', digits):
+        if sum(int(c) * (1 if i % 2 == 0 else 3) for i, c in enumerate(digits)) % 10 == 0:
+            return digits
+    elif re.fullmatch(r'\d{9}[\dX]', digits):
+        if sum((10 - i) * (10 if c == 'X' else int(c)) for i, c in enumerate(digits)) % 11 == 0:
+            return digits
+    return ''
+
+
 # ------------------------------------------------------------------------------------------------------- validation
 
 def _clean(text, limit):
@@ -339,6 +398,11 @@ def sanitize(book, raw, fields, tags_may_be_removed=False):
         code = str(raw.get('language') or '').strip().lower()
         if re.fullmatch(r'[a-z]{3}', code):
             changes['language'] = ([], [code])
+    if 'isbn' in fields:
+        isbn = clean_isbn(raw.get('isbn'))
+        old = clean_isbn((book.get('identifiers') or {}).get('isbn'))
+        if isbn and isbn != old:
+            changes['isbn'] = ((book.get('identifiers') or {}).get('isbn', ''), isbn)
     return changes
 
 
@@ -392,7 +456,7 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
             return
         on_event('sending', books=batch)
         try:
-            answers = generate(api_key, model, build_prompt(batch), cancelled=cancelled, sleep=sleep,
+            answers = generate(api_key, model, build_parts(batch), cancelled=cancelled, sleep=sleep,
                                notify=lambda t: on_event('notice', text=t), **kw)
         except Blocked as exc:
             if len(batch) == 1:
@@ -417,6 +481,7 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
             changes = sanitize(book, raw, fields, tags_may_be_removed)
             enough = CONFIDENCE.get(confidence, 0) >= threshold
             on_event('answer', book=book, changes=changes, confidence=confidence, reason=_clean(raw.get('reason'), 300),
+                     cover_text=_clean(raw.get('cover_text'), 400),
                      kept=bool(changes) and enough, dropped_why=None if (enough or not changes) else f'{confidence} confidence is below your minimum')
             if changes and enough:
                 suggestions.append({'id': book['id'], 'title': book.get('title') or '', 'changes': changes, 'confidence': confidence,

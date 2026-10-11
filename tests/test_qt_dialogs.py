@@ -932,15 +932,24 @@ class GeminiDb:
             3: dict(title='Cooking Today', authors=['C D'], series='', series_index=1.0, tags=[], languages=['eng']),
         }
         self.writes = []
+        self.identifiers = {}
+        self.cover_bytes = None
+        self.paths = {}
 
     def get_metadata(self, book_id, get_cover=False):
-        return types.SimpleNamespace(publisher='', **self.books[book_id])
+        return types.SimpleNamespace(publisher='', identifiers=dict(self.identifiers.get(book_id, {})), **self.books[book_id])
+
+    def field_for(self, name, book_id):
+        return dict(self.identifiers.get(book_id, {}))
+
+    def cover(self, book_id):
+        return self.cover_bytes if book_id == 1 else None
 
     def formats(self, book_id):
         return ['EPUB']
 
     def format_abspath(self, book_id, fmt):
-        return f'/lib/{book_id}.epub'
+        return self.paths.get(book_id, f'/lib/{book_id}.epub')
 
     def all_book_ids(self):
         return set(self.books)
@@ -1039,6 +1048,139 @@ class GeminiDialogTests(QtCase):
         self.assertEqual(restored['tags'], ('Sci-Fi',))
         self.assertEqual(restored['languages'], ())
         self.assertEqual(dict(action_mod.prefs['undo']), {}, 'a clean undo clears the saved run')
+
+    def _window(self, db, canned_answers, selected):
+        """A Gemini window over a stand-in library with Google replaced by canned answers; returns (action, dialog_runner, sent_bodies)."""
+        import json
+        package = self.load('gemini_library_fixer')
+        sys.modules['calibre.gui2.actions'].InterfaceAction = object
+        engine = importlib.import_module(package + '.engine')
+        action_mod = importlib.import_module(package + '.action')
+        sent = []
+        canned = json.dumps({'candidates': [{'content': {'parts': [{'text': json.dumps(canned_answers)}]}}]}).encode()
+
+        def post(url, headers, body, timeout):
+            sent.append(json.loads(body))
+            return canned
+
+        engine._post = post
+        gui = QtWidgets.QWidget()
+        gui.current_db = MagicMock(new_api=db)
+        gui.library_view = MagicMock()
+        gui.library_view.get_selected_ids.return_value = selected
+        gui.tags_view = MagicMock()
+        action = action_mod.GeminiFixerAction()
+        action.gui = gui
+        action_mod.prefs['api_key'] = 'k'
+        action_mod.prefs['min_interval'] = 0
+        action_mod.prefs['fields'] = list(engine.FIELDS)
+
+        def run(drive):
+            original_exec = QtWidgets.QDialog.exec
+            QtWidgets.QDialog.exec = drive
+            try:
+                action.show_dialog()
+            finally:
+                QtWidgets.QDialog.exec = original_exec
+        return action_mod, run, sent
+
+    @staticmethod
+    def _button(dialog, text):
+        return next(b for b in dialog.findChildren(QtWidgets.QPushButton) if b.text() == text)
+
+    def test_check_all_none_and_the_count_label(self):
+        db = GeminiDb()
+        answers = [{'id': 1, 'title': 'Dune Messiah', 'confidence': 'high'}, {'id': 3, 'title': 'Totally Different Novel', 'confidence': 'high'}]
+        action_mod, run, _ = self._window(db, answers, [1, 2, 3])
+        seen = {}
+
+        def labels(dialog):
+            tree = dialog.findChild(QtWidgets.QTreeWidget)
+            text = next(l.text() for l in dialog.findChildren(QtWidgets.QLabel) if 'change(s) ticked' in l.text())
+            states = {tree.topLevelItem(i).text(0): tree.topLevelItem(i).child(0).checkState(0) for i in range(tree.topLevelItemCount())}
+            return text, states, self._button(dialog, 'Apply ticked changes').isEnabled()
+
+        def drive(dialog):
+            self._button(dialog, 'Check books').click()
+            seen['start'] = labels(dialog)
+            self._button(dialog, 'Check none').click()
+            seen['none'] = labels(dialog)
+            self._button(dialog, 'Check all').click()
+            seen['all'] = labels(dialog)
+            self._button(dialog, 'Check all except big changes').click()
+            seen['safe'] = labels(dialog)
+            tree = dialog.findChild(QtWidgets.QTreeWidget)
+            tree.topLevelItem(0).child(0).setCheckState(0, QtCore.Qt.CheckState.Unchecked)  # a single click updates the count too
+            seen['one'] = labels(dialog)
+            seen['settings_hidden'] = self._button(dialog, 'Show settings') is not None
+            self._button(dialog, 'Show settings').click()
+            seen['settings_back'] = self._button(dialog, 'Hide settings') is not None
+            splitter = dialog.findChild(QtWidgets.QSplitter)
+            seen['sizes'] = splitter.sizes()
+
+        run(drive)
+        T = QtCore.Qt.CheckState
+        self.assertEqual(seen['start'][0], '1 of 2 change(s) ticked')
+        self.assertEqual(seen['none'][0:3:2], ('0 of 2 change(s) ticked', False), 'nothing ticked, so Apply is off')
+        self.assertEqual(seen['all'][0], '2 of 2 change(s) ticked')
+        self.assertEqual(set(seen['all'][1].values()), {T.Checked})
+        self.assertTrue(seen['all'][2])
+        self.assertEqual(seen['safe'][1], {'Cooking Today': T.Unchecked, 'dune messiah [epub]': T.Checked}, 'the big change stays unticked')
+        self.assertEqual(seen['safe'][0], '1 of 2 change(s) ticked')
+        self.assertTrue(seen['settings_hidden'], 'the settings fold away during a run, leaving the results room')
+        self.assertTrue(seen['settings_back'], 'and the button brings them back')
+        self.assertGreater(seen['sizes'][1], seen['sizes'][0], 'the list of changes is the larger part once results are in')
+
+    def test_covers_are_sent_as_pictures_and_the_isbn_is_applied_and_undone(self):
+        import json
+        db = GeminiDb()
+        # a real PNG for book 1's front cover, and an EPUB for book 2 that holds a back-cover picture
+        image = QtGui.QImage(1500, 2000, QtGui.QImage.Format.Format_RGB32)
+        image.fill(QtGui.QColor('navy'))
+        buffer = QtCore.QBuffer()
+        buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
+        image.save(buffer, 'PNG')
+        db.cover_bytes = bytes(buffer.data())
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        epub = Path(tmp.name) / 'two.epub'
+        with zipfile.ZipFile(epub, 'w') as z:
+            z.writestr('OEBPS/back-cover.png', bytes(buffer.data()))
+        db.paths[2] = str(epub)
+        db.identifiers[1] = {'isbn': '9999999999999', 'goodreads': '5'}
+        answers = [{'id': 1, 'title': 'Dune Messiah', 'isbn': '978-0-306-40615-7', 'cover_text': 'DUNE MESSIAH Frank Herbert',
+                    'confidence': 'high', 'reason': 'printed on the cover'},
+                   {'id': 2, 'isbn': '0306406152', 'confidence': 'high'}]
+        action_mod, run, sent = self._window(db, answers, [1, 2])
+        action_mod.prefs['covers'] = True
+        action_mod.prefs['batch_size'] = 15
+        seen = {}
+
+        def drive(dialog):
+            self._button(dialog, 'Check books').click()
+            seen['log'] = dialog.findChild(QtWidgets.QPlainTextEdit).toPlainText()
+            self._button(dialog, 'Apply ticked changes').click()
+            seen['after_apply'] = list(db.writes)
+            self._button(dialog, 'Undo last run').click()
+
+        run(drive)
+        parts = sent[0]['contents'][0]['parts']
+        pictures = [(parts[i - 1]['text'], p['inlineData']['mimeType']) for i, p in enumerate(parts) if 'inlineData' in p]
+        self.assertEqual(sorted(pictures), [('Image for book id 1 (front cover):', 'image/jpeg'),
+                                           ('Image for book id 2 (back cover (back-cover.png)):', 'image/jpeg')])
+        raw = __import__('base64').b64decode(parts[2]['inlineData']['data'])
+        probe = QtGui.QImage()
+        self.assertTrue(probe.loadFromData(raw))
+        self.assertEqual(max(probe.width(), probe.height()), 1000, 'big covers are shrunk before upload')
+        self.assertIn('picture: front cover', seen['log'])
+        self.assertIn('📖 read from the pictures for “dune messiah [epub]”: DUNE MESSIAH Frank Herbert', seen['log'])
+        self.assertIn('ISBN 9999999999999 → 9780306406157', seen['log'])
+        written = {(n, tuple(m)): list(m.values())[0] for n, m in seen['after_apply']}
+        self.assertEqual(written[('identifiers', (1,))], {'isbn': '9780306406157', 'goodreads': '5'}, 'other identifiers are kept')
+        self.assertEqual(written[('identifiers', (2,))], {'isbn': '0306406152'})
+        restored = [list(m.values())[0] for n, m in db.writes[len(seen['after_apply']):] if n == 'identifiers']
+        self.assertIn({'isbn': '9999999999999', 'goodreads': '5'}, restored)
+        self.assertIn({}, restored, 'a book that had no ISBN gets none again')
 
     def test_cancel_during_a_run_stops_further_requests_and_says_so(self):
         import json

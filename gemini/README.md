@@ -8,6 +8,19 @@ Asks the Google Gemini API to suggest cleaner metadata for the selected books (o
 
 You need a Google AI API key. A **free key from [Google AI Studio](https://aistudio.google.com/apikey) is enough**; no billing or prepaid credit is needed. Paste it into the window once (it is remembered), or set `GEMINI_API_KEY` before starting Calibre.
 
+## Reading the covers
+
+Tick **Also look at the cover pictures** and Gemini is shown pictures as well as the text details, and reads what is printed on them: title, author, series and volume number on the front, and the blurb, publisher, language and ISBN on the back. Printed text beats a messy file name, so this helps most with books named `scan_0001` or `untitled`. What it read is shown in the log (📖) next to the change it led to. It does not identify a book from artwork alone.
+
+- **Front cover:** the one Calibre has for the book.
+- **Back cover:** Calibre keeps only a front cover, so a back cover is found only inside the book file: an EPUB image whose name contains `back` or `rear` (for example `back-cover.jpg`), or the last page of a CBZ comic. Books with neither are checked with the front cover alone. Other formats (PDF, MOBI) are not searched for a back page.
+- **Cost:** pictures are shrunk to at most 1000 pixels before sending, and requests carry at most 8 books while this is on. They still use noticeably more of a free key's limit; leave the option off for a first pass.
+- **Privacy:** the pictures are sent to Google. It is off by default.
+
+## Reviewing the suggestions
+
+Results appear in a large list that shares the window with the activity log (drag the divider between them to resize either). The settings fold away while it works; **Show settings** brings them back. **Check all**, **Check none** and **Check all except big changes** tick everything at once, and the count beside them shows how many changes are ticked. Each book and each single change can still be ticked on its own.
+
 ## Using the free tier
 
 Free keys allow only a small number of requests per minute and per day, and Google sets and changes those numbers per model, so the plugin does not assume them:
@@ -29,6 +42,7 @@ While it works the window shows a progress bar (books read, then books answered)
 - **Series and volume number**: reads them from the title or file name (`Dune Messiah (Dune #2)` becomes series `Dune`, number 2), which also fixes the sort order inside the series.
 - **Tags**: merges duplicates and fixes case. By default it can only *add* tags (at most 5 per book); tick *Let it remove or rename existing tags* to allow cleanup.
 - **Language**: filled in only when the book has none.
+- **ISBN**: read from a back cover or title page picture and added as the book's `isbn` identifier. It is only offered if the check digit is correct, so a misread number is thrown away rather than written; your other identifiers are kept.
 
 "Rename" and "sort": when a title or author changes, Calibre itself renames the book's folder and files in your library and recomputes the title and author sort values (I checked in Calibre's source that its title and author writers do this). The plugin does not touch file names any other way.
 
@@ -52,4 +66,4 @@ The default model is `gemini-2.5-flash`; **List models** asks Google which model
 
 ## Not verified
 
-The request and response handling is covered by offline tests that replace Google with canned answers (rate limits and Google's retry delay, per-day quota, request spacing, blocked prompts, truncated output, bad keys, batches, cancel, numbered titles). It has **not** been run against the live Gemini API (no key was available), so how well the model handles your particular books is untested. The window was run under real Qt (PyQt6, offscreen) against a stand-in library for check, progress log, cancel, apply and undo, but not inside Calibre; the Calibre calls used (`get_metadata`, `formats`, `format_abspath`, `set_field`, `refresh_ids`) were checked against Calibre's source. Try it on two or three books first.
+The request and response handling is covered by offline tests that replace Google with canned answers (rate limits and Google's retry delay, per-day quota, request spacing, blocked prompts, truncated output, bad keys, batches, cancel, numbered titles, ISBN check digits, picture parts in the request, finding a back cover in EPUB and CBZ files). It has **not** been run against the live Gemini API (no key was available), so how well the model handles your particular books, and how well it reads real covers, is untested; the picture tests use plain generated images. The window was run under real Qt (PyQt6, offscreen) against a stand-in library for check, progress log, cancel, apply and undo, but not inside Calibre; the Calibre calls used (`get_metadata`, `formats`, `format_abspath`, `set_field`, `refresh_ids`) were checked against Calibre's source. Try it on two or three books first.
