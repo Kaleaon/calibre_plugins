@@ -331,6 +331,76 @@ class FreeTierTests(unittest.TestCase):
         self.assertIn('below your minimum', answer['dropped_why'])
 
 
+class CoverTests(unittest.TestCase):
+    def test_isbn_checksums(self):
+        f = engine.clean_isbn
+        self.assertEqual(f('978-0-306-40615-7'), '9780306406157')
+        self.assertEqual(f('ISBN-13: 978-0-306-40615-7'), '9780306406157')
+        self.assertEqual(f('ISBN 0-306-40615-2'), '0306406152')
+        self.assertEqual(f('080442957X'), '080442957X')
+        self.assertEqual(f('ISBN: 1034567891'), '', 'a wrong check digit is rejected, not "fixed"')
+        self.assertEqual(f('9780306406158'), '')
+        self.assertEqual(f('12345'), '')
+        self.assertEqual(f(None), '')
+
+    def test_isbn_suggestion_only_with_a_valid_number_and_a_difference(self):
+        b = book(1, identifiers={})
+        got = engine.sanitize(b, {'isbn': '978-0-306-40615-7'}, engine.FIELDS)
+        self.assertEqual(got['isbn'], ('', '9780306406157'))
+        self.assertEqual(engine.sanitize(b, {'isbn': '9780306406158'}, engine.FIELDS), {})
+        have = book(2, identifiers={'isbn': '978-0-306-40615-7'})
+        self.assertEqual(engine.sanitize(have, {'isbn': '9780306406157'}, engine.FIELDS), {}, 'same number written differently is no change')
+        self.assertEqual(engine.sanitize(b, {'isbn': '9780306406157'}, ('title',)), {})
+
+    def test_images_go_in_the_request_labelled_by_book(self):
+        books = [book(5, images=[{'label': 'front cover', 'mime': 'image/jpeg', 'data': 'QUJD'},
+                                 {'label': 'back cover', 'mime': 'image/png', 'data': 'REVG'}]), book(6)]
+        parts = engine.build_parts(books)
+        self.assertIn('Books to check', parts[0]['text'])
+        self.assertEqual(parts[1], {'text': 'Image for book id 5 (front cover):'})
+        self.assertEqual(parts[2], {'inlineData': {'mimeType': 'image/jpeg', 'data': 'QUJD'}})
+        self.assertEqual(parts[3], {'text': 'Image for book id 5 (back cover):'})
+        self.assertEqual(parts[4]['inlineData']['mimeType'], 'image/png')
+        self.assertEqual(len(parts), 5, 'a book without pictures adds no image parts')
+        self.assertIn('picture: front cover, back cover', engine.describe_book(books[0]))
+
+    def test_images_reach_the_wire_and_cover_text_is_reported(self):
+        events = []
+        t = Scripted(reply([{'id': 1, 'title': 'Real Title', 'isbn': '9780306406157', 'cover_text': 'REAL TITLE by Jo Writer',
+                             'confidence': 'high', 'reason': 'printed on the cover'}]))
+        b = book(1, title='scan_0001', images=[{'label': 'front cover', 'mime': 'image/jpeg', 'data': 'QUJD'}])
+        out, _ = engine.plan_fixes([b], 'k', transport=t, on_event=lambda kind, **i: events.append((kind, i)))
+        sent = json.loads(t.calls[0][2])['contents'][0]['parts']
+        self.assertEqual(sent[2]['inlineData']['data'], 'QUJD')
+        self.assertEqual(out[0]['changes']['title'], ('scan_0001', 'Real Title'))
+        self.assertEqual(out[0]['changes']['isbn'][1], '9780306406157')
+        answer = next(i for k, i in events if k == 'answer')
+        self.assertEqual(answer['cover_text'], 'REAL TITLE by Jo Writer')
+
+    def test_back_cover_from_epub_and_cbz(self):
+        with tempfile.TemporaryDirectory() as d:
+            epub = Path(d) / 'a.epub'
+            with zipfile.ZipFile(epub, 'w') as z:
+                z.writestr('OEBPS/images/cover.jpg', b'front')
+                z.writestr('OEBPS/images/back-cover.jpg', b'BACK')
+                z.writestr('OEBPS/images/feedback.png', b'no')
+            got = engine.find_back_cover(epub, 'EPUB')
+            self.assertEqual(got[0], b'BACK')
+            self.assertIn('back-cover.jpg', got[1])
+            plain = Path(d) / 'b.epub'
+            with zipfile.ZipFile(plain, 'w') as z:
+                z.writestr('cover.jpg', b'front')
+            self.assertIsNone(engine.find_back_cover(plain, 'EPUB'))
+            cbz = Path(d) / 'c.cbz'
+            with zipfile.ZipFile(cbz, 'w') as z:
+                for n in ('p01.jpg', 'p02.jpg', 'p10.jpg'):
+                    z.writestr(n, n.encode())
+            self.assertEqual(engine.find_back_cover(cbz, 'CBZ')[0], b'p10.jpg')
+            (Path(d) / 'junk.epub').write_bytes(b'not a zip')
+            self.assertIsNone(engine.find_back_cover(Path(d) / 'junk.epub', 'EPUB'))
+            self.assertIsNone(engine.find_back_cover(Path(d) / 'missing.epub', 'EPUB'))
+
+
 class InputTests(unittest.TestCase):
     def test_prompt_contains_book_fields_and_excerpt(self):
         text = engine.build_prompt([book(7, title='T', filenames=['T - A.epub'], excerpt='Once upon')])

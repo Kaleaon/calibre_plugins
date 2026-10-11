@@ -1,3 +1,4 @@
+import base64
 import os
 import queue
 import threading
@@ -6,18 +7,33 @@ import time
 from calibre.gui2 import error_dialog, info_dialog, question_dialog
 from calibre.gui2.actions import InterfaceAction
 from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-                     QPlainTextEdit, QProgressBar, QRadioButton, QSpinBox, Qt, QTreeWidget, QTreeWidgetItem, QVBoxLayout)
+                     QBuffer, QImage, QIODevice, QPlainTextEdit, QProgressBar, QRadioButton, QSpinBox, QSplitter, Qt, QTreeWidget,
+                     QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from calibre_plugins.gemini_library_fixer import engine
 from calibre_plugins.gemini_library_fixer.config import prefs
 from calibre_plugins.gemini_library_fixer.guikit import run_task
 
 FIELD_LABELS = [('title', 'Titles'), ('authors', 'Authors'), ('series', 'Series and volume number'), ('tags', 'Tags'),
-                ('language', 'Language (only if empty)')]
-SHOW = {'title': 'Title', 'authors': 'Authors', 'series': 'Series', 'tags': 'Tags', 'language': 'Language'}
+                ('language', 'Language (only if empty)'), ('isbn', 'ISBN (read from the back cover or title page)')]
+SHOW = {'title': 'Title', 'authors': 'Authors', 'series': 'Series', 'tags': 'Tags', 'language': 'Language', 'isbn': 'ISBN'}
 PRIVACY = ('Your API key is stored unencrypted in Calibre\'s settings folder. Only book details (title, authors, series, tags, '
-           'publisher, language, file names) are sent to Google; the opening text of a book is sent only if you tick that option. '
+           'publisher, language, file names) are sent to Google; the opening text and the cover pictures of a book are sent only if you tick those options. '
            'Changing a title or author also renames the book\'s folder and files in your library. Nothing changes until you press Apply.')
+
+
+def prepare_image(data, max_side=1000):
+    """A cover or page as a smaller JPEG in base64 (Gemini reads cover text fine at this size and it costs far less), or None."""
+    image = QImage()
+    if not data or not image.loadFromData(data):
+        return None
+    if max(image.width(), image.height()) > max_side:
+        image = image.scaled(max_side, max_side, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    if not image.convertToFormat(QImage.Format.Format_RGB32).save(buffer, 'JPEG', 80):
+        return None
+    return base64.b64encode(bytes(buffer.data())).decode('ascii')
 
 
 def show_value(field, value):
@@ -37,7 +53,7 @@ class GeminiFixerAction(InterfaceAction):
         self.qaction.triggered.connect(self.show_dialog)
 
     # -- reading and writing the library ------------------------------------------------------------------------------
-    def books_for(self, ids, with_excerpt, on_book=lambda index, total, book: None, should_stop=lambda: False):
+    def books_for(self, ids, with_excerpt, on_book=lambda index, total, book: None, should_stop=lambda: False, with_covers=False):
         db = self.gui.current_db.new_api
         books = []
         for i, book_id in enumerate(ids):
@@ -51,7 +67,19 @@ class GeminiFixerAction(InterfaceAction):
             excerpt = ''
             if with_excerpt and 'EPUB' in fmts:
                 excerpt = engine.epub_excerpt(db.format_abspath(book_id, 'EPUB'))
+            images = []
+            if with_covers:
+                front = prepare_image(db.cover(book_id))
+                if front:
+                    images.append({'label': 'front cover', 'mime': 'image/jpeg', 'data': front})
+                for fmt in fmts:
+                    found = engine.find_back_cover(db.format_abspath(book_id, fmt), fmt) if fmt.upper() in ('EPUB', 'CBZ') else None
+                    back = prepare_image(found[0]) if found else None
+                    if back:
+                        images.append({'label': found[1], 'mime': 'image/jpeg', 'data': back})
+                        break
             books.append({'id': book_id, 'title': mi.title or '', 'authors': list(mi.authors or []),
+                          'identifiers': dict(mi.identifiers or {}), 'images': images,
                           'series': mi.series or '', 'series_index': mi.series_index if mi.series else None,
                           'tags': list(mi.tags or []), 'languages': list(mi.languages or []), 'publisher': mi.publisher or '',
                           'filenames': names, 'excerpt': excerpt})
@@ -80,6 +108,8 @@ class GeminiFixerAction(InterfaceAction):
                         db.set_field('tags', {book_id: tuple(new)})
                     elif field == 'language':
                         db.set_field('languages', {book_id: tuple(new)})
+                    elif field == 'isbn':
+                        db.set_field('identifiers', {book_id: dict(db.field_for('identifiers', book_id) or {}, isbn=new)})
                     saved[field] = [old[0], old[1]] if field == 'series' else old
                 done.append(book_id)
             except Exception as exc:
@@ -109,6 +139,13 @@ class GeminiFixerAction(InterfaceAction):
                         db.set_field('tags', {book_id: tuple(old)})
                     elif field == 'language':
                         db.set_field('languages', {book_id: tuple(old)})
+                    elif field == 'isbn':
+                        ids = dict(db.field_for('identifiers', book_id) or {})
+                        if old:
+                            ids['isbn'] = old
+                        else:
+                            ids.pop('isbn', None)
+                        db.set_field('identifiers', {book_id: ids})
                 done.append(book_id)
             except Exception as exc:
                 errors.append(f'book {book_id}: {exc}')
@@ -124,8 +161,12 @@ class GeminiFixerAction(InterfaceAction):
         selected = list(self.gui.library_view.get_selected_ids())
         dialog = QDialog(self.gui)
         dialog.setWindowTitle('Gemini Library Fixer')
-        dialog.resize(820, 760)
-        layout = QVBoxLayout(dialog)
+        dialog.resize(1100, 940)
+        main = QVBoxLayout(dialog)
+        settings = QWidget()  # everything up to the progress bar; it can be hidden to give the results more room
+        layout = QVBoxLayout(settings)
+        layout.setContentsMargins(0, 0, 0, 0)
+        main.addWidget(settings)
         note = QLabel(PRIVACY)
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -168,6 +209,10 @@ class GeminiFixerAction(InterfaceAction):
         excerpt = QCheckBox('Also send the first ~1500 characters of each EPUB (helps with badly named books; sends book text to Google)')
         excerpt.setChecked(bool(prefs['excerpt']))
         layout.addWidget(excerpt)
+        covers = QCheckBox('Also look at the cover pictures: the front cover, and a back cover or last page where the book has one (sends pictures to Google; uses more of a free key\'s limit)')
+        covers.setChecked(bool(prefs['covers']))
+        covers.setToolTip('Gemini reads the title, author, series, volume and ISBN printed on the pictures. Calibre keeps only a front cover, so a back cover is found only inside the file: an EPUB image named back/rear, or the last page of a CBZ.')
+        layout.addWidget(covers)
         row = QHBoxLayout()
         row.addWidget(QLabel('Minimum confidence:'))
         confidence = QComboBox()
@@ -188,7 +233,11 @@ class GeminiFixerAction(InterfaceAction):
         row.addStretch(1)
         layout.addLayout(row)
 
+        layout = main
         row = QHBoxLayout()
+        settings_btn = QPushButton('Hide settings')
+        settings_btn.setToolTip('Hide the settings above to make room for the log and the suggested changes')
+        row.addWidget(settings_btn)
         bar = QProgressBar()
         bar.setRange(0, 1)
         bar.setValue(0)
@@ -200,16 +249,38 @@ class GeminiFixerAction(InterfaceAction):
         layout.addLayout(row)
         phase = QLabel('Idle.')
         layout.addWidget(phase)
+
+        # The log and the list of suggested changes share a splitter, so either can be dragged larger.
+        splitter = QSplitter(Qt.Orientation.Vertical)
         activity = QPlainTextEdit()
         activity.setReadOnly(True)
         activity.setMaximumBlockCount(5000)
         activity.setPlaceholderText('What is happening shows up here: each book as it is read, the exact data sent to Gemini, and every answer that comes back.')
-        layout.addWidget(activity, 2)
-
+        splitter.addWidget(activity)
+        results = QWidget()
+        results_layout = QVBoxLayout(results)
+        results_layout.setContentsMargins(0, 0, 0, 0)
+        pick_row = QHBoxLayout()
+        pick_row.addWidget(QLabel('Suggested changes:'))
+        all_btn = QPushButton('Check all')
+        none_btn = QPushButton('Check none')
+        safe_btn = QPushButton('Check all except big changes')
+        for w in (all_btn, none_btn, safe_btn):
+            pick_row.addWidget(w)
+        pick_row.addStretch(1)
+        ticked = QLabel('')
+        pick_row.addWidget(ticked)
+        results_layout.addLayout(pick_row)
         tree = QTreeWidget()
         tree.setHeaderLabels(['Suggested change', 'Why'])
-        tree.setColumnWidth(0, 520)
-        layout.addWidget(tree, 3)
+        tree.setColumnWidth(0, 700)
+        tree.setAlternatingRowColors(True)
+        results_layout.addWidget(tree, 1)
+        splitter.addWidget(results)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([180, 520])
+        layout.addWidget(splitter, 1)
         status = QLabel('Press Check books to ask Gemini. Big changes (a very different title or author) are left unticked.')
         status.setWordWrap(True)
         layout.addWidget(status)
@@ -239,16 +310,54 @@ class GeminiFixerAction(InterfaceAction):
             prefs['fields'] = list(chosen_fields())
             prefs['tags_remove'] = tags_remove.isChecked()
             prefs['excerpt'] = excerpt.isChecked()
+            prefs['covers'] = covers.isChecked()
             prefs['min_confidence'] = confidence.currentText()
             prefs['batch_size'] = batch.value()
             prefs['min_interval'] = interval.value()
 
         cancel_flag = threading.Event()
 
+        def set_checks(choose):
+            """choose(top_item) -> True/False. Children are set first and the (auto-tristate) parent last."""
+            tree.blockSignals(True)
+            for i in range(tree.topLevelItemCount()):
+                top = tree.topLevelItem(i)
+                state = Qt.CheckState.Checked if choose(top) else Qt.CheckState.Unchecked
+                for j in range(top.childCount()):
+                    top.child(j).setCheckState(0, state)
+                top.setCheckState(0, state)
+            tree.blockSignals(False)
+            update_ticked()
+
+        def update_ticked():
+            total = count = 0
+            for i in range(tree.topLevelItemCount()):
+                top = tree.topLevelItem(i)
+                for j in range(top.childCount()):
+                    total += 1
+                    count += top.child(j).checkState(0) == Qt.CheckState.Checked
+            ticked.setText(f'{count} of {total} change(s) ticked' if total else '')
+            apply_btn.setEnabled(count > 0 and not run_busy[0])
+
+        run_busy = [False]
+        all_btn.clicked.connect(lambda: set_checks(lambda top: True))
+        none_btn.clicked.connect(lambda: set_checks(lambda top: False))
+        safe_btn.clicked.connect(lambda: set_checks(lambda top: not top.data(0, Qt.ItemDataRole.UserRole + 2)))
+        tree.itemChanged.connect(lambda item, column: update_ticked())
+
+        def toggle_settings():
+            settings.setHidden(not settings.isHidden())
+            settings_btn.setText('Show settings' if settings.isHidden() else 'Hide settings')
+
+        settings_btn.clicked.connect(toggle_settings)
+
         def log(text):
             activity.appendPlainText(f'{time.strftime("%H:%M:%S")}  {text}')
 
         def set_busy(busy):
+            run_busy[0] = busy
+            for w in (all_btn, none_btn, safe_btn):
+                w.setEnabled(not busy)
             for w in (check_btn, apply_btn, undo_btn, models_btn):
                 w.setEnabled(not busy and (w is not apply_btn) and (w is not undo_btn or bool(prefs['undo'])))
             stop_btn.setEnabled(busy)
@@ -280,12 +389,15 @@ class GeminiFixerAction(InterfaceAction):
             if len(ids) > 100 and not question_dialog(dialog, 'Gemini', f'{len(ids)} books will be sent to Google in batches of {batch.value()}. Continue?'):
                 return
             tree.clear()
-            apply_btn.setEnabled(False)
+            update_ticked()
             activity.clear()
             cancel_flag.clear()
             set_busy(True)
+            if not settings.isHidden():
+                toggle_settings()  # more room for the log; the button brings the settings back
+            splitter.setSizes([520, 180])
             try:
-                log(f'Reading {len(ids)} book(s) from your library' + (' (including the opening text of EPUBs)' if excerpt.isChecked() else '') + '…')
+                log(f'Reading {len(ids)} book(s) from your library' + (' (including the opening text of EPUBs)' if excerpt.isChecked() else '') + (' and their cover pictures' if covers.isChecked() else '') + '…')
                 bar.setRange(0, max(1, len(ids)))
                 bar.setValue(0)
 
@@ -294,7 +406,7 @@ class GeminiFixerAction(InterfaceAction):
                     phase.setText(f'Reading your library: book {index} of {total}')
                     log(f'  read {index}/{total}: {engine.describe_book(book)}')
 
-                books = self.books_for(ids, excerpt.isChecked(), on_book, cancel_flag.is_set)
+                books = self.books_for(ids, excerpt.isChecked(), on_book, cancel_flag.is_set, covers.isChecked())
                 if cancel_flag.is_set():
                     log('Cancelled while reading. Nothing was sent to Google.')
                     return finish_run(None, len(books))
@@ -308,7 +420,8 @@ class GeminiFixerAction(InterfaceAction):
             messages = queue.Queue()
             box = {}
             total = len(books)
-            log(f'Sending {total} book(s) to Gemini ({model.currentText().strip() or engine.DEFAULT_MODEL}), {batch.value()} per request. Only the details shown above leave your computer.')
+            per_request = min(batch.value(), 8) if covers.isChecked() else batch.value()  # pictures make requests heavy
+            log(f'Sending {total} book(s) to Gemini ({model.currentText().strip() or engine.DEFAULT_MODEL}), {per_request} per request. Only the details shown above leave your computer.')
             bar.setRange(0, max(1, total))
             bar.setValue(0)
 
@@ -316,7 +429,7 @@ class GeminiFixerAction(InterfaceAction):
                 try:
                     box['result'] = engine.plan_fixes(
                         books, api_key(), model.currentText().strip() or engine.DEFAULT_MODEL, chosen_fields(), confidence.currentText(),
-                        batch.value(), tags_remove.isChecked(), cancelled=cancel_flag.is_set, min_interval=interval.value(),
+                        per_request, tags_remove.isChecked(), cancelled=cancel_flag.is_set, min_interval=interval.value(),
                         on_event=lambda kind, **info: messages.put((kind, info)))
                 except Exception as exc:  # shown to the user by the caller
                     box['error'] = exc
@@ -338,6 +451,8 @@ class GeminiFixerAction(InterfaceAction):
                 elif kind == 'answer':
                     book, changes = info['book'], info['changes']
                     name = f"“{book.get('title') or book['id']}”"
+                    if info.get('cover_text'):
+                        log(f"   📖 read from the pictures for {name}: {info['cover_text']}")
                     if info['kept']:
                         log(f"   ✔ {name} [{info['confidence']}]: " + '; '.join(engine.describe_change(f, o, n) for f, (o, n) in changes.items())
                             + (f" — {info['reason']}" if info['reason'] else ''))
@@ -381,6 +496,7 @@ class GeminiFixerAction(InterfaceAction):
                 top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
                 want = Qt.CheckState.Unchecked if s['big'] else Qt.CheckState.Checked  # adding a child resets an auto-tristate parent, so set the parent last
                 top.setData(0, Qt.ItemDataRole.UserRole, s['id'])
+                top.setData(0, Qt.ItemDataRole.UserRole + 2, bool(s['big']))
                 for field, (old, new) in s['changes'].items():
                     child = QTreeWidgetItem(top, [f'{SHOW[field]}:  {show_value(field, old)}  →  {show_value(field, new)}', s['reason'] if field == 'title' else ''])
                     child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
@@ -393,7 +509,8 @@ class GeminiFixerAction(InterfaceAction):
             if skipped:
                 text += f' {len(skipped)} could not be checked: ' + '; '.join(skipped[:3]) + (' …' if len(skipped) > 3 else '')
             status.setText(text)
-            apply_btn.setEnabled(bool(suggestions))
+            update_ticked()
+            splitter.setSizes([120, 700])  # the changes are what needs reading now
 
         def collect():
             items = []
@@ -422,7 +539,7 @@ class GeminiFixerAction(InterfaceAction):
                 text += '\n\nProblems:\n' + '\n'.join(errors[:10])
             info_dialog(self.gui, 'Gemini', text, show=True)
             tree.clear()
-            apply_btn.setEnabled(False)
+            update_ticked()
 
         def do_undo():
             undo = dict(prefs['undo'])
