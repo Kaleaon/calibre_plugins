@@ -7,6 +7,7 @@ import uuid
 import zipfile
 from html.parser import HTMLParser
 from io import BytesIO
+from pathlib import Path, PosixPath
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from xml.sax.saxutils import escape, quoteattr
@@ -261,7 +262,7 @@ def build_epub(stories, title=None, author=None, publisher=None):
     author = author or ' & '.join(authors)
     tags = list(dict.fromkeys(t for s in stories for t in s.get('tags', []) + s.get('categories', [])))
     summary = stories[0].get('summary', '') if not combined else ''
-    book_id = 'urn:uuid:' + str(uuid.uuid5(uuid.NAMESPACE_URL, '|'.join(s['id'] for s in stories)))
+    book_id = 'urn:uuid:' + str(uuid.uuid5(uuid.NAMESPACE_URL, '|'.join(s.get('id', s['title']) for s in stories)))
 
     files = []  # (filename, xhtml)
     toc = []    # (label, href, [children])
@@ -270,7 +271,7 @@ def build_epub(stories, title=None, author=None, publisher=None):
         title_body += f'<p class="summary">{escape(summary)}</p>'
     if combined:
         title_body += '<ol>' + ''.join(f'<li>{escape(s["title"])} — {escape(s["author"])}</li>' for s in stories) + '</ol>'
-    else:
+    elif stories[0].get('url'):
         title_body += f'<p class="meta">Source: {escape(stories[0]["url"])}</p>'
     title_body += '<p class="meta">Story copyright remains with the author. Personal copy; not for reposting.</p>'
     files.append(('title.xhtml', _page(title, title_body)))
@@ -300,7 +301,7 @@ def build_epub(stories, title=None, author=None, publisher=None):
     subjects = ''.join(f'<dc:subject>{escape(t)}</dc:subject>' for t in tags)
     description = f'<dc:description>{escape(summary)}</dc:description>' if summary else ''
     publisher_xml = f'<dc:publisher>{escape(publisher)}</dc:publisher>' if publisher else ''
-    source = f'<dc:source>{escape(stories[0]["url"])}</dc:source>' if not combined else ''
+    source = f'<dc:source>{escape(stories[0]["url"])}</dc:source>' if (not combined and stories[0].get('url')) else ''
     opf = ('<?xml version="1.0" encoding="utf-8"?>\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">'
            '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
            f'<dc:identifier id="bookid">{book_id}</dc:identifier><dc:title>{escape(title)}</dc:title>'
@@ -345,3 +346,140 @@ def build_epub(stories, title=None, author=None, publisher=None):
         for name, content in files:
             z.writestr('OEBPS/' + name, content, zipfile.ZIP_DEFLATED)
     return out.getvalue()
+
+
+def extract_epub_story(epub_source):
+    """Extract story structure (metadata, chapters) from an EPUB file (bytes, path, or file-like object).
+    Returns a story dictionary: {'id': ..., 'title': ..., 'author': ..., 'summary': ..., 'tags': ..., 'sections': [(heading, body)]}
+    """
+    if isinstance(epub_source, (str, bytes)):
+        f = BytesIO(epub_source) if isinstance(epub_source, bytes) else open(epub_source, 'rb')
+    elif hasattr(epub_source, 'read'):
+        f = epub_source
+    else:
+        f = BytesIO(bytes(epub_source))
+
+    with zipfile.ZipFile(f, 'r') as z:
+        names = z.namelist()
+        opf_path = None
+        if 'META-INF/container.xml' in names:
+            try:
+                c_xml = z.read('META-INF/container.xml').decode('utf-8', 'ignore')
+                m = re.search(r'full-path=["\']([^"\']+)["\']', c_xml, re.I)
+                if m:
+                    opf_path = m.group(1)
+            except Exception:
+                pass
+        if not opf_path:
+            for n in names:
+                if n.endswith('.opf'):
+                    opf_path = n
+                    break
+        if not opf_path or opf_path not in names:
+            raise ValueError('Not a valid EPUB: OPF manifest not found')
+
+        opf_dir = PosixPath(opf_path).parent.as_posix()
+        if opf_dir == '.':
+            opf_dir = ''
+        elif opf_dir and not opf_dir.endswith('/'):
+            opf_dir += '/'
+
+        opf_text = z.read(opf_path).decode('utf-8', 'ignore')
+
+        # Extract Metadata
+        title_m = re.search(r'<dc:title[^>]*>(.*?)</dc:title>', opf_text, re.S | re.I)
+        title = strip_tags(title_m.group(1)) if title_m else 'Untitled'
+
+        author_m = re.search(r'<dc:creator[^>]*>(.*?)</dc:creator>', opf_text, re.S | re.I)
+        author = strip_tags(author_m.group(1)) if author_m else 'Unknown'
+
+        summary_m = re.search(r'<dc:description[^>]*>(.*?)</dc:description>', opf_text, re.S | re.I)
+        summary = strip_tags(summary_m.group(1)) if summary_m else ''
+
+        tags = [strip_tags(m.group(1)) for m in re.finditer(r'<dc:subject[^>]*>(.*?)</dc:subject>', opf_text, re.S | re.I)]
+
+        id_m = re.search(r'<dc:identifier[^>]*>(.*?)</dc:identifier>', opf_text, re.S | re.I)
+        story_id = strip_tags(id_m.group(1)) if id_m else title
+
+        # Extract Manifest
+        manifest = {}
+        for item_m in re.finditer(r'<item\b([^>]+)>', opf_text, re.I):
+            attrs = dict(re.findall(r'(\w+)=["\']([^"\']*)["\']', item_m.group(1)))
+            if 'id' in attrs and 'href' in attrs:
+                manifest[attrs['id']] = attrs
+
+        # Extract Spine
+        spine = []
+        for ref_m in re.finditer(r'<itemref\b([^>]+)>', opf_text, re.I):
+            attrs = dict(re.findall(r'(\w+)=["\']([^"\']*)["\']', ref_m.group(1)))
+            if 'idref' in attrs and attrs['idref'] in manifest:
+                spine.append(manifest[attrs['idref']])
+
+        # Extract TOC labels if NCX or NAV present
+        toc_labels = {}
+        ncx_item = next((item for item in manifest.values() if item.get('media-type') == 'application/x-dtbncx+xml'), None)
+        if ncx_item:
+            ncx_href = opf_dir + ncx_item['href']
+            if ncx_href in names:
+                ncx_text = z.read(ncx_href).decode('utf-8', 'ignore')
+                for np in re.finditer(r'<navPoint[^>]*>.*?<text>(.*?)</text>.*?<content\s+src=["\']([^"\']+)["\']', ncx_text, re.S | re.I):
+                    lbl = strip_tags(np.group(1))
+                    src = np.group(2).split('#')[0]
+                    if src and lbl:
+                        toc_labels[src] = lbl
+
+        sections = []
+        for idx, item in enumerate(spine, 1):
+            href = item['href']
+            # Ignore title page and nav pages if they exist
+            if href in ('title.xhtml', 'nav.xhtml', 'toc.xhtml'):
+                continue
+            full_path = opf_dir + href
+            if full_path not in names:
+                continue
+            content = z.read(full_path).decode('utf-8', 'ignore')
+
+            # Determine chapter label
+            label = toc_labels.get(href)
+            if not label:
+                h_match = re.search(r'<h[1-3][^>]*>(.*?)</h[1-3]>', content, re.S | re.I)
+                if h_match:
+                    label = strip_tags(h_match.group(1))
+            if not label:
+                t_match = re.search(r'<title[^>]*>(.*?)</title>', content, re.S | re.I)
+                if t_match:
+                    label = strip_tags(t_match.group(1))
+            if not label or label.lower() in ('title', 'title page', 'contents'):
+                label = f'Chapter {idx}'
+
+            # Extract body
+            body_match = re.search(r'<body[^>]*>(.*?)</body>', content, re.S | re.I)
+            body_text = body_match.group(1) if body_match else content
+
+            sections.append((label, body_text))
+
+        return {
+            'id': story_id,
+            'title': title,
+            'author': author,
+            'summary': summary,
+            'tags': tags,
+            'url': '',
+            'sections': sections,
+        }
+
+
+def merge_epubs(epub_list, title=None, author=None, publisher=None):
+    """Extract stories from a list of EPUB bytes or paths and build a merged EPUB byte string."""
+    stories = []
+    for item in epub_list:
+        try:
+            story = extract_epub_story(item)
+            if story and story['sections']:
+                stories.append(story)
+        except Exception:
+            continue
+    if not stories:
+        raise ValueError('No valid EPUB stories found to merge')
+    return build_epub(stories, title=title, author=author, publisher=publisher)
+

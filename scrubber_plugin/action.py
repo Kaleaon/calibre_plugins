@@ -19,6 +19,8 @@ class ScrubAction(InterfaceAction):
         self.qaction.setMenu(menu)
         for title, slot in [('Scrub selected books in Calibre', self.scrub_selected),
                             ('Scrub EPUB file or folder to a new folder…', self.scrub_folder),
+                            ('Merge selected books into one EPUB…', self.merge_selected),
+                            ('Merge EPUB files from folder…', self.merge_folder),
                             ('Settings…', self.settings)]:
             action = QAction(title, self.gui)
             action.triggered.connect(lambda checked=False, slot=slot: slot())
@@ -132,3 +134,46 @@ class ScrubAction(InterfaceAction):
                         ('Original files were overwritten.' if in_place else 'Originals were not modified.') + f'\nReport: {report_path}', show=True)
         except Exception as exc:
             error_dialog(self.gui, 'EPUB Promo Scrubber failed', str(exc), show=True)
+
+    def merge_selected(self):
+        ids = list(self.gui.library_view.get_selected_ids())
+        if not ids or len(ids) < 2:
+            info_dialog(self.gui, 'EPUB Merger', 'Select two or more books in Calibre first to merge.', show=True)
+            return
+        try:
+            try:
+                from .libkit import merge_library_books
+            except ImportError:
+                from calibre_plugins.epub_promo_scrubber.libkit import merge_library_books
+        except ImportError:
+            from libkit import merge_library_books
+        book_id, errors = merge_library_books(self.gui, ids)
+        if book_id:
+            info_dialog(self.gui, 'EPUB Merger', 'Successfully merged books into a new omnibus EPUB in your library.' +
+                        (f'\nNotes: {"; ".join(errors)}' if errors else ''), show=True)
+        else:
+            error_dialog(self.gui, 'EPUB Merger', 'Could not merge books:\n' + '\n'.join(errors), show=True)
+
+    def merge_folder(self):
+        files, _ = QFileDialog.getOpenFileNames(self.gui, 'Select EPUB files to merge', '', 'EPUB (*.epub)')
+        if not files or len(files) < 2:
+            info_dialog(self.gui, 'EPUB Merger', 'Select at least two EPUB files.', show=True)
+            return
+        out_path, _ = QFileDialog.getSaveFileName(self.gui, 'Save merged EPUB as', 'merged_omnibus.epub', 'EPUB (*.epub)')
+        if not out_path:
+            return
+        try:
+            try:
+                from .storykit import merge_epubs
+            except ImportError:
+                from calibre_plugins.epub_promo_scrubber.storykit import merge_epubs
+        except ImportError:
+            from storykit import merge_epubs
+        try:
+            merged_bytes = merge_epubs(files)
+            with open(out_path, 'wb') as f:
+                f.write(merged_bytes)
+            info_dialog(self.gui, 'EPUB Merger', f'Merged {len(files)} EPUBs into:\n{out_path}', show=True)
+        except Exception as exc:
+            error_dialog(self.gui, 'EPUB Merger failed', str(exc), show=True)
+

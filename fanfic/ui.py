@@ -189,6 +189,9 @@ class DownloadDialog(QDialog):
         self.skip = QCheckBox('Skip stories already in this library (matched by their address)')
         self.skip.setChecked(bool(prefs['skip_existing']))
         layout.addWidget(self.skip)
+        self.combine = QCheckBox('Combine downloaded stories into one omnibus book')
+        self.combine.setChecked(bool(prefs['combine_stories']))
+        layout.addWidget(self.combine)
 
         layout.addWidget(QLabel('Advanced settings (FanFicFare personal.ini format) for logins, browser cache, proxies:'))
         self.advanced = QPlainTextEdit(prefs['advanced_ini'])
@@ -213,11 +216,13 @@ class DownloadDialog(QDialog):
         prefs['allow_adult'] = self.adult.isChecked()
         prefs['extra_adult'] = self.extra.toPlainText()
         prefs['skip_existing'] = self.skip.isChecked()
+        prefs['combine_stories'] = self.combine.isChecked()
         prefs['advanced_ini'] = self.advanced.toPlainText()
         return {
             'lines': [line for line in self.urls.toPlainText().splitlines() if line.strip()],
             'allow_adult': self.adult.isChecked(),
             'extra_adult': engine.parse_extra_adult(self.extra.toPlainText()),
             'skip': self.skip.isChecked(),
+            'combine': self.combine.isChecked(),
             'ini': self.advanced.toPlainText(),
         }
