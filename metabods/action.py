@@ -10,7 +10,8 @@ from calibre_plugins.metabods_downloader.ui import DownloadDialog, TagSearchDial
 IDENTIFIER = 'metabods'
 
 
-class MetabodsAction(InterfaceAction):
+class MetabodsAction(libkit.DownloaderAction):
+    identifier = IDENTIFIER
     name = 'Metabods Downloader'
     action_spec = ('Metabods', None, 'Download Metabods stories as EPUB', None)
 
@@ -22,10 +23,6 @@ class MetabodsAction(InterfaceAction):
             action.triggered.connect(slot)
             menu.addAction(action)
         self.qaction.triggered.connect(self.download_by_link)
-
-    # -- library helpers
-    def existing_ids(self):
-        return libkit.existing_ids(self.gui, IDENTIFIER)
 
     # -- entry points
     def download_by_link(self):

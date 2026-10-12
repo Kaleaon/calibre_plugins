@@ -10,7 +10,8 @@ from calibre_plugins.nifty_downloader.ui import AuthorDialog, BrowseDialog, Link
 IDENTIFIER = 'nifty'
 
 
-class NiftyAction(InterfaceAction):
+class NiftyAction(libkit.DownloaderAction):
+    identifier = IDENTIFIER
     name = 'Nifty Downloader'
     action_spec = ('Nifty', None, 'Download Nifty archive stories as EPUB', None)
 
@@ -43,9 +44,6 @@ class NiftyAction(InterfaceAction):
             info_dialog(self.gui, 'Nifty', f'{len(added)} posting-order omnibus(es) created/updated.' + ''.join('\n' + e for e in errors), show=True)
         else:
             info_dialog(self.gui, 'Nifty', 'No related Nifty stories found to combine.' + ''.join('\n' + e for e in errors), show=True)
-
-    def existing_ids(self):
-        return libkit.existing_ids(self.gui, IDENTIFIER)
 
     def download_by_link(self):
         dialog = LinksDialog(self.gui)

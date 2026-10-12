@@ -19,6 +19,22 @@ def existing_ids(gui, identifier):
     return {idents[identifier] for idents in found.values() if idents and identifier in idents}
 
 
+try:
+    from calibre.gui2.actions import InterfaceAction
+except ImportError:
+    class InterfaceAction:
+        pass
+
+
+class DownloaderAction(InterfaceAction):
+    """Shared base class for downloader plugin actions."""
+    identifier = None
+
+    def existing_ids(self):
+        ident = getattr(self, 'identifier', getattr(self, 'IDENTIFIER', None))
+        return existing_ids(self.gui, ident)
+
+
 def metadata_for(group, title, identifier, publisher):
     try:
         from calibre.ebooks.metadata.book.base import Metadata

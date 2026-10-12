@@ -90,6 +90,36 @@ class PluginImportTests(unittest.TestCase):
         plain = libkit.metadata_for([{'id': 'b', 'title': 'Solo', 'author': 'Au', 'tags': [], 'categories': []}], None, 'nifty', 'Nifty')
         self.assertFalse(hasattr(plain, 'series'), 'a story outside a series gets no series fields')
 
+    def test_downloader_action_existing_ids(self):
+        for plugin, ident in (('metabods_downloader', 'metabods'), ('nifty_downloader', 'nifty')):
+            package = self.load(plugin)
+            libkit = importlib.import_module(package + '.libkit')
+            action_mod = importlib.import_module(package + '.action')
+            
+            # Identify action class
+            action_cls = action_mod.MetabodsAction if plugin == 'metabods_downloader' else action_mod.NiftyAction
+            self.assertTrue(issubclass(action_cls, libkit.DownloaderAction))
+
+            mock_gui = MagicMock()
+            mock_gui.current_db.new_api.all_book_ids.return_value = [1, 2]
+            mock_gui.current_db.new_api.all_field_for.return_value = {
+                1: {ident: 'id1'},
+                2: {ident: 'id2'}
+            }
+
+            action = action_cls()
+            action.gui = mock_gui
+            self.assertEqual(action.existing_ids(), {'id1', 'id2'})
+
+    def test_epub_builder_and_core_build_epub(self):
+        for plugin in ('metabods_downloader', 'nifty_downloader'):
+            package = self.load(plugin)
+            storykit = importlib.import_module(package + '.storykit')
+            core = importlib.import_module(package + '.core')
+
+            self.assertTrue(hasattr(storykit, 'epub_builder'))
+            self.assertTrue(callable(core.build_epub))
+
 
 if __name__ == '__main__':
     unittest.main()
