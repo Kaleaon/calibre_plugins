@@ -69,7 +69,10 @@ class DownloadOptions(QWidget):
         self.title.setEnabled(False)
         self.combine.toggled.connect(self.title.setEnabled)
         layout.addWidget(self.title)
+        self.chapter_range = QLineEdit()
+        self.chapter_range.setPlaceholderText('Chapter range (e.g. 1-5, 8, 10+)')
+        layout.addWidget(self.chapter_range)
 
     def values(self):
         self.prefs['skip_existing'] = self.skip.isChecked()
-        return self.skip.isChecked(), self.combine.isChecked(), self.title.text().strip()
+        return self.skip.isChecked(), self.combine.isChecked(), self.title.text().strip(), self.chapter_range.text().strip()

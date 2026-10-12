@@ -51,7 +51,7 @@ class NiftyAction(InterfaceAction):
         dialog = LinksDialog(self.gui)
         if dialog.exec() != dialog.DialogCode.Accepted or not dialog.lines():
             return
-        skip, combine, title = dialog.options.values()
+        skip, combine, title, chapter_range = dialog.options.values()
         lines = dialog.lines()
 
         def expand(task):
@@ -63,16 +63,16 @@ class NiftyAction(InterfaceAction):
         if task.result is None:
             return
         refs, problems = task.result
-        self.download(refs, skip, combine, title, problems)
+        self.download(refs, skip, combine, title, problems, chapter_range)
 
     def browse(self):
         dialog = BrowseDialog(self.gui, self.existing_ids())
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
-        skip, combine, title = dialog.options.values()
-        self.download(dialog.selected_refs(), skip, combine, title, [])
+        skip, combine, title, chapter_range = dialog.options.values()
+        self.download(dialog.selected_refs(), skip, combine, title, [], chapter_range)
 
-    def download(self, refs, skip, combine, title, problems):
+    def download(self, refs, skip, combine, title, problems, chapter_range=None):
         if not refs:
             return info_dialog(self.gui, 'Nifty', 'Nothing to download.' + ''.join('\n' + p for p in problems), show=True)
         if len(refs) > 15 and not question_dialog(
@@ -89,7 +89,7 @@ class NiftyAction(InterfaceAction):
                     task.status = f'[{n}/{len(refs)}] {msg}'
                 task.status = f"[{n}/{len(refs)}] {ref['title']}"
                 try:
-                    got, skipped = core.download_ref(fetcher, ref, skip_ids, progress)
+                    got, skipped = core.download_ref(fetcher, ref, skip_ids, progress, chapter_range=chapter_range)
                     stories.extend(got)
                     counters['skipped'] += skipped
                 except core.Cancelled:
