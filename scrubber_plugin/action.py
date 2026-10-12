@@ -3,7 +3,7 @@ from calibre.gui2.actions import InterfaceAction
 from calibre.gui2 import error_dialog, info_dialog
 from calibre.utils.config import JSONConfig
 from qt.core import (QAction, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QLabel, QMenu,
-                     QPlainTextEdit, QVBoxLayout)
+                     QMessageBox, QPlainTextEdit, QVBoxLayout)
 try:
     from calibre_plugins.epub_promo_scrubber.guikit import run_task
 except ImportError:
@@ -85,6 +85,14 @@ class ScrubAction(InterfaceAction):
         extra, heuristic, drop = self.options()
         db = self.gui.current_db.new_api
         matcher = Matcher(extra, heuristic)
+        delete_backups = False
+        if not prefs['backup'] and any('ORIGINAL_EPUB' in (db.formats(book_id) or ()) for book_id in ids):
+            sure = QMessageBox.question(
+                self.gui,
+                'Delete existing backups?',
+                'Backup creation is disabled in settings. Delete existing ORIGINAL_EPUB backup files for the selected book(s)?'
+            )
+            delete_backups = (sure == QMessageBox.StandardButton.Yes)
 
         if prefs.get('show_preview', True):
             def scan_worker(task):
@@ -197,7 +205,7 @@ class ScrubAction(InterfaceAction):
                         if new is not None:
                             if prefs['backup']:
                                 db.save_original_format(book_id, 'EPUB')
-                            elif 'ORIGINAL_EPUB' in (db.formats(book_id) or ()):
+                            elif delete_backups and 'ORIGINAL_EPUB' in (db.formats(book_id) or ()):
                                 db.remove_formats({book_id: {'ORIGINAL_EPUB'}})
                             if not db.add_format(book_id, 'EPUB', BytesIO(new), replace=True):
                                 raise ValueError('Calibre could not save the scrubbed EPUB')
@@ -249,7 +257,6 @@ class ScrubAction(InterfaceAction):
         return field_changes
 
     def scrub_folder(self):
-        from qt.core import QMessageBox
         choice = QMessageBox.question(self.gui, 'EPUB Promo Scrubber', 'Scrub a whole folder? Choose No to pick a single EPUB file.')
         if choice == QMessageBox.StandardButton.Yes:
             source = QFileDialog.getExistingDirectory(self.gui, 'Select folder containing EPUB files')
