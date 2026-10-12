@@ -112,3 +112,78 @@ def upsert_epub(gui, mi, data, identifier, value):
     gui.library_view.model().refresh_ids([book_id])
     gui.tags_view.recount()
     return book_id, created
+
+
+def merge_library_books(gui, book_ids, title=None, author=None, publisher=None):
+    """Merge selected library books into a single omnibus EPUB.
+    Returns (added_book_id, errors).
+    """
+    if not book_ids:
+        return None, ['No books selected']
+    try:
+        from .storykit import build_epub, extract_epub_story
+    except (ImportError, ValueError):
+        try:
+            from storykit import build_epub, extract_epub_story
+        except ImportError:
+            from common.storykit import build_epub, extract_epub_story
+
+    db = gui.current_db.new_api
+    stories = []
+    errors = []
+    for book_id in book_ids:
+        try:
+            epub_bytes = db.format(book_id, 'EPUB')
+            if not epub_bytes:
+                epub_bytes = db.format(book_id, 'ORIGINAL_EPUB')
+            if not epub_bytes:
+                errors.append(f'Book ID {book_id} has no EPUB format')
+                continue
+            mi = db.get_metadata(book_id)
+            story = extract_epub_story(epub_bytes)
+            if mi and mi.title:
+                story['title'] = mi.title
+            if mi and mi.authors:
+                story['author'] = ' & '.join(mi.authors)
+            stories.append(story)
+        except Exception as exc:
+            errors.append(f'Book ID {book_id}: {exc}')
+
+    if not stories:
+        return None, errors or ['No valid EPUB formats found among selected books']
+
+    try:
+        data = build_epub(stories, title=title, author=author, publisher=publisher or 'Merged Omnibus')
+        book_title = title or (f"{stories[0]['title']} and {len(stories) - 1} more" if len(stories) > 1 else stories[0]['title'])
+        authors = [a.strip() for a in (author or ' & '.join(dict.fromkeys(s['author'] for s in stories))).split('&')]
+
+        try:
+            from calibre.ebooks.metadata.book.base import Metadata
+        except ImportError:
+            class Metadata:
+                def __init__(self, title, authors):
+                    self.title = title
+                    self.authors = authors
+                    self.publisher = None
+                    self.languages = []
+                    self.tags = []
+                    self.comments = None
+
+        mi = Metadata(book_title, authors)
+        mi.publisher = publisher or 'Merged Omnibus'
+        mi.languages = ['eng']
+        mi.tags = list(dict.fromkeys(t for s in stories for t in s.get('tags', [])))
+        mi.comments = '<ol>' + ''.join(f"<li>{escape(s['title'])} — {escape(s['author'])}</li>" for s in stories) + '</ol>'
+
+        ids, _ = db.add_books([(mi, {'EPUB': BytesIO(data)})])
+        if ids:
+            gui.library_view.model().refresh()
+            gui.tags_view.recount()
+            return ids[0], errors
+        else:
+            errors.append('Calibre did not add the merged book')
+            return None, errors
+    except Exception as exc:
+        errors.append(f'Failed to build merged EPUB: {exc}')
+        return None, errors
+

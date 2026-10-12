@@ -57,7 +57,23 @@ class FanficAction(InterfaceAction):
         task = run_task(self.gui, 'Downloading…', work)
         if task.error:
             failures.append(str(task.error))
-        items = [(self.metadata_for(r), r['epub']) for r in results]
+        if opts.get('combine') and len(results) > 1:
+            try:
+                from .storykit import merge_epubs
+            except ImportError:
+                from storykit import merge_epubs
+            merged_epub = merge_epubs([r['epub'] for r in results])
+            merged_title = f"{results[0]['title']} and {len(results) - 1} more"
+            merged_authors = list(dict.fromkeys(a for r in results for a in r['authors']))
+            from calibre.ebooks.metadata.book.base import Metadata
+            from html import escape
+            mi = Metadata(merged_title, merged_authors)
+            mi.publisher = 'Fanfic Omnibus'
+            mi.tags = list(dict.fromkeys(t for r in results for t in r.get('tags', [])))
+            mi.comments = '<ol>' + ''.join(f"<li>{escape(r['title'])} — {escape(' & '.join(r['authors']))}</li>" for r in results) + '</ol>'
+            items = [(mi, merged_epub)]
+        else:
+            items = [(self.metadata_for(r), r['epub']) for r in results]
         added, errors = libkit.add_prebuilt(self.gui, items)
         lines = [f'{added} book(s) added.']
         if skipped:
