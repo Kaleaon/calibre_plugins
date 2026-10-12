@@ -48,8 +48,19 @@ class MediaDb:
     def set_field(self, name, mapping):
         self.writes.append((name, dict(mapping)))
 
+    def cover(self, book_id):
+        return self.covers.get(book_id)
+
+    def remove_cover(self, book_ids):
+        for book_id in book_ids:
+            self.covers.pop(book_id, None)
+
     def set_cover(self, mapping):
-        self.covers.update(mapping)
+        for book_id, data in mapping.items():
+            if data is None:
+                self.covers.pop(book_id, None)
+            else:
+                self.covers[book_id] = data
 
     def add_books(self, items, **kwargs):
         ids = []
@@ -255,6 +266,7 @@ class MediaDialogTests(QtCase):
             b['Undo last run'].click()
             seen['restored'] = db.writes[len(seen['writes']):]
             seen['undo_after'] = dict(prefs['undo'])
+            seen['covers_after'] = dict(db.covers)
 
         run_dialog(action.match_dialog, drive)
         writes = {name: list(m.values())[0] for name, m in seen['writes']}
@@ -268,6 +280,8 @@ class MediaDialogTests(QtCase):
         self.assertEqual(str(writes['pubdate'].year), '1965')
         self.assertEqual(seen['covers'], {1: JPEG})
         self.assertEqual(seen['undo']['1']['title'], 'yesterday')
+        self.assertIsNone(seen['undo']['1']['cover'])
+        self.assertEqual(seen['covers_after'], {}, 'undo removes cover when book had none before')
         restored = {name: list(m.values())[0] for name, m in seen['restored']}
         self.assertEqual(restored['title'], 'yesterday')
         self.assertEqual(restored['authors'], ('Beatles',))
@@ -276,6 +290,35 @@ class MediaDialogTests(QtCase):
         self.assertEqual(restored['identifiers'], {'x': '1'})
         self.assertIsNone(restored['pubdate'])
         self.assertEqual(seen['undo_after'], {}, 'a clean undo clears the saved run')
+
+    def test_undo_restores_pre_matching_cover_image(self):
+        import base64
+        fetch = self.services()
+        old_cover_bytes = b'OLD_COVER_DATA'
+        db = MediaDb({1: dict(title='yesterday', authors=['Beatles'], series='', series_index=1.0, tags=['Rock'], identifiers={'x': '1'}, formats=['MP3'])})
+        db.covers[1] = old_cover_bytes
+        gui = make_gui(db, [1])
+        action = self.action_mod.MediaMatcherAction()
+        action.gui = gui
+        prefs = self.action_mod.prefs
+        seen = {}
+
+        def drive(dialog):
+            b = buttons(dialog)
+            tree = dialog.findChild(QtWidgets.QTreeWidget)
+            b['Look up'].click()
+            top = tree.topLevelItem(0)
+            top.setCheckState(0, QtCore.Qt.CheckState.Checked)
+            b['Apply ticked changes'].click()
+            seen['covers_after_apply'] = dict(db.covers)
+            seen['undo_payload'] = dict(prefs['undo'])
+            b['Undo last run'].click()
+            seen['covers_after_undo'] = dict(db.covers)
+
+        run_dialog(action.match_dialog, drive)
+        self.assertEqual(seen['covers_after_apply'], {1: JPEG})
+        self.assertEqual(seen['undo_payload']['1']['cover'], base64.b64encode(old_cover_bytes).decode('ascii'))
+        self.assertEqual(seen['covers_after_undo'], {1: old_cover_bytes}, 'undo restores original cover bytes')
 
     def test_cancel_during_a_run_keeps_the_window_usable(self):
         import time
