@@ -11,3 +11,5 @@ prefs.defaults['excerpt'] = False
 prefs.defaults['undo'] = {}
 prefs.defaults['min_interval'] = 7
 prefs.defaults['covers'] = False
+prefs.defaults['enable_fallback'] = True
+prefs.defaults['fallback_model'] = 'gemini-2.5-flash-lite'

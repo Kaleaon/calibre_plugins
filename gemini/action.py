@@ -204,6 +204,20 @@ class GeminiFixerAction(InterfaceAction):
         row.addWidget(models_btn)
         layout.addLayout(row)
 
+        row = QHBoxLayout()
+        enable_fallback = QCheckBox('Enable dynamic fallback on rate limit')
+        enable_fallback.setChecked(bool(prefs['enable_fallback']))
+        row.addWidget(enable_fallback)
+        row.addWidget(QLabel('Fallback model:'))
+        fallback_model = QComboBox()
+        fallback_model.setEditable(True)
+        fallback_model.addItem(prefs['fallback_model'])
+        fallback_model.setCurrentText(prefs['fallback_model'])
+        fallback_model.setEnabled(enable_fallback.isChecked())
+        enable_fallback.toggled.connect(fallback_model.setEnabled)
+        row.addWidget(fallback_model, 1)
+        layout.addLayout(row)
+
         layout.addWidget(QLabel('Fix:'))
         boxes = {}
         for field, label in FIELD_LABELS:
@@ -314,6 +328,8 @@ class GeminiFixerAction(InterfaceAction):
         def save_prefs():
             prefs['api_key'] = key.text().strip()
             prefs['model'] = model.currentText().strip() or engine.DEFAULT_MODEL
+            prefs['enable_fallback'] = enable_fallback.isChecked()
+            prefs['fallback_model'] = fallback_model.currentText().strip() or 'gemini-2.5-flash-lite'
             prefs['fields'] = list(chosen_fields())
             prefs['tags_remove'] = tags_remove.isChecked()
             prefs['excerpt'] = excerpt.isChecked()
@@ -385,6 +401,11 @@ class GeminiFixerAction(InterfaceAction):
                 model.clear()
                 model.addItems(task.result)
                 model.setCurrentText(current)
+
+                current_fb = fallback_model.currentText()
+                fallback_model.clear()
+                fallback_model.addItems(task.result)
+                fallback_model.setCurrentText(current_fb)
 
         def do_check():
             save_prefs()
@@ -485,12 +506,15 @@ class GeminiFixerAction(InterfaceAction):
             bar.setRange(0, max(1, total))
             bar.setValue(0)
 
+            fb_model = (fallback_model.currentText().strip() or 'gemini-2.5-flash-lite') if enable_fallback.isChecked() else None
+
             def work():
                 try:
                     box['result'] = engine.plan_fixes(
                         books, api_key(), model.currentText().strip() or engine.DEFAULT_MODEL, chosen_fields(), confidence.currentText(),
                         per_request, tags_remove.isChecked(), cancelled=cancel_flag.is_set, min_interval=interval.value(),
-                        on_event=lambda kind, **info: messages.put((kind, info)))
+                        on_event=lambda kind, **info: messages.put((kind, info)),
+                        fallback_model=fb_model)
                 except Exception as exc:  # shown to the user by the caller
                     box['error'] = exc
 
