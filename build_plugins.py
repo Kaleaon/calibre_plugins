@@ -11,6 +11,7 @@ import zipfile
 root = Path(__file__).resolve().parent
 SHARED = ['storykit.py', 'guikit.py', 'libkit.py']
 PLUGINS = {
+    'TakeoutBookFixer.zip': ('plugin', 'takeout_book_fixer', SHARED, False),
     'EpubPromoScrubber.zip': ('scrubber_plugin', 'epub_promo_scrubber', SHARED, False),
     'MetabodsDownloader.zip': ('metabods', 'metabods_downloader', SHARED, False),
     'NiftyDownloader.zip': ('nifty', 'nifty_downloader', SHARED, False),
@@ -19,7 +20,6 @@ PLUGINS = {
     'RedditStoryFollower.zip': ('reddit', 'reddit_follower', SHARED, False),
     'GeminiLibraryFixer.zip': ('gemini', 'gemini_library_fixer', ['storykit.py', 'guikit.py'], False),
     'MediaMatcher.zip': ('media', 'media_matcher', ['storykit.py', 'guikit.py'], False),
-    'EpubPromoScrubber.zip': ('scrubber_plugin', 'epub_promo_scrubber', SHARED, False),
 }
 PLUGINS_BY_IMPORT = [v[1] for v in PLUGINS.values()]
 

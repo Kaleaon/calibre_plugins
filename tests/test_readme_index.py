@@ -7,6 +7,11 @@ ROOT = Path(__file__).resolve().parents[1]
 README = (ROOT / 'README.md').read_text(encoding='utf-8')
 
 
+def setUpModule():
+    import build_plugins
+    build_plugins.build_all(ROOT / 'dist')
+
+
 def rows():
     out = []
     for line in README.splitlines():
