@@ -77,11 +77,19 @@ class CallbackServer:
         self._handler = Handler
         self.expected_state = None
 
+    @property
+    def redirect_uri(self):
+        return f'http://127.0.0.1:{self.port}/callback'
+
     def __enter__(self):
         try:
             self.server = http.server.HTTPServer(('127.0.0.1', self.port), self._handler)
-        except OSError as exc:
-            raise LoginError(f'Port {self.port} on this computer is already in use ({exc}). Close the program using it and try again.') from exc
+        except OSError:
+            try:
+                self.server = http.server.HTTPServer(('127.0.0.1', 0), self._handler)
+            except OSError as exc:
+                raise LoginError(f'Port {self.port} on this computer is already in use ({exc}). Close the program using it and try again.') from exc
+        self.port = self.server.server_address[1]
         self.server.timeout = 0.25
         return self
 
@@ -157,6 +165,8 @@ def log_in(fetcher, client_id, client_secret, server, open_browser, cancelled=la
     Returns {'refresh_token', 'username'}."""
     if not client_id:
         raise LoginError('Enter your Reddit app\'s client id first.')
+    if redirect_uri is None or redirect_uri == REDIRECT_URI:
+        redirect_uri = getattr(server, 'redirect_uri', f'http://127.0.0.1:{getattr(server, "port", REDIRECT_PORT)}/callback')
     state = new_state()
     server.expected_state = state
     open_browser(authorize_url(client_id, state, redirect_uri, base=authorize_base))
