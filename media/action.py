@@ -13,7 +13,7 @@ from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonB
 
 from calibre_plugins.media_matcher import matching, sources, tags as audio
 from calibre_plugins.media_matcher.config import prefs
-from calibre_plugins.media_matcher.guikit import run_task
+from calibre_plugins.media_matcher.guikit import append_log, chosen_fields as guikit_chosen_fields, collect_tree_changes, run_task
 
 KIND_CHOICES = [('auto', 'Detect from each file'), ('music', 'Music'), ('audiobook', 'Audiobook'), ('book', 'Book')]
 FIELD_LABELS = [('title', 'Titles'), ('authors', 'Artists / authors'), ('album', 'Album (as series) and track number'),
@@ -452,7 +452,7 @@ class MediaMatcherAction(InterfaceAction):
         suggestions = {}
 
         def chosen_fields():
-            return tuple(f for f, _ in FIELD_LABELS if boxes[f].isChecked())
+            return guikit_chosen_fields(boxes, FIELD_LABELS)
 
         def save_prefs():
             prefs['kind'] = kind.currentData()
@@ -463,7 +463,7 @@ class MediaMatcherAction(InterfaceAction):
             prefs['fingerprint'] = fingerprint.isChecked()
 
         def log(text):
-            activity.appendPlainText(f'{time.strftime("%H:%M:%S")}  {text}')
+            append_log(activity, text)
 
         def set_busy(busy):
             for w in (check_btn,):
@@ -596,17 +596,7 @@ class MediaMatcherAction(InterfaceAction):
             apply_btn.setEnabled(bool(found))
 
         def collect():
-            items = []
-            for i in range(tree.topLevelItemCount()):
-                top = tree.topLevelItem(i)
-                changes = {}
-                for j in range(top.childCount()):
-                    child = top.child(j)
-                    if child.checkState(0) == Qt.CheckState.Checked:
-                        changes[child.data(0, Qt.ItemDataRole.UserRole)] = child.data(0, Qt.ItemDataRole.UserRole + 1)
-                if changes:
-                    items.append((top.data(0, Qt.ItemDataRole.UserRole), changes))
-            return items
+            return collect_tree_changes(tree)
 
         def do_apply():
             items = collect()
