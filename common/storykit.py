@@ -252,10 +252,59 @@ def chapter_title(heading, story_title, only_one):
     return heading
 
 
+def sort_by_posting_order(stories):
+    """Sort stories chronologically by posting date (pubdate / header date), falling back to chapter/series index or title."""
+    def get_date(s):
+        d = s.get('pubdate') or s.get('date') or ''
+        if not d and s.get('sections') and len(s['sections']) > 0:
+            m = re.search(r'(?mi)^Date:[ \t]*(.+)$', str(s['sections'][0][1])[:1500])
+            if m:
+                try:
+                    from email.utils import parsedate_to_datetime
+                    d = parsedate_to_datetime(m.group(1).strip()).date().isoformat()
+                except (TypeError, ValueError, IndexError):
+                    pass
+        if hasattr(d, 'isoformat'):
+            d = d.isoformat()
+        d_str = str(d)[:10] if d else ''
+        return d_str if re.match(r'^\d{4}-\d{2}-\d{2}', d_str) else ''
+
+    def get_index(s):
+        idx = s.get('series_index')
+        if idx is not None:
+            try:
+                return float(idx)
+            except (ValueError, TypeError):
+                pass
+        title = s.get('title', '')
+        m = re.search(r'^(.*?)[-_]?(\d+)$', title.strip())
+        if m and m.group(2):
+            return float(m.group(2))
+        m2 = re.search(r'\b(?:chapter|chap|ch|part|pt|book|episode|ep)\.?\s*(\d+)', title, re.I)
+        if m2:
+            return float(m2.group(1))
+        sid = s.get('id', '') or s.get('path', '')
+        if sid and not sid.startswith('urn:'):
+            m_id = re.search(r'^(.*?)[-_]?(\d+)$', sid.rsplit('/', 1)[-1])
+            if m_id and m_id.group(2):
+                return float(m_id.group(2))
+        return float('inf')
+
+    def get_title(s):
+        return (s.get('title') or '').casefold()
+
+    def key(s):
+        d = get_date(s)
+        return (d if d else '9999-99-99', get_index(s), get_title(s))
+
+    return sorted(stories, key=key)
+
+
 def build_epub(stories, title=None, author=None, publisher=None):
     """Return EPUB bytes. One story keeps its parts as chapters; several stories become one omnibus."""
     if not stories:
         raise ValueError('No stories to build')
+    stories = sort_by_posting_order(stories)
     combined = len(stories) > 1
     title = title or (stories[0]['title'] if not combined else f"{stories[0]['title']} and {len(stories) - 1} more")
     authors = list(dict.fromkeys(s['author'] for s in stories))
@@ -398,6 +447,9 @@ def extract_epub_story(epub_source):
 
         tags = [strip_tags(m.group(1)) for m in re.finditer(r'<dc:subject[^>]*>(.*?)</dc:subject>', opf_text, re.S | re.I)]
 
+        date_m = re.search(r'<dc:date[^>]*>(.*?)</dc:date>', opf_text, re.S | re.I)
+        pubdate = strip_tags(date_m.group(1))[:10] if date_m else ''
+
         id_m = re.search(r'<dc:identifier[^>]*>(.*?)</dc:identifier>', opf_text, re.S | re.I)
         story_id = strip_tags(id_m.group(1)) if id_m else title
 
@@ -464,6 +516,7 @@ def extract_epub_story(epub_source):
             'author': author,
             'summary': summary,
             'tags': tags,
+            'pubdate': pubdate,
             'url': '',
             'sections': sections,
         }

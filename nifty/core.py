@@ -5,9 +5,9 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
-    from .storykit import Cancelled, Fetcher, RateLimited, build_epub as _build_epub, clean_fragment, escape, strip_tags  # noqa: F401
+    from .storykit import Cancelled, Fetcher, RateLimited, build_epub as _build_epub, clean_fragment, escape, sort_by_posting_order, strip_tags  # noqa: F401
 except ImportError:  # tests load this file directly with common/ on sys.path
-    from storykit import Cancelled, Fetcher, RateLimited, build_epub as _build_epub, clean_fragment, escape, strip_tags  # noqa: F401
+    from storykit import Cancelled, Fetcher, RateLimited, build_epub as _build_epub, clean_fragment, escape, sort_by_posting_order, strip_tags  # noqa: F401
 
 SITE = 'https://www.nifty.org/nifty/'
 PUBLISHER = 'Nifty'
@@ -16,6 +16,7 @@ MAX_DEPTH = 6
 
 
 def build_epub(stories, title=None, author=None):
+    stories = sort_by_posting_order(stories)
     return _build_epub(stories, title=title, author=author, publisher=PUBLISHER)
 
 
@@ -450,6 +451,7 @@ def iter_selection(fetcher, selection, skip_ids=frozenset(), progress=lambda msg
         except IOError as exc:
             stats['problems'].append(str(exc))
         if stories:
+            stories = sort_by_posting_order(stories)
             if item.get('series') and len(stories) >= 2:
                 for number, story in enumerate(stories, 1):  # order of the addresses = reading order
                     story['series'], story['series_index'] = item['series'], float(number)
@@ -472,9 +474,11 @@ def build_selection(series_checked, singles, combine_series=True, combine_all_ti
     one book with that title."""
     everything = [s for _, members in series_checked for s in members] + list(singles)
     if combine_all_title and combine_all_title.strip():
+        everything = sort_by_posting_order(everything)
         return [{'title': combine_all_title.strip(), 'addresses': [story_address(s) for s in everything]}] if everything else []
     selection = []
     for name, members in series_checked:
+        members = sort_by_posting_order(members)
         if combine_series == 'series' and len(members) >= 2:
             selection.append({'title': None, 'series': name, 'addresses': [story_address(s) for s in members]})
         elif combine_series is True and len(members) >= 2:
