@@ -86,6 +86,25 @@ class PlanTests(unittest.TestCase):
         b['tags'] = first[0]['tags']
         self.assertEqual(rules.plan_changes([b]), [])
 
+    def test_merge_sites_deduplication(self):
+        extra_text = 'archiveofourown.org => ao3\nao3 => ao3_key\nmycustomsite.org => My Custom Site'
+        extra, _ = rules.parse_sites(extra_text)
+        merged = rules.merge_sites(rules.DEFAULT_SITES, extra)
+        names = [n for n, _, _ in merged]
+        self.assertNotIn('ao3', names)
+        self.assertNotIn('ao3_key', names)
+        self.assertIn('My Custom Site', names)
+
+    def test_plan_changes_with_overlapping_extra_sites(self):
+        extra, _ = rules.parse_sites('archiveofourown.org => ao3\nroyalroad.com => rr')
+        merged = rules.merge_sites(rules.DEFAULT_SITES, extra)
+        ao3_book = book(1, publisher='archiveofourown.org')
+        rr_book = book(2, identifiers={'url': 'https://www.royalroad.com/fiction/1/test'})
+        plan = rules.plan_changes([ao3_book, rr_book], sites=merged)
+        self.assertEqual(len(plan), 2)
+        self.assertEqual(plan[0]['add'], ['Source.Archive of Our Own'])
+        self.assertEqual(plan[1]['add'], ['Source.Royal Road'])
+
 
 if __name__ == '__main__':
     unittest.main()

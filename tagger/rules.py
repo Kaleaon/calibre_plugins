@@ -30,24 +30,69 @@ CORE_SITES = [
 
 
 
+def _host_covered(host, claimed_hosts, claimed_keys):
+    if not host or not str(host).strip():
+        return False
+    h = str(host).strip().lower()
+    if h in claimed_keys:
+        return True
+    for c in claimed_hosts:
+        if h == c or h.endswith('.' + c) or c.endswith('.' + h):
+            return True
+    return False
+
+
+def _key_covered(key, claimed_hosts, claimed_keys):
+    if not key or not str(key).strip():
+        return False
+    k = str(key).strip().lower()
+    if k in claimed_keys or k in claimed_hosts:
+        return True
+    for c in claimed_hosts:
+        if k == c or k.endswith('.' + c) or c.endswith('.' + k):
+            return True
+    return False
+
+
 def _covered(host, claimed):
     return any(host == c or host.endswith('.' + c) for c in claimed)
 
 
-def _merge_sites(core, extra):
-    """Curated entries win; generated FanFicFare entries only add hosts not already covered (subdomains count)."""
-    claimed = {h for _, hosts, _ in core for h in hosts}
+def merge_sites(core, extra):
+    """Curated entries win; extra/generated entries only add hosts/keys not already covered (subdomains count)."""
+    claimed_hosts = {str(h).strip().lower() for _, hosts, _ in core for h in hosts if h and str(h).strip()}
+    claimed_keys = {str(k).strip().lower() for _, _, keys in core for k in keys if k and str(k).strip()}
     merged = list(core)
+
     for name, hosts, keys in extra:
-        if _covered(hosts[0], claimed):
-            continue  # the primary host is already handled by a curated entry
-        fresh = [h for h in hosts if not _covered(h, claimed)]
-        claimed.update(fresh)
-        merged.append((name, fresh, keys))
+        primary_covered = False
+        if hosts:
+            if _host_covered(hosts[0], claimed_hosts, claimed_keys):
+                primary_covered = True
+        elif keys:
+            if _key_covered(keys[0], claimed_hosts, claimed_keys):
+                primary_covered = True
+
+        if primary_covered:
+            continue
+
+        fresh_hosts = [h for h in hosts if not _host_covered(h, claimed_hosts, claimed_keys)]
+        fresh_keys = [k for k in keys if not _key_covered(k, claimed_hosts, claimed_keys)]
+
+        if not fresh_hosts and not fresh_keys:
+            continue
+
+        claimed_hosts.update(str(h).strip().lower() for h in fresh_hosts if h and str(h).strip())
+        claimed_keys.update(str(k).strip().lower() for k in fresh_keys if k and str(k).strip())
+        merged.append((name, fresh_hosts, fresh_keys))
+
     return merged
 
 
-DEFAULT_SITES = _merge_sites(CORE_SITES, FFF_SITES)
+_merge_sites = merge_sites
+
+
+DEFAULT_SITES = merge_sites(CORE_SITES, FFF_SITES)
 
 FIELDS = {'tag': 'tags', 'tags': 'tags', 'title': 'title', 'author': 'authors', 'authors': 'authors', 'series': 'series',
           'comments': 'comments', 'publisher': 'publisher', 'source': 'source', 'any': 'any'}
