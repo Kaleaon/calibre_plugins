@@ -63,12 +63,12 @@ class PluginImportTests(unittest.TestCase):
         self.load('metabods_downloader')  # builds everything that can be built in this environment
         for import_name in self.built:
             package = self.load(import_name)
-            modules = {'story_collection_tagger': ['config', 'action', 'rules'],
-                       'gemini_library_fixer': ['config', 'action', 'engine'],
-                       'media_matcher': ['config', 'action', 'tags', 'sources', 'matching'],
-                       'epub_promo_scrubber': ['action', 'ui', 'core'],
-                       'fanfic_downloader': ['config', 'action', 'ui', 'engine', 'flaresolverr'],
-                       'takeout_book_fixer': ['action', 'core', 'importer']}.get(import_name, ['config', 'action', 'ui', 'core'])
+            modules = {'story_collection_tagger': ['config', 'action', 'rules', 'guikit'],
+                       'gemini_library_fixer': ['config', 'action', 'engine', 'guikit'],
+                       'media_matcher': ['config', 'action', 'tags', 'sources', 'matching', 'guikit'],
+                       'epub_promo_scrubber': ['action', 'ui', 'core', 'guikit'],
+                       'fanfic_downloader': ['config', 'action', 'ui', 'engine', 'flaresolverr', 'guikit'],
+                       'takeout_book_fixer': ['action', 'core', 'importer', 'guikit']}.get(import_name, ['config', 'action', 'ui', 'core', 'guikit'])
             for module in modules:
                 with self.subTest(plugin=import_name, module=module):
                     importlib.import_module(f'{package}.{module}')
@@ -331,6 +331,22 @@ class PluginImportTests(unittest.TestCase):
             path_1.unlink(missing_ok=True)
             path_2.unlink(missing_ok=True)
             path_3.unlink(missing_ok=True)
+
+    def test_dialog_action_inheritance_and_genesis(self):
+        for plugin, action_class_name in (('gemini_library_fixer', 'GeminiFixerAction'), ('story_collection_tagger', 'TaggerAction')):
+            package = self.load(plugin)
+            guikit = importlib.import_module(package + '.guikit')
+            action_mod = importlib.import_module(package + '.action')
+            action_cls = getattr(action_mod, action_class_name)
+
+            self.assertTrue(issubclass(action_cls, guikit.DialogAction))
+
+            action = action_cls()
+            action.qaction = MagicMock()
+            action.show_dialog = MagicMock()
+
+            action.genesis()
+            action.qaction.triggered.connect.assert_called_once_with(action.show_dialog)
 
 
 if __name__ == '__main__':

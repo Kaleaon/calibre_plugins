@@ -4,7 +4,31 @@ import time
 
 from qt.core import QApplication, QCheckBox, QLineEdit, QProgressDialog, Qt, QVBoxLayout, QWidget
 
-from .storykit import Cancelled
+try:
+    from .storykit import Cancelled
+except (ImportError, ValueError):
+    try:
+        from storykit import Cancelled
+    except ImportError:
+        try:
+            from common.storykit import Cancelled
+        except ImportError:
+            class Cancelled(Exception):
+                pass
+
+
+try:
+    from calibre.gui2.actions import InterfaceAction
+except ImportError:
+    class InterfaceAction:
+        pass
+
+
+class DialogAction(InterfaceAction):
+    """Shared base class for actions that open a single dialog when clicked."""
+
+    def genesis(self):
+        self.qaction.triggered.connect(self.show_dialog)
 
 
 class Task:

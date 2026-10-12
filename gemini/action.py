@@ -9,14 +9,13 @@ try:
 except ImportError:
     from calibre.gui2 import error_dialog, info_dialog, question_dialog
     warning_dialog = error_dialog
-from calibre.gui2.actions import InterfaceAction
 from qt.core import (QApplication, QBuffer, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QIODevice, QImage, QLabel,
                      QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSpinBox, QSplitter, Qt, QTreeWidget,
                      QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from calibre_plugins.gemini_library_fixer import engine
 from calibre_plugins.gemini_library_fixer.config import prefs
-from calibre_plugins.gemini_library_fixer.guikit import run_task
+from calibre_plugins.gemini_library_fixer.guikit import DialogAction, run_task
 
 FIELD_LABELS = [('title', 'Titles'), ('authors', 'Authors'), ('series', 'Series and volume number'), ('tags', 'Tags'),
                 ('language', 'Language (only if empty)'), ('isbn', 'ISBN (read from the back cover or title page)')]
@@ -278,12 +277,9 @@ def show_value(field, value):
     return value or '(none)'
 
 
-class GeminiFixerAction(InterfaceAction):
+class GeminiFixerAction(DialogAction):
     name = 'Gemini Library Fixer'
     action_spec = ('Gemini fix books', None, 'Rename, sort and fix book metadata with the Google Gemini API', None)
-
-    def genesis(self):
-        self.qaction.triggered.connect(self.show_dialog)
 
     # -- reading and writing the library ------------------------------------------------------------------------------
     def books_for(self, ids, with_excerpt, on_book=lambda index, total, book: None, should_stop=lambda: False, with_covers=False):
