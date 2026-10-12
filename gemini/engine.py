@@ -21,6 +21,15 @@ IMAGE_LIMIT = 6_000_000  # bytes; a bigger cover or back page is skipped rather 
 RETRY_STATUS = {429, 500, 502, 503, 504}
 # A new title this unlike the old one is flagged as a big change and left unticked in the preview.
 BIG_CHANGE_RATIO = 0.5
+IMAGE_TOKENS_PER_IMAGE = 258
+MODEL_COST_PER_1M = {
+    'gemini-2.5-flash': 0.075,
+    'gemini-1.5-flash': 0.075,
+    'gemini-2.5-flash-lite': 0.0375,
+    'gemini-1.5-flash-lite': 0.0375,
+    'gemini-2.5-pro': 1.25,
+    'gemini-1.5-pro': 1.25,
+}
 
 INSTRUCTIONS = '''You clean up the metadata of ebooks in a personal Calibre library. You get a JSON list of books; for each you may suggest corrections.
 
@@ -327,6 +336,70 @@ def build_parts(books):
             parts.append({'text': f"Image for book id {b['id']} ({image['label']}):"})
             parts.append({'inlineData': {'mimeType': image.get('mime', 'image/jpeg'), 'data': image['data']}})
     return parts
+
+
+def estimate_batch_usage(books, batch_size=15, covers=False, min_interval=0, model=DEFAULT_MODEL):
+    """Calculates text characters, text tokens, image tokens, batch counts, estimated duration, and costs
+    before dispatching API requests. Returns a dict with estimation details."""
+    if not books:
+        return {
+            'books_count': 0,
+            'text_chars': 0,
+            'text_tokens': 0,
+            'image_count': 0,
+            'image_tokens': 0,
+            'prompt_tokens': 0,
+            'batch_count': 0,
+            'per_request': 0,
+            'estimated_duration': 0,
+            'estimated_cost': 0.0,
+        }
+
+    bsize = max(1, int(batch_size))
+    per_request = min(bsize, 8) if covers else bsize
+
+    sorted_books = sorted(books, key=lambda b: ((b.get('authors') or [''])[0].lower(), (b.get('series') or '').lower(), (b.get('title') or '').lower()))
+
+    total_text_chars = 0
+    total_images = 0
+    batch_count = 0
+
+    for start in range(0, len(sorted_books), per_request):
+        batch = sorted_books[start:start + per_request]
+        batch_count += 1
+
+        batch_text_chars = len(INSTRUCTIONS)
+        parts = build_parts(batch)
+        for part in parts:
+            if 'text' in part and part['text']:
+                batch_text_chars += len(part['text'])
+        total_text_chars += batch_text_chars
+
+        for b in batch:
+            total_images += len(b.get('images') or [])
+
+    text_tokens = (total_text_chars + 3) // 4
+    image_tokens = total_images * IMAGE_TOKENS_PER_IMAGE
+    prompt_tokens = text_tokens + image_tokens
+
+    interval = max(0, int(min_interval or 0))
+    estimated_duration = max(0, batch_count - 1) * interval + batch_count * 2
+
+    rate = MODEL_COST_PER_1M.get(str(model or '').strip().lower(), 0.075)
+    estimated_cost = (prompt_tokens / 1_000_000.0) * rate
+
+    return {
+        'books_count': len(books),
+        'text_chars': total_text_chars,
+        'text_tokens': text_tokens,
+        'image_count': total_images,
+        'image_tokens': image_tokens,
+        'prompt_tokens': prompt_tokens,
+        'batch_count': batch_count,
+        'per_request': per_request,
+        'estimated_duration': estimated_duration,
+        'estimated_cost': round(estimated_cost, 6),
+    }
 
 
 # ------------------------------------------------------------------------------------------------ covers and ISBNs

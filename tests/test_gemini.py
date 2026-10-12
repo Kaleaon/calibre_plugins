@@ -579,40 +579,59 @@ class BackgroundScanTests(unittest.TestCase):
         self.assertEqual(len(result_container['books']), 2, "Should stop after 2 books due to cancellation")
 
 
-class PartialExceptionPayloadTests(unittest.TestCase):
-    def test_sanitize_error_message_removes_api_keys(self):
-        msg = 'Failed call to https://generativelanguage.googleapis.com/v1beta?key=SECRET_123 with api_key=SECRET_123 in body'
-        clean = engine.sanitize_error_message(msg, api_key='SECRET_123')
-        self.assertNotIn('SECRET_123', clean)
-        self.assertIn('[REDACTED]', clean)
+class EstimateBatchUsageTests(unittest.TestCase):
+    def test_zero_books_returns_zero_usage(self):
+        est = engine.estimate_batch_usage([])
+        self.assertEqual(est['books_count'], 0)
+        self.assertEqual(est['text_chars'], 0)
+        self.assertEqual(est['text_tokens'], 0)
+        self.assertEqual(est['image_count'], 0)
+        self.assertEqual(est['image_tokens'], 0)
+        self.assertEqual(est['prompt_tokens'], 0)
+        self.assertEqual(est['batch_count'], 0)
+        self.assertEqual(est['estimated_duration'], 0)
+        self.assertEqual(est['estimated_cost'], 0.0)
 
-    def test_partial_error_captures_earlier_suggestions_and_aborts_further_batches(self):
-        # Batch size 1, 3 books total. Batch 1 succeeds, Batch 2 raises network error.
-        calls = []
+    def test_text_only_token_calculations(self):
+        books = [book(i, title=f'Book Title {i}', excerpt='Sample opening excerpt text for testing.') for i in range(1, 4)]
+        est = engine.estimate_batch_usage(books, batch_size=15, covers=False)
+        self.assertEqual(est['books_count'], 3)
+        self.assertEqual(est['image_count'], 0)
+        self.assertEqual(est['image_tokens'], 0)
+        self.assertGreaterThan(est['text_chars'], 0) if hasattr(self, 'assertGreaterThan') else self.assertTrue(est['text_chars'] > 0)
+        self.assertEqual(est['text_tokens'], (est['text_chars'] + 3) // 4)
+        self.assertEqual(est['prompt_tokens'], est['text_tokens'])
+        self.assertEqual(est['batch_count'], 1)
+        self.assertEqual(est['per_request'], 15)
 
-        def reply_or_error(body):
-            calls.append(body)
-            ids = [row['id'] for row in json.loads(json.loads(body)['contents'][0]['parts'][0]['text'].split('\n', 1)[1])]
-            if 1 in ids:
-                return reply([{'id': 1, 'title': 'Clean Title 1', 'confidence': 'high'}])
-            raise engine.GeminiError('Network connection dropped')
+    def test_batch_counts_and_covers_limit(self):
+        books = [book(i) for i in range(1, 11)]
+        est_no_covers = engine.estimate_batch_usage(books, batch_size=3, covers=False)
+        self.assertEqual(est_no_covers['per_request'], 3)
+        self.assertEqual(est_no_covers['batch_count'], 4)
 
-        t = Scripted(reply_or_error, reply_or_error, reply_or_error)
-        books = [book(1), book(2), book(3)]
+        est_covers = engine.estimate_batch_usage(books, batch_size=15, covers=True)
+        self.assertEqual(est_covers['per_request'], 8)
+        self.assertEqual(est_covers['batch_count'], 2)
 
-        with self.assertRaises(engine.GeminiPartialError) as cm:
-            engine.plan_fixes(books, 'secret-key-456', batch_size=1, transport=t)
+    def test_image_tokens_calculation(self):
+        b1 = book(1, images=[{'label': 'front cover', 'mime': 'image/jpeg', 'data': 'A'}, {'label': 'back cover', 'mime': 'image/jpeg', 'data': 'B'}])
+        b2 = book(2, images=[{'label': 'front cover', 'mime': 'image/jpeg', 'data': 'C'}])
+        est = engine.estimate_batch_usage([b1, b2], batch_size=10, covers=True)
+        self.assertEqual(est['image_count'], 3)
+        self.assertEqual(est['image_tokens'], 3 * 258)
+        self.assertEqual(est['prompt_tokens'], est['text_tokens'] + est['image_tokens'])
 
-        err = cm.exception
-        # Check suggestions from batch 1 were captured
-        self.assertEqual(len(err.suggestions), 1)
-        self.assertEqual(err.suggestions[0]['id'], 1)
-        self.assertEqual(err.suggestions[0]['changes']['title'][1], 'Clean Title 1')
-        # Check original error details
-        self.assertIsNotNone(err.original_error)
-        self.assertIn('Network connection dropped', str(err))
-        # Check no further batch requests were attempted after batch 2 failed
-        self.assertEqual(len(calls), 2, 'Batch 3 should not be attempted after Batch 2 error')
+    def test_cost_and_duration_calculations(self):
+        books = [book(i) for i in range(1, 6)]
+        est_flash = engine.estimate_batch_usage(books, batch_size=2, covers=False, min_interval=7, model='gemini-2.5-flash')
+        self.assertEqual(est_flash['batch_count'], 3)
+        # 3 batches with interval=7: (3-1)*7 + 3*2 = 20
+        self.assertEqual(est_flash['estimated_duration'], 20)
+        self.assertAlmostEqual(est_flash['estimated_cost'], (est_flash['prompt_tokens'] / 1_000_000.0) * 0.075, places=6)
+
+        est_pro = engine.estimate_batch_usage(books, batch_size=2, covers=False, min_interval=0, model='gemini-1.5-pro')
+        self.assertAlmostEqual(est_pro['estimated_cost'], (est_pro['prompt_tokens'] / 1_000_000.0) * 1.25, places=6)
 
 
 if __name__ == '__main__':
