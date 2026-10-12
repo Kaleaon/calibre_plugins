@@ -1,11 +1,15 @@
 """Dialogs for following Reddit stories. Network work happens in the action, never here."""
+import os
 import time
 import webbrowser
 
-from qt.core import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel,
-                     QLineEdit, QMessageBox, QPushButton, QRadioButton, QSpinBox, QTableWidget, QTableWidgetItem, Qt, QVBoxLayout)
+from qt.core import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
+                     QLineEdit, QMessageBox, QPushButton, QRadioButton, QSpinBox, QTableWidget, QTableWidgetItem, QTabWidget, Qt, QVBoxLayout, QWidget)
 
-from calibre_plugins.reddit_follower import core, login
+try:
+    from calibre_plugins.reddit_follower import core, login, subscription
+except ImportError:
+    import core, login, subscription
 from calibre_plugins.reddit_follower.config import prefs
 from calibre_plugins.reddit_follower.guikit import run_task
 from calibre_plugins.reddit_follower.storykit import Fetcher
@@ -440,6 +444,293 @@ class DiscoverDialog(QDialog):
             self.accept()
 
 
+class SubscriptionExchangeDialog(QDialog):
+    """Multi-tab dialog for subscription export and import with category mapping and conflict resolution."""
+
+    def __init__(self, parent, action=None):
+        super().__init__(parent)
+        self.action = action
+        self.preview_subs = []
+        self.setWindowTitle('Subscription Exchange')
+        self.resize(780, 520)
+
+        layout = QVBoxLayout(self)
+        self.tabs = QTabWidget(self)
+        layout.addWidget(self.tabs)
+
+        # --- Tab 1: Import ---
+        import_widget = QWidget()
+        import_layout = QVBoxLayout(import_widget)
+
+        file_row = QHBoxLayout()
+        file_row.addWidget(QLabel('File to import:'))
+        self.import_file_path = QLineEdit()
+        self.import_file_path.setPlaceholderText('Select an OPML (.opml, .xml) or JSON (.json) subscription file…')
+        file_row.addWidget(self.import_file_path, 1)
+        browse_btn = QPushButton('Browse…')
+        browse_btn.clicked.connect(self.browse_import_file)
+        file_row.addWidget(browse_btn)
+        import_layout.addLayout(file_row)
+
+        self.import_status_label = QLabel('Select a subscription file exported from Feedly, NetNewsWire, or another reader.')
+        self.import_status_label.setWordWrap(True)
+        import_layout.addWidget(self.import_status_label)
+
+        self.import_table = QTableWidget(0, 5)
+        self.import_table.setHorizontalHeaderLabels(['Import', 'Book Title', 'Source Address', 'Categories / Tags', 'Match Status'])
+        self.import_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.import_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.import_table.horizontalHeader().setStretchLastSection(True)
+        import_layout.addWidget(self.import_table, 1)
+
+        tbl_ctrl_row = QHBoxLayout()
+        sel_all_btn = QPushButton('Select All')
+        sel_all_btn.clicked.connect(lambda: self.set_import_selection(True))
+        desel_all_btn = QPushButton('Deselect All')
+        desel_all_btn.clicked.connect(lambda: self.set_import_selection(False))
+        tbl_ctrl_row.addWidget(sel_all_btn)
+        tbl_ctrl_row.addWidget(desel_all_btn)
+        tbl_ctrl_row.addStretch(1)
+        import_layout.addLayout(tbl_ctrl_row)
+
+        strat_row = QHBoxLayout()
+        strat_row.addWidget(QLabel('Duplicate Strategy:'))
+        self.strategy_combo = QComboBox()
+        self.strategy_combo.addItem('Skip duplicate subscriptions', subscription.STRATEGY_SKIP)
+        self.strategy_combo.addItem('Overwrite existing follows', subscription.STRATEGY_OVERWRITE)
+        self.strategy_combo.addItem('Create unique suffixed entries', subscription.STRATEGY_ADD_SUFFIX)
+        strat_row.addWidget(self.strategy_combo)
+
+        strat_row.addSpacing(16)
+        strat_row.addWidget(QLabel('Suffix:'))
+        self.suffix_input = QLineEdit(' (Imported)')
+        self.suffix_input.setFixedWidth(120)
+        strat_row.addWidget(self.suffix_input)
+        strat_row.addStretch(1)
+        import_layout.addLayout(strat_row)
+
+        imp_btn_row = QHBoxLayout()
+        self.exec_import_btn = QPushButton('Import Selected Subscriptions')
+        self.exec_import_btn.clicked.connect(self.execute_import)
+        imp_btn_row.addWidget(self.exec_import_btn)
+        imp_btn_row.addStretch(1)
+        import_layout.addLayout(imp_btn_row)
+
+        self.tabs.addTab(import_widget, 'Import Subscriptions')
+
+        # --- Tab 2: Export ---
+        export_widget = QWidget()
+        export_layout = QVBoxLayout(export_widget)
+
+        export_layout.addWidget(QLabel('Select followed stories to export:'))
+
+        self.export_table = QTableWidget(0, 4)
+        self.export_table.setHorizontalHeaderLabels(['Export', 'Book Title', 'Source Address', 'Categories / Tags'])
+        self.export_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.export_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.export_table.horizontalHeader().setStretchLastSection(True)
+        export_layout.addWidget(self.export_table, 1)
+
+        exp_ctrl_row = QHBoxLayout()
+        exp_sel_all = QPushButton('Select All')
+        exp_sel_all.clicked.connect(lambda: self.set_export_selection(True))
+        exp_desel_all = QPushButton('Deselect All')
+        exp_desel_all.clicked.connect(lambda: self.set_export_selection(False))
+        exp_ctrl_row.addWidget(exp_sel_all)
+        exp_ctrl_row.addWidget(exp_desel_all)
+        exp_ctrl_row.addStretch(1)
+        export_layout.addLayout(exp_ctrl_row)
+
+        exp_fmt_row = QHBoxLayout()
+        exp_fmt_row.addWidget(QLabel('Export Format:'))
+        self.export_format_combo = QComboBox()
+        self.export_format_combo.addItem('OPML (.opml)', 'opml')
+        self.export_format_combo.addItem('JSON (.json)', 'json')
+        exp_fmt_row.addWidget(self.export_format_combo)
+
+        exp_fmt_row.addSpacing(16)
+        self.include_categories_cb = QCheckBox('Include category folder hierarchy')
+        self.include_categories_cb.setChecked(True)
+        exp_fmt_row.addWidget(self.include_categories_cb)
+        exp_fmt_row.addStretch(1)
+        export_layout.addLayout(exp_fmt_row)
+
+        exp_btn_row = QHBoxLayout()
+        exec_export_btn = QPushButton('Export Selected Subscriptions…')
+        exec_export_btn.clicked.connect(self.execute_export)
+        exp_btn_row.addWidget(exec_export_btn)
+        exp_btn_row.addStretch(1)
+        export_layout.addLayout(exp_btn_row)
+
+        self.tabs.addTab(export_widget, 'Export Subscriptions')
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.populate_export_table()
+
+    def browse_import_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 'Select Subscription File', '', 'Subscription Files (*.opml *.xml *.json);;OPML Files (*.opml *.xml);;JSON Files (*.json);;All Files (*)'
+        )
+        if file_path:
+            self.import_file_path.setText(file_path)
+            self.load_import_file(file_path)
+
+    def load_import_file(self, file_path):
+        if not os.path.exists(file_path):
+            self.import_status_label.setText('Error: Selected file does not exist.')
+            return
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as stream:
+                content = stream.read()
+
+            if file_path.lower().endswith('.json') or content.strip().startswith('{') or content.strip().startswith('['):
+                subs = subscription.parse_json(content)
+            else:
+                subs = subscription.parse_opml(content)
+
+            self.preview_subs = subs
+            self.import_table.setRowCount(len(subs))
+            existing_follows = prefs['follows']
+
+            for r, sub in enumerate(subs):
+                chk_item = QTableWidgetItem()
+                chk_item.setCheckState(Qt.CheckState.Checked)
+                self.import_table.setItem(r, 0, chk_item)
+
+                self.import_table.setItem(r, 1, QTableWidgetItem(sub.get('name', '')))
+                src_txt = sub.get('source_text') or (core.describe_source(sub['source']) if sub.get('source') else '')
+                self.import_table.setItem(r, 2, QTableWidgetItem(src_txt))
+                cats = sub.get('categories', [])
+                self.import_table.setItem(r, 3, QTableWidgetItem(', '.join(cats)))
+
+                # Check match status
+                matched = False
+                for ex in existing_follows:
+                    if subscription.is_duplicate(sub, ex):
+                        matched = True
+                        self.import_table.setItem(r, 4, QTableWidgetItem(f"Duplicate of '{ex['name']}'"))
+                        break
+                if not matched:
+                    self.import_table.setItem(r, 4, QTableWidgetItem('New'))
+
+            self.import_table.resizeColumnsToContents()
+            self.import_status_label.setText(f'Loaded {len(subs)} subscription(s) from {os.path.basename(file_path)}.')
+
+        except Exception as exc:
+            self.import_status_label.setText(f'Failed to parse subscription file: {exc}')
+            self.preview_subs = []
+            self.import_table.setRowCount(0)
+
+    def set_import_selection(self, checked):
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        for r in range(self.import_table.rowCount()):
+            item = self.import_table.item(r, 0)
+            if item:
+                item.setCheckState(state)
+
+    def execute_import(self):
+        selected_subs = []
+        for r in range(self.import_table.rowCount()):
+            item = self.import_table.item(r, 0)
+            if item and item.checkState() == Qt.CheckState.Checked and r < len(self.preview_subs):
+                selected_subs.append(self.preview_subs[r])
+
+        if not selected_subs:
+            QMessageBox.warning(self, 'Subscription Exchange', 'No subscriptions selected for import.')
+            return
+
+        strat = self.strategy_combo.currentData()
+        sfx = self.suffix_input.text().strip() if strat == subscription.STRATEGY_ADD_SUFFIX else ''
+        updated_follows, stats = subscription.merge_subscriptions(prefs['follows'], selected_subs, strategy=strat, suffix=sfx)
+        prefs['follows'] = updated_follows
+
+        QMessageBox.information(
+            self,
+            'Import Complete',
+            f"Successfully processed {len(selected_subs)} selected subscription(s):\n\n"
+            f"• Added: {stats['added']}\n"
+            f"• Updated: {stats['updated']}\n"
+            f"• Skipped: {stats['skipped']}"
+        )
+        self.populate_export_table()
+
+    def populate_export_table(self):
+        follows = prefs['follows']
+        self.export_table.setRowCount(len(follows))
+        for r, follow in enumerate(follows):
+            chk_item = QTableWidgetItem()
+            chk_item.setCheckState(Qt.CheckState.Checked)
+            chk_item.setData(Qt.ItemDataRole.UserRole, follow['id'])
+            self.export_table.setItem(r, 0, chk_item)
+
+            self.export_table.setItem(r, 1, QTableWidgetItem(follow.get('name', '')))
+            src_text = core.describe_source(follow['source']) if isinstance(follow.get('source'), dict) else follow.get('source_text', '')
+            self.export_table.setItem(r, 2, QTableWidgetItem(src_text))
+
+            cats = follow.get('categories') or follow.get('tags') or []
+            if isinstance(cats, str):
+                cats = [c.strip() for c in cats.split(',') if c.strip()]
+            self.export_table.setItem(r, 3, QTableWidgetItem(', '.join(cats)))
+
+        self.export_table.resizeColumnsToContents()
+
+    def set_export_selection(self, checked):
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        for r in range(self.export_table.rowCount()):
+            item = self.export_table.item(r, 0)
+            if item:
+                item.setCheckState(state)
+
+    def execute_export(self):
+        follows = prefs['follows']
+        selected_follows = []
+        for r in range(self.export_table.rowCount()):
+            item = self.export_table.item(r, 0)
+            if item and item.checkState() == Qt.CheckState.Checked:
+                fid = item.data(Qt.ItemDataRole.UserRole)
+                m = next((f for f in follows if f['id'] == fid), None)
+                if m:
+                    selected_follows.append(m)
+
+        if not selected_follows:
+            QMessageBox.warning(self, 'Subscription Exchange', 'No followed stories selected for export.')
+            return
+
+        fmt = self.export_format_combo.currentData()
+        default_ext = '.opml' if fmt == 'opml' else '.json'
+        file_filter = 'OPML Files (*.opml);;XML Files (*.xml);;All Files (*)' if fmt == 'opml' else 'JSON Files (*.json);;All Files (*)'
+
+        file_path, _ = QFileDialog.getSaveFileName(self, 'Export Subscriptions', f'reddit_subscriptions{default_ext}', file_filter)
+        if not file_path:
+            return
+
+        # Strip category hierarchy if unchecked
+        export_list = selected_follows
+        if not self.include_categories_cb.isChecked():
+            export_list = [dict(f, categories=[]) for f in selected_follows]
+
+        try:
+            if fmt == 'opml':
+                content = subscription.generate_opml(export_list)
+            else:
+                content = subscription.generate_json(export_list)
+
+            with open(file_path, 'w', encoding='utf-8') as stream:
+                stream.write(content)
+
+            QMessageBox.information(
+                self,
+                'Export Complete',
+                f'Successfully exported {len(export_list)} subscription(s) to:\n{file_path}'
+            )
+
+        except Exception as exc:
+            QMessageBox.warning(self, 'Export Error', f'Failed to write export file: {exc}')
+
+
 class ManageDialog(QDialog):
     """The list of followed stories, with add, edit, remove and check buttons."""
     COLUMNS = ['Book', 'Following', 'Chapters', 'Last checked', 'Status']
@@ -459,7 +750,8 @@ class ManageDialog(QDialog):
         self.mode_label = QLabel('')
         layout.addWidget(self.mode_label)
         row = QHBoxLayout()
-        for label, slot in (('Find stories…', self.find), ('Add…', self.add), ('Edit…', self.edit), ('Remove', self.remove), ('Test selected', self.test_selected), ('Check selected now', self.check_selected),
+        for label, slot in (('Find stories…', self.find), ('Add…', self.add), ('Edit…', self.edit), ('Remove', self.remove), ('Import / Export…', self.subscription_exchange),
+                            ('Test selected', self.test_selected), ('Check selected now', self.check_selected),
                             ('Check all now', self.check_all), ('Settings…', self.settings)):
             button = QPushButton(label)
             button.clicked.connect(slot)
@@ -522,6 +814,10 @@ class ManageDialog(QDialog):
         for follow in [f for f in self.follows() if f['id'] in ids]:
             core.ChapterCache(self.action.cache_dir(), follow['id']).delete()
         prefs['follows'] = [f for f in self.follows() if f['id'] not in ids]
+        self.refresh()
+
+    def subscription_exchange(self):
+        SubscriptionExchangeDialog(self, self.action).exec()
         self.refresh()
 
     def test_selected(self):
