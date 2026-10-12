@@ -10,8 +10,8 @@ except ImportError:
     from calibre.gui2 import error_dialog, info_dialog, question_dialog
     warning_dialog = error_dialog
 from calibre.gui2.actions import InterfaceAction
-from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-                     QBuffer, QImage, QIODevice, QPlainTextEdit, QProgressBar, QRadioButton, QSpinBox, QSplitter, Qt, QTreeWidget,
+from qt.core import (QApplication, QBuffer, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QIODevice, QImage, QLabel,
+                     QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSpinBox, QSplitter, Qt, QTreeWidget,
                      QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from calibre_plugins.gemini_library_fixer import engine
@@ -164,12 +164,16 @@ class GeminiFixerAction(InterfaceAction):
         selected = list(self.gui.library_view.get_selected_ids())
         dialog = QDialog(self.gui)
         dialog.setWindowTitle('Gemini Library Fixer')
-        dialog.resize(1100, 940)
+        dialog.resize(1000, 700)
         main = QVBoxLayout(dialog)
         settings = QWidget()  # everything up to the progress bar; it can be hidden to give the results more room
         layout = QVBoxLayout(settings)
         layout.setContentsMargins(0, 0, 0, 0)
-        main.addWidget(settings)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setWidget(settings)
+        main.addWidget(scroll)
         note = QLabel(PRIVACY)
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -349,8 +353,8 @@ class GeminiFixerAction(InterfaceAction):
         tree.itemChanged.connect(lambda item, column: update_ticked())
 
         def toggle_settings():
-            settings.setHidden(not settings.isHidden())
-            settings_btn.setText('Show settings' if settings.isHidden() else 'Hide settings')
+            scroll.setHidden(not scroll.isHidden())
+            settings_btn.setText('Show settings' if scroll.isHidden() else 'Hide settings')
 
         settings_btn.clicked.connect(toggle_settings)
 
@@ -394,7 +398,7 @@ class GeminiFixerAction(InterfaceAction):
             activity.clear()
             cancel_flag.clear()
             set_busy(True)
-            if not settings.isHidden():
+            if not scroll.isHidden():
                 toggle_settings()  # more room for the log; the button brings the settings back
             splitter.setSizes([520, 180])
             try:

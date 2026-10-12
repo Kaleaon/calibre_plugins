@@ -1,7 +1,9 @@
 import importlib.util
 from pathlib import Path
 import sys
+import types
 import unittest
+from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tagger'))
 
@@ -85,6 +87,44 @@ class PlanTests(unittest.TestCase):
         first = rules.plan_changes([b])
         b['tags'] = first[0]['tags']
         self.assertEqual(rules.plan_changes([b]), [])
+
+
+class TaggerDialogTests(unittest.TestCase):
+    def setUp(self):
+        self.saved_modules = dict(sys.modules)
+        for name in ('calibre', 'calibre.gui2', 'calibre.gui2.actions'):
+            sys.modules[name] = MagicMock()
+        sys.modules['calibre.gui2.actions'].InterfaceAction = object
+        qt_mod = MagicMock()
+        sys.modules['qt'] = qt_mod
+        sys.modules['qt.core'] = qt_mod.core
+
+        tagger_pkg = types.ModuleType('calibre_plugins.story_collection_tagger')
+        tagger_pkg.config = MagicMock(prefs={'add_source': True, 'source_prefix': 'Source.', 'series_prefix': 'Series.', 'scan_comments': False, 'rules': '', 'sites': ''})
+        tagger_pkg.rules = rules
+        sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+        sys.modules['calibre_plugins.story_collection_tagger'] = tagger_pkg
+        sys.modules['calibre_plugins.story_collection_tagger.config'] = tagger_pkg.config
+        sys.modules['calibre_plugins.story_collection_tagger.rules'] = tagger_pkg.rules
+
+    def tearDown(self):
+        for k in list(sys.modules.keys()):
+            if k not in self.saved_modules:
+                del sys.modules[k]
+        sys.modules.update(self.saved_modules)
+
+    def test_show_dialog_sets_word_wrap_on_labels(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+        action.show_dialog()
+
+        qt_core = sys.modules['qt.core']
+        self.assertGreaterEqual(qt_core.QLabel.return_value.setWordWrap.call_count, 4)
 
 
 if __name__ == '__main__':

@@ -439,7 +439,11 @@ class BackgroundScanTests(unittest.TestCase):
 
         gemini_pkg = types.ModuleType('calibre_plugins.gemini_library_fixer')
         gemini_pkg.engine = engine
-        gemini_pkg.config = MagicMock(prefs={})
+        gemini_pkg.config = MagicMock(prefs={
+            'api_key': '', 'model': 'gemini-1.5-flash', 'fields': ['title'],
+            'tags_remove': False, 'excerpt': False, 'covers': False,
+            'min_confidence': 'medium', 'batch_size': 5, 'min_interval': 7, 'undo': {}
+        })
         gemini_pkg.guikit = MagicMock()
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
@@ -577,6 +581,20 @@ class BackgroundScanTests(unittest.TestCase):
 
         self.assertFalse(t.is_alive())
         self.assertEqual(len(result_container['books']), 2, "Should stop after 2 books due to cancellation")
+
+    def test_show_dialog_scroll_area_and_sizing(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.GeminiFixerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+        action.show_dialog()
+
+        qt_core = sys.modules['qt.core']
+        qt_core.QDialog.return_value.resize.assert_called_with(1000, 700)
+        self.assertTrue(qt_core.QScrollArea.called)
 
 
 class EstimateBatchUsageTests(unittest.TestCase):
