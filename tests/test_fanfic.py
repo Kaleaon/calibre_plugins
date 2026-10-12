@@ -156,5 +156,199 @@ class PackagingTests(unittest.TestCase):
             self.assertIn(needle, text)
 
 
+class ActionTests(unittest.TestCase):
+    def setUp(self):
+        import types
+        from unittest.mock import MagicMock
+
+        self.saved_modules = {k: v for k, v in sys.modules.items() if k.startswith(('calibre', 'qt', 'calibre_plugins'))}
+        stubs = ['calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config',
+                 'calibre.utils.date', 'calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.book',
+                 'calibre.ebooks.metadata.book.base', 'qt', 'qt.core']
+        for name in stubs:
+            if name not in sys.modules:
+                sys.modules[name] = MagicMock()
+
+        class Meta:
+            def __init__(self, title, authors):
+                self.title, self.authors, self.ids = title, authors, {}
+                self.publisher = None
+                self.tags = []
+                self.comments = None
+                self.series = None
+                self.series_index = None
+                self.languages = []
+
+            def set_identifier(self, key, value):
+                self.ids[key] = value
+
+        sys.modules['calibre.ebooks.metadata.book.base'].Metadata = Meta
+        sys.modules['calibre.gui2.actions'].InterfaceAction = object
+
+        class DummyAction:
+            def __init__(self, text, parent=None):
+                self.text = text
+                self.parent = parent
+                self.triggered_callback = None
+                self.triggered = self
+                self._menu = None
+
+            def connect(self, slot):
+                self.triggered_callback = slot
+
+            def setMenu(self, menu):
+                self._menu = menu
+
+            def menu(self):
+                return self._menu
+
+        class DummyMenu:
+            def __init__(self, parent=None):
+                self.parent = parent
+                self.actions_list = []
+
+            def addAction(self, action):
+                self.actions_list.append(action)
+
+            def actions(self):
+                return self.actions_list
+
+        sys.modules['qt.core'].QAction = DummyAction
+        sys.modules['qt.core'].QMenu = DummyMenu
+
+        if 'calibre_plugins' not in sys.modules or not hasattr(sys.modules['calibre_plugins'], '__path__'):
+            sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+            sys.modules['calibre_plugins'].__path__ = []
+
+        pkg = types.ModuleType('calibre_plugins.fanfic_downloader')
+        pkg.__path__ = []
+        sys.modules['calibre_plugins.fanfic_downloader'] = pkg
+
+        import common.libkit as libkit_mod
+        import common.guikit as guikit_mod
+        import fanfic.config as config_mod
+        import fanfic.engine as engine_mod
+        import fanfic.flaresolverr as flaresolverr_mod
+
+        pkg.engine = engine_mod
+        pkg.libkit = libkit_mod
+        pkg.config = config_mod
+        pkg.guikit = guikit_mod
+        pkg.flaresolverr = flaresolverr_mod
+
+        sys.modules['calibre_plugins.fanfic_downloader.engine'] = engine_mod
+        sys.modules['calibre_plugins.fanfic_downloader.libkit'] = libkit_mod
+        sys.modules['calibre_plugins.fanfic_downloader.config'] = config_mod
+        sys.modules['calibre_plugins.fanfic_downloader.guikit'] = guikit_mod
+        sys.modules['calibre_plugins.fanfic_downloader.flaresolverr'] = flaresolverr_mod
+
+        import fanfic.ui as ui_mod
+        pkg.ui = ui_mod
+        sys.modules['calibre_plugins.fanfic_downloader.ui'] = ui_mod
+
+        import fanfic.action as action_mod
+        sys.modules['calibre_plugins.fanfic_downloader.action'] = action_mod
+
+        self.action_mod = action_mod
+
+    def tearDown(self):
+        for k in [k for k in sys.modules if k.startswith(('calibre', 'qt'))]:
+            del sys.modules[k]
+        sys.modules.update(self.saved_modules)
+
+    def test_genesis_menu_setup(self):
+        from unittest.mock import MagicMock
+        from qt.core import QAction
+        action = self.action_mod.FanficAction()
+        action.gui = MagicMock()
+        action.qaction = QAction('Main Action', action.gui)
+        action.genesis()
+
+        menu = action.qaction.menu()
+        self.assertIsNotNone(menu)
+        actions = menu.actions()
+        self.assertEqual(len(actions), 2)
+        self.assertEqual(actions[0].text, 'Download new stories from URLs...')
+        self.assertEqual(actions[1].text, 'Update selected library books')
+
+    def test_update_selected_no_selection(self):
+        from unittest.mock import MagicMock, patch
+        action = self.action_mod.FanficAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = []
+
+        with patch.object(self.action_mod, 'info_dialog') as mock_info:
+            action.update_selected()
+            mock_info.assert_called_once()
+            self.assertIn('No books selected', mock_info.call_args[0][2])
+
+    @unittest.skipUnless(HAVE_FFF, 'FanFicFare is not installed')
+    def test_update_selected_with_valid_and_missing_urls(self):
+        from unittest.mock import MagicMock, patch
+        action = self.action_mod.FanficAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [10, 20]
+
+        mock_db = MagicMock()
+        action.gui.current_db.new_api = mock_db
+
+        mock_db.field_for.side_effect = lambda field, book_id, default=None: {
+            (10, 'title'): 'Valid Story',
+            (20, 'title'): 'Story Without URL',
+        }.get((book_id, field), default)
+
+        mock_db.all_field_for.return_value = {
+            10: {'url': 'https://www.royalroad.com/fiction/21220/some-title'},
+            20: {},
+        }
+
+        fake_story_result = {
+            'epub': b'fake epub data',
+            'url': 'https://www.royalroad.com/fiction/21220',
+            'title': 'Valid Story',
+            'authors': ['Author A'],
+            'description': 'Desc',
+            'tags': ['Tag1'],
+            'series': None,
+            'series_index': None,
+            'site': 'www.royalroad.com',
+            'published': None,
+            'language': 'en',
+            'chapters': 10,
+            'status': 'Completed',
+            'chapter_errors': 0,
+        }
+
+        with patch.object(self.action_mod.engine, 'download_story', return_value=fake_story_result) as mock_dl, \
+             patch.object(self.action_mod.libkit, 'upsert_epub', return_value=(10, False)) as mock_upsert, \
+             patch.object(self.action_mod, 'run_task', side_effect=lambda gui, title, func: type('Task', (), {'error': None, 'cancelled': lambda *a: False, 'result': func(type('T', (), {'cancelled': lambda *a: False, 'status': ''})())})()), \
+             patch.object(self.action_mod, 'info_dialog') as mock_info:
+
+            action.update_selected()
+
+            mock_dl.assert_called_once()
+            mock_upsert.assert_called_once()
+
+            mock_info.assert_called_once()
+            msg = mock_info.call_args[0][2]
+            self.assertIn('1 book(s) updated', msg)
+            self.assertIn("Skipped 'Story Without URL' (ID 20): No 'url' identifier", msg)
+
+    def test_find_book_normalizes_colons_and_slashes(self):
+        from unittest.mock import MagicMock
+        from common.libkit import find_book
+        gui = MagicMock()
+        db = MagicMock()
+        gui.current_db.new_api = db
+        db.all_book_ids.return_value = [1, 2]
+        db.all_field_for.return_value = {
+            1: {'url': 'https|//www.royalroad.com/fiction/21220/'},
+            2: {'url': 'https|//archiveofourown.org/works/12345'},
+        }
+
+        self.assertEqual(find_book(gui, 'url', 'https://www.royalroad.com/fiction/21220'), 1)
+        self.assertEqual(find_book(gui, 'url', 'https://archiveofourown.org/works/12345/'), 2)
+
+
 if __name__ == '__main__':
     unittest.main()
