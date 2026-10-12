@@ -652,6 +652,105 @@ class EstimateBatchUsageTests(unittest.TestCase):
         self.assertAlmostEqual(est_pro['estimated_cost'], (est_pro['prompt_tokens'] / 1_000_000.0) * 1.25, places=6)
 
 
+class UndoSeriesTests(unittest.TestCase):
+    def setUp(self):
+        self.saved_modules = dict(sys.modules)
+        for name in ('calibre', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config'):
+            sys.modules[name] = MagicMock()
+        sys.modules['calibre.gui2.actions'].InterfaceAction = object
+        qt_mod = MagicMock()
+        sys.modules['qt'] = qt_mod
+        sys.modules['qt.core'] = qt_mod.core
+
+        gemini_pkg = types.ModuleType('calibre_plugins.gemini_library_fixer')
+        gemini_pkg.engine = engine
+        gemini_pkg.config = MagicMock(prefs={})
+        gemini_pkg.guikit = MagicMock()
+        sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+        sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
+        sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine
+        sys.modules['calibre_plugins.gemini_library_fixer.config'] = gemini_pkg.config
+        sys.modules['calibre_plugins.gemini_library_fixer.guikit'] = gemini_pkg.guikit
+
+    def tearDown(self):
+        for k in list(sys.modules.keys()):
+            if k not in self.saved_modules:
+                del sys.modules[k]
+        sys.modules.update(self.saved_modules)
+
+    def test_restore_series_resets_series_and_index_for_book_lacking_series(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.GeminiFixerAction()
+
+        class MockDb:
+            def __init__(self):
+                self.fields = {1: {'series': None, 'series_index': 1.0}}
+
+            def has_id(self, book_id):
+                return book_id in self.fields
+
+            def set_field(self, name, mapping):
+                for book_id, val in mapping.items():
+                    self.fields[book_id][name] = val
+
+            def field_for(self, name, book_id):
+                return self.fields[book_id].get(name)
+
+        mock_db = MockDb()
+        action.gui = MagicMock(current_db=MagicMock(new_api=mock_db))
+
+        items = [
+            (1, {'series': (('', None), ('Harry Potter', 2.0))})
+        ]
+        done, errors, undo = action.write_changes(items)
+        self.assertEqual(done, [1])
+        self.assertEqual(errors, [])
+        self.assertIn('1', undo)
+        self.assertEqual(mock_db.fields[1]['series'], 'Harry Potter')
+        self.assertEqual(mock_db.fields[1]['series_index'], 2.0)
+
+        restored_done, restored_errors = action.restore(undo)
+        self.assertEqual(restored_done, [1])
+        self.assertEqual(restored_errors, [])
+        self.assertIsNone(mock_db.fields[1]['series'])
+        self.assertEqual(mock_db.fields[1]['series_index'], 1.0)
+
+    def test_restore_series_keeps_original_index_when_book_had_series(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.GeminiFixerAction()
+
+        class MockDb:
+            def __init__(self):
+                self.fields = {1: {'series': 'Dune', 'series_index': 3.0}}
+
+            def has_id(self, book_id):
+                return book_id in self.fields
+
+            def set_field(self, name, mapping):
+                for book_id, val in mapping.items():
+                    self.fields[book_id][name] = val
+
+        mock_db = MockDb()
+        action.gui = MagicMock(current_db=MagicMock(new_api=mock_db))
+
+        items = [
+            (1, {'series': (('Dune', 3.0), ('Dune Chronicles', 1.0))})
+        ]
+        done, errors, undo = action.write_changes(items)
+        self.assertEqual(mock_db.fields[1]['series'], 'Dune Chronicles')
+        self.assertEqual(mock_db.fields[1]['series_index'], 1.0)
+
+        restored_done, restored_errors = action.restore(undo)
+        self.assertEqual(mock_db.fields[1]['series'], 'Dune')
+        self.assertEqual(mock_db.fields[1]['series_index'], 3.0)
+
+
 if __name__ == '__main__':
     unittest.main()
 
