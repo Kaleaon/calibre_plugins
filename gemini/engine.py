@@ -409,6 +409,11 @@ IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.gif', '.webp')
 MIME = {'.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp'}
 
 
+def _natural_sort_key(s):
+    name = s.filename if hasattr(s, 'filename') else str(s)
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', name)]
+
+
 def find_back_cover(path, fmt):
     """(bytes, description) for the back cover of a book file, or None. Calibre stores only a front cover, so this looks inside
     the file: an EPUB image whose name says back/rear (back-cover.jpg), or the last page of a CBZ comic. Never raises."""
@@ -416,7 +421,7 @@ def find_back_cover(path, fmt):
         with zipfile.ZipFile(path) as z:
             images = [i for i in z.infolist() if i.filename.lower().endswith(IMAGE_EXT) and 0 < i.file_size <= IMAGE_LIMIT]
             if fmt.upper() == 'CBZ' and images:
-                last = sorted(images, key=lambda i: i.filename.lower())[-1]
+                last = sorted(images, key=_natural_sort_key)[-1]
                 return z.read(last), f'last page ({last.filename.rsplit("/", 1)[-1]})'
             if fmt.upper() == 'EPUB':
                 for info in images:
