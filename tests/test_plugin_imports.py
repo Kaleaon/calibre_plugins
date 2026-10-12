@@ -16,8 +16,8 @@ sys.path.insert(0, str(ROOT))
 import build_plugins  # noqa: E402
 
 STUBS = ['calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config',
-         'calibre.utils.date', 'calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.book',
-         'calibre.ebooks.metadata.book.base', 'qt', 'qt.core']
+         'calibre.utils.date', 'calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.meta',
+         'calibre.ebooks.metadata.book', 'calibre.ebooks.metadata.book.base', 'qt', 'qt.core']
 
 
 class Meta:
@@ -120,6 +120,76 @@ class PluginImportTests(unittest.TestCase):
             self.assertTrue(hasattr(storykit, 'epub_builder'))
             self.assertTrue(callable(core.build_epub))
 
+    def test_import_books_chunked_duplicate_checking(self):
+        from plugin import importer
+
+        content_a = b'A' * 70000  # larger than 64 KB chunk size
+        content_b = b'B' * 70000
+
+        with tempfile.NamedTemporaryFile(suffix='.epub', delete=False) as tf:
+            tf.write(content_a)
+            tf.flush()
+            path_a = Path(tf.name)
+
+        with tempfile.NamedTemporaryFile(suffix='.epub', delete=False) as tf_diff:
+            tf_diff.write(content_b)
+            tf_diff.flush()
+            path_b = Path(tf_diff.name)
+
+        try:
+            # 1. Exact duplicate (title match, size match, SHA-256 hash match)
+            mock_gui = MagicMock()
+            mock_db = MagicMock()
+            mock_gui.current_db.new_api = mock_db
+            mock_db.all_book_ids.return_value = [10]
+            mock_db.all_field_for.return_value = {10: 'Test Book'}
+            mock_db.format_metadata.return_value = {'size': len(content_a)}
+            mock_db.format_abspath.return_value = None
+            mock_db.format.return_value = content_a
+
+            row_dup = {'output': str(path_a), 'format': 'epub', 'source': 'Test Book.epub', 'metadata': {'title': 'Test Book'}}
+            imported, errors = importer.import_books(mock_gui, [row_dup])
+
+            self.assertEqual(imported, [])
+            self.assertEqual(row_dup.get('import_status'), 'duplicate skipped')
+
+            # 2. Size mismatch (title match, size mismatch -> duplicate check skips)
+            mock_db.reset_mock()
+            mock_db.all_book_ids.return_value = [10]
+            mock_db.all_field_for.return_value = {10: 'Test Book'}
+            mock_db.format_metadata.return_value = {'size': 1234}  # different size
+            mock_db.create_book_entry.return_value = 11
+            mock_db.add_format.return_value = True
+
+            row_size_mismatch = {'output': str(path_a), 'format': 'epub', 'source': 'Test Book.epub', 'metadata': {'title': 'Test Book'}}
+            imported, errors = importer.import_books(mock_gui, [row_size_mismatch])
+
+            self.assertEqual(imported, [11])
+            self.assertEqual(row_size_mismatch.get('import_status'), 'imported')
+            self.assertEqual(row_size_mismatch.get('calibre_id'), 11)
+            # Verify mock_db.format was NOT called because size mismatch aborted hash calculation
+            mock_db.format.assert_not_called()
+
+            # 3. Content mismatch (title match, size match, SHA-256 hash mismatch)
+            mock_db.reset_mock()
+            mock_db.all_book_ids.return_value = [10]
+            mock_db.all_field_for.return_value = {10: 'Test Book'}
+            mock_db.format_metadata.return_value = {'size': len(content_b)}
+            mock_db.format.return_value = content_a  # content_a != content_b
+            mock_db.create_book_entry.return_value = 12
+            mock_db.add_format.return_value = True
+
+            row_content_mismatch = {'output': str(path_b), 'format': 'epub', 'source': 'Test Book.epub', 'metadata': {'title': 'Test Book'}}
+            imported, errors = importer.import_books(mock_gui, [row_content_mismatch])
+
+            self.assertEqual(imported, [12])
+            self.assertEqual(row_content_mismatch.get('import_status'), 'imported')
+
+        finally:
+            path_a.unlink(missing_ok=True)
+            path_b.unlink(missing_ok=True)
+
 
 if __name__ == '__main__':
     unittest.main()
+
