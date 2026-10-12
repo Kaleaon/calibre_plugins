@@ -148,6 +148,33 @@ class DownloadTests(unittest.TestCase):
         stories, skipped = core.download_ref(f, ref, skip_ids={'gay/college/lone-story'})
         self.assertEqual((len(stories), skipped), (0, 1))
 
+    def test_chapter_range_filtering(self):
+        f = FakeFetcher(self.pages())
+        ref = [r for r in core.expand_dir(f, 'gay/college') if r['title'] == 'Saga'][0]
+        stories, _ = core.download_ref(f, ref, chapter_range='1-2')
+        self.assertEqual([h for h, _ in stories[0]['sections']], ['Chapter 1', 'Chapter 2'])
+        self.assertNotIn(core.SITE + 'gay/college/saga-10', f.requested)
+
+        f_open = FakeFetcher(self.pages())
+        stories, _ = core.download_ref(f_open, ref, chapter_range='3+')
+        self.assertEqual([h for h, _ in stories[0]['sections']], ['Chapter 10'])
+        self.assertIn(core.SITE + 'gay/college/saga-10', f_open.requested)
+        self.assertNotIn(core.SITE + 'gay/college/saga-1', f_open.requested)
+
+
+class ChapterRangeTests(unittest.TestCase):
+    def test_parse_chapter_range(self):
+        self.assertEqual(core.parse_chapter_range('1-5', 10), {0, 1, 2, 3, 4})
+        self.assertEqual(core.parse_chapter_range('5+', 10), {4, 5, 6, 7, 8, 9})
+        self.assertEqual(core.parse_chapter_range('5-', 10), {4, 5, 6, 7, 8, 9})
+        self.assertEqual(core.parse_chapter_range('-3', 10), {0, 1, 2})
+        self.assertEqual(core.parse_chapter_range('1-2, 8, 10+', 10), {0, 1, 7, 9})
+        self.assertEqual(core.parse_chapter_range('', 10), set(range(10)))
+        self.assertEqual(core.parse_chapter_range(None, 10), set(range(10)))
+        self.assertEqual(core.parse_chapter_range('invalid text', 10), set(range(10)))
+        self.assertEqual(core.parse_chapter_range('50', 10), set())
+        self.assertEqual(core.parse_chapter_range('1-2, 50', 10), {0, 1})
+
 
 if __name__ == '__main__':
     unittest.main()
