@@ -4,16 +4,14 @@ import re
 from urllib.parse import parse_qs, urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
-    from .storykit import Cancelled, Fetcher, build_epub as _build_epub, clean_fragment, decode, strip_tags  # noqa: F401
+    from .storykit import Cancelled, Fetcher, clean_fragment, decode, epub_builder, strip_tags  # noqa: F401
 except ImportError:  # tests load this file directly with common/ on sys.path
-    from storykit import Cancelled, Fetcher, build_epub as _build_epub, clean_fragment, decode, strip_tags  # noqa: F401
+    from storykit import Cancelled, Fetcher, clean_fragment, decode, epub_builder, strip_tags  # noqa: F401
 
 SITE = 'https://metabods.com/mbxy/site/'
 PUBLISHER = 'Metabods'
 
-
-def build_epub(stories, title=None, author=None):
-    return _build_epub(stories, title=title, author=author, publisher=PUBLISHER)
+build_epub = epub_builder(PUBLISHER)
 
 
 # ---------------------------------------------------------------- input parsing

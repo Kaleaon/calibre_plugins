@@ -1,4 +1,5 @@
 """Shared by every plugin here: throttled fetching, XHTML cleaning and EPUB building. Standard library only."""
+import functools
 import gzip
 import html
 import re
@@ -395,6 +396,14 @@ def build_epub(stories, title=None, author=None, publisher=None):
         for name, content in files:
             z.writestr('OEBPS/' + name, content, zipfile.ZIP_DEFLATED)
     return out.getvalue()
+
+
+def epub_builder(publisher):
+    """Return a build_epub partial function pre-bound with publisher."""
+    return functools.partial(build_epub, publisher=publisher)
+
+
+make_epub_builder = epub_builder
 
 
 def extract_epub_story(epub_source):

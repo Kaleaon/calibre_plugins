@@ -5,19 +5,16 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
-    from .storykit import Cancelled, Fetcher, RateLimited, build_epub as _build_epub, clean_fragment, escape, sort_by_posting_order, strip_tags  # noqa: F401
+    from .storykit import Cancelled, Fetcher, RateLimited, clean_fragment, escape, epub_builder, sort_by_posting_order, strip_tags  # noqa: F401
 except ImportError:  # tests load this file directly with common/ on sys.path
-    from storykit import Cancelled, Fetcher, RateLimited, build_epub as _build_epub, clean_fragment, escape, sort_by_posting_order, strip_tags  # noqa: F401
+    from storykit import Cancelled, Fetcher, RateLimited, clean_fragment, escape, epub_builder, sort_by_posting_order, strip_tags  # noqa: F401
 
 SITE = 'https://www.nifty.org/nifty/'
 PUBLISHER = 'Nifty'
 SECTIONS = ['gay', 'lesbian', 'bisexual', 'transgender']
 MAX_DEPTH = 6
 
-
-def build_epub(stories, title=None, author=None):
-    stories = sort_by_posting_order(stories)
-    return _build_epub(stories, title=title, author=author, publisher=PUBLISHER)
+build_epub = epub_builder(PUBLISHER)
 
 
 # ---------------------------------------------------------------- addresses
