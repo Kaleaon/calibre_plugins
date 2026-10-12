@@ -2,11 +2,14 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import sys
 import tempfile
+import types
 import unittest
 import urllib.error
 import zipfile
 from email.message import Message
+from unittest.mock import MagicMock
 
 spec = importlib.util.spec_from_file_location('engine', Path(__file__).resolve().parents[1] / 'gemini/engine.py')
 engine = importlib.util.module_from_spec(spec)
@@ -422,6 +425,158 @@ class InputTests(unittest.TestCase):
             (Path(d) / 'junk.epub').write_bytes(b'not a zip')
             self.assertEqual(engine.epub_excerpt(Path(d) / 'junk.epub'), '')
             self.assertEqual(engine.epub_excerpt(Path(d) / 'missing.epub'), '')
+
+
+class BackgroundScanTests(unittest.TestCase):
+    def setUp(self):
+        self.saved_modules = dict(sys.modules)
+        for name in ('calibre', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config'):
+            sys.modules[name] = MagicMock()
+        sys.modules['calibre.gui2.actions'].InterfaceAction = object
+        qt_mod = MagicMock()
+        sys.modules['qt'] = qt_mod
+        sys.modules['qt.core'] = qt_mod.core
+
+        gemini_pkg = types.ModuleType('calibre_plugins.gemini_library_fixer')
+        gemini_pkg.engine = engine
+        gemini_pkg.config = MagicMock(prefs={})
+        gemini_pkg.guikit = MagicMock()
+        sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+        sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
+        sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine
+        sys.modules['calibre_plugins.gemini_library_fixer.config'] = gemini_pkg.config
+        sys.modules['calibre_plugins.gemini_library_fixer.guikit'] = gemini_pkg.guikit
+
+    def tearDown(self):
+        for k in list(sys.modules.keys()):
+            if k not in self.saved_modules:
+                del sys.modules[k]
+        sys.modules.update(self.saved_modules)
+
+    def test_books_for_runs_in_background_thread_with_queue(self):
+        import queue
+        import threading
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.GeminiFixerAction()
+
+        class MockMetadata:
+            title = "Test Title"
+            authors = ["Author One"]
+            identifiers = {"isbn": "1234567890"}
+            series = "Series A"
+            series_index = 1.0
+            tags = ["Fiction"]
+            languages = ["eng"]
+            publisher = "Publisher"
+
+        class MockDb:
+            def get_metadata(self, book_id, get_cover=False):
+                return MockMetadata()
+            def formats(self, book_id):
+                return ['EPUB']
+            def format_abspath(self, book_id, fmt):
+                return None
+            def cover(self, book_id):
+                return None
+
+        class MockGui:
+            current_db = MagicMock(new_api=MockDb())
+
+        action.gui = MockGui()
+
+        messages = queue.Queue()
+        cancel_event = threading.Event()
+        result_container = {}
+
+        def worker():
+            try:
+                res = action.books_for(
+                    [1, 2, 3],
+                    with_excerpt=False,
+                    on_book=lambda idx, total, b: messages.put(('progress', (idx, total, b))),
+                    should_stop=cancel_event.is_set,
+                    with_covers=False
+                )
+                result_container['books'] = res
+            except Exception as e:
+                result_container['error'] = e
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join(timeout=2.0)
+
+        if 'error' in result_container:
+            raise result_container['error']
+        self.assertFalse(t.is_alive())
+        self.assertEqual(len(result_container['books']), 3)
+
+        progress_events = []
+        while not messages.empty():
+            progress_events.append(messages.get())
+
+        self.assertEqual(len(progress_events), 3)
+        self.assertEqual(progress_events[0][0], 'progress')
+        self.assertEqual(progress_events[0][1][0], 1)
+        self.assertEqual(progress_events[0][1][1], 3)
+
+    def test_books_for_cancellation(self):
+        import queue
+        import threading
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.GeminiFixerAction()
+
+        class MockMetadata:
+            title = "Test Title"
+            authors = ["Author"]
+            identifiers = {}
+            series = ""
+            series_index = None
+            tags = []
+            languages = []
+            publisher = ""
+
+        class MockDb:
+            def get_metadata(self, book_id, get_cover=False):
+                return MockMetadata()
+            def formats(self, book_id):
+                return []
+            def format_abspath(self, book_id, fmt):
+                return None
+            def cover(self, book_id):
+                return None
+
+        action.gui = MagicMock(current_db=MagicMock(new_api=MockDb()))
+
+        cancel_event = threading.Event()
+        messages = queue.Queue()
+        result_container = {}
+
+        def on_book(idx, total, b):
+            messages.put(('progress', idx))
+            if idx == 2:
+                cancel_event.set()
+
+        def worker():
+            result_container['books'] = action.books_for(
+                [1, 2, 3, 4, 5],
+                with_excerpt=False,
+                on_book=on_book,
+                should_stop=cancel_event.is_set,
+                with_covers=False
+            )
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join(timeout=2.0)
+
+        self.assertFalse(t.is_alive())
+        self.assertEqual(len(result_container['books']), 2, "Should stop after 2 books due to cancellation")
 
 
 if __name__ == '__main__':
