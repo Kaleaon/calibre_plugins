@@ -146,5 +146,153 @@ class TaggerDialogTests(unittest.TestCase):
         self.assertGreaterEqual(qt_core.QLabel.return_value.setWordWrap.call_count, 4)
 
 
+class SelectionStateTests(unittest.TestCase):
+    def setUp(self):
+        self.books = [
+            book(1, identifiers={'royalroad': '1'}, tags=['Existing1']),
+            book(2, identifiers={'royalroad': '2'}, tags=['Existing2']),
+            book(3, identifiers={'metabods': '3'}),
+        ]
+        parsed_rules, _ = rules.parse_rules('title:Book => LitRPG')
+        self.plan = rules.plan_changes(self.books, rules=parsed_rules)
+
+    def test_distinct_tags_and_counts(self):
+        state = rules.TagSelectionState(self.plan)
+        distinct = dict(state.get_distinct_tags())
+        self.assertEqual(distinct['Source.Royal Road'], 2)
+        self.assertEqual(distinct['Source.Metabods'], 1)
+        self.assertEqual(distinct['LitRPG'], 3)
+
+        assignments, affected = state.get_summary_counts()
+        self.assertEqual(assignments, 6)
+        self.assertEqual(affected, 3)
+
+    def test_global_toggle_disables_tag_across_all_books(self):
+        state = rules.TagSelectionState(self.plan)
+        state.set_global_tag('Source.Royal Road', False)
+
+        active = state.get_active_plan()
+        active_dict = {p['id']: p['add'] for p in active}
+        self.assertEqual(active_dict[1], ['LitRPG'])
+        self.assertEqual(active_dict[2], ['LitRPG'])
+        self.assertEqual(active_dict[3], ['Source.Metabods', 'LitRPG'])
+
+        assignments, affected = state.get_summary_counts()
+        self.assertEqual(assignments, 4)
+        self.assertEqual(affected, 3)
+
+    def test_book_override_does_not_change_global_state(self):
+        state = rules.TagSelectionState(self.plan)
+        state.set_book_tag(1, 'Source.Royal Road', False)
+
+        self.assertTrue(state.global_tags['Source.Royal Road'])
+        self.assertFalse(state.is_tag_active(1, 'Source.Royal Road'))
+        self.assertTrue(state.is_tag_active(2, 'Source.Royal Road'))
+
+        active = state.get_active_plan()
+        active_dict = {p['id']: p['add'] for p in active}
+        self.assertEqual(active_dict[1], ['LitRPG'])
+        self.assertEqual(active_dict[2], ['Source.Royal Road', 'LitRPG'])
+
+    def test_retoggling_global_tag_updates_all_books(self):
+        state = rules.TagSelectionState(self.plan)
+        state.set_book_tag(1, 'Source.Royal Road', False)
+        self.assertFalse(state.is_tag_active(1, 'Source.Royal Road'))
+
+        state.set_global_tag('Source.Royal Road', True)
+        self.assertTrue(state.is_tag_active(1, 'Source.Royal Road'))
+        self.assertTrue(state.is_tag_active(2, 'Source.Royal Road'))
+
+    def test_active_plan_preserves_existing_tags(self):
+        state = rules.TagSelectionState(self.plan)
+        state.set_book_tag(1, 'LitRPG', False)
+
+        active = state.get_active_plan()
+        book1_plan = next(p for p in active if p['id'] == 1)
+        self.assertEqual(book1_plan['tags'], ['Existing1', 'Source.Royal Road'])
+
+
+class MockTreeItem:
+    def __init__(self, text, check_state=2):
+        self.text_val = text
+        self.check_val = check_state
+        self.children = []
+
+    def checkState(self, col):
+        return self.check_val
+
+    def setCheckState(self, col, state):
+        self.check_val = state
+
+    def childCount(self):
+        return len(self.children)
+
+    def child(self, i):
+        return self.children[i]
+
+    def addChild(self, child):
+        self.children.append(child)
+
+
+class UiSyncTests(unittest.TestCase):
+    def test_ui_tree_sync_simulation(self):
+        # Simulates the tree synchronization logic in action.py
+        books = [
+            book(1, identifiers={'royalroad': '1'}),
+            book(2, identifiers={'royalroad': '2'}),
+        ]
+        parsed_rules, _ = rules.parse_rules('title:Book => LitRPG')
+        plan = rules.plan_changes(books, rules=parsed_rules)
+        sel = rules.TagSelectionState(plan)
+
+        # Build mock trees
+        global_items = {}
+        for tag, count in sel.get_distinct_tags():
+            item = MockTreeItem(f'{tag} ({count})', check_state=2)
+            item._tag_name = tag
+            global_items[tag] = item
+
+        book_nodes = []
+        for p in plan:
+            b_item = MockTreeItem(p['title'], check_state=2)
+            b_item._book_id = p['id']
+            for tag in p.get('add', []):
+                t_item = MockTreeItem(tag, check_state=2)
+                t_item._book_id = p['id']
+                t_item._tag = tag
+                b_item.addChild(t_item)
+            book_nodes.append(b_item)
+
+        # Simulate unchecking 'LitRPG' globally
+        global_litrpg = global_items['LitRPG']
+        global_litrpg.setCheckState(0, 0)  # Unchecked = 0
+        sel.set_global_tag('LitRPG', False)
+
+        for b_item in book_nodes:
+            for j in range(b_item.childCount()):
+                t_item = b_item.child(j)
+                if getattr(t_item, '_tag', None) == 'LitRPG':
+                    t_item.setCheckState(0, 0)
+
+        # Verify all LitRPG child items in books tree became Unchecked
+        for b_item in book_nodes:
+            litrpg_children = [b_item.child(j) for j in range(b_item.childCount()) if getattr(b_item.child(j), '_tag', None) == 'LitRPG']
+            for child in litrpg_children:
+                self.assertEqual(child.checkState(0), 0)
+
+        # Verify per-book override: check LitRPG back for Book 1
+        book1_litrpg = next(b_item.child(j) for b_item in book_nodes if b_item._book_id == 1 for j in range(b_item.childCount()) if b_item.child(j)._tag == 'LitRPG')
+        book1_litrpg.setCheckState(0, 2)
+        sel.set_book_tag(1, 'LitRPG', True)
+
+        # Global tag checkbox remains Unchecked
+        self.assertEqual(global_litrpg.checkState(0), 0)
+        # Selection state confirms Book 1 has LitRPG active, Book 2 does not
+        self.assertTrue(sel.is_tag_active(1, 'LitRPG'))
+        self.assertFalse(sel.is_tag_active(2, 'LitRPG'))
+
+
 if __name__ == '__main__':
     unittest.main()
+
+
