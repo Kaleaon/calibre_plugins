@@ -246,9 +246,81 @@ def clean_title(subject, fallback):
     return title or fallback
 
 
-def fetch_book(fetcher, ref, progress=lambda msg: None):
+def parse_chapter_range(range_str, total_chapters):
+    """Convert range syntax (e.g. '1-5', '8', '10+', '5-') into 0-based chapter indices.
+
+    Invalid or empty range strings default to including all chapters.
+    Out-of-bound indices are safely ignored.
+    """
+    if total_chapters <= 0:
+        return set()
+    all_indices = set(range(total_chapters))
+    if not range_str or not str(range_str).strip():
+        return all_indices
+
+    tokens = [t for t in re.split(r'[,;\s]+', str(range_str).strip()) if t]
+    indices = set()
+    has_valid_syntax = False
+
+    for token in tokens:
+        # Match '10+' or '10-'
+        m = re.match(r'^(\d+)[+-]$', token)
+        if m:
+            start = int(m.group(1))
+            has_valid_syntax = True
+            for idx in range(start - 1, total_chapters):
+                if 0 <= idx < total_chapters:
+                    indices.add(idx)
+            continue
+
+        # Match '1-5'
+        m = re.match(r'^(\d+)-(\d+)$', token)
+        if m:
+            start, end = int(m.group(1)), int(m.group(2))
+            has_valid_syntax = True
+            if start <= end:
+                for idx in range(start - 1, end):
+                    if 0 <= idx < total_chapters:
+                        indices.add(idx)
+            continue
+
+        # Match '-5'
+        m = re.match(r'^-(\d+)$', token)
+        if m:
+            end = int(m.group(1))
+            has_valid_syntax = True
+            for idx in range(0, end):
+                if 0 <= idx < total_chapters:
+                    indices.add(idx)
+            continue
+
+        # Match single chapter number '8'
+        m = re.match(r'^(\d+)$', token)
+        if m:
+            num = int(m.group(1))
+            has_valid_syntax = True
+            idx = num - 1
+            if 0 <= idx < total_chapters:
+                indices.add(idx)
+            continue
+
+    if not has_valid_syntax:
+        return all_indices
+
+    return indices
+
+
+def fetch_book(fetcher, ref, progress=lambda msg: None, chapter_range=None):
     """Download every chapter file of a resolved reference and return one story dict."""
-    paths = ref['files']
+    orig_files = ref['files'] or []
+    total_chapters = len(orig_files)
+    paths = orig_files
+    if chapter_range is not None and paths:
+        if isinstance(chapter_range, str):
+            indices = parse_chapter_range(chapter_range, len(paths))
+        else:
+            indices = set(chapter_range)
+        paths = [p for i, p in enumerate(paths) if i in indices]
     chapters, first_headers = [], {}
     for n, path in enumerate(paths, 1):
         progress(f"{ref['title']}: chapter {n} of {len(paths)}")
@@ -261,7 +333,7 @@ def fetch_book(fetcher, ref, progress=lambda msg: None):
         if n == 1:
             first_headers = headers
         number = split_chapter(path.rsplit('/', 1)[-1])[1]
-        label = '' if len(paths) == 1 else f'Chapter {number if number is not None else n}'
+        label = '' if total_chapters == 1 else f'Chapter {number if number is not None else n}'
         chapters.append((label, converted or '<p>(empty)</p>'))
     folder_parts = ref['id'].split('/')
     tags = [humanize(p) for p in folder_parts[:-1]][:2]  # section and category
@@ -270,20 +342,21 @@ def fetch_book(fetcher, ref, progress=lambda msg: None):
         pubdate = parsedate_to_datetime(first_headers.get('date', '')).date().isoformat()
     except (TypeError, ValueError, IndexError):
         pass
-    return {'id': ref['id'], 'url': url_for(paths[0]) if len(paths) == 1 else url_for(paths[0].rsplit('/', 1)[0] + '/'),
+    first_url = url_for(paths[0]) if paths and len(paths) == 1 else (url_for(paths[0].rsplit('/', 1)[0] + '/') if paths else url_for(ref['id'] + '/'))
+    return {'id': ref['id'], 'url': first_url,
             'title': clean_title(first_headers.get('subject', ''), ref['title']),
             'author': author_name(first_headers.get('from', '')), 'sections': chapters,
             'tags': tags, 'categories': [], 'summary': '', 'publisher': PUBLISHER, 'pubdate': pubdate}
 
 
-def download_ref(fetcher, ref, skip_ids=frozenset(), progress=lambda msg: None):
+def download_ref(fetcher, ref, skip_ids=frozenset(), progress=lambda msg: None, chapter_range=None):
     """Resolve a reference and download its books. Returns (stories, skipped_count)."""
     stories, skipped = [], 0
     for resolved in resolve_ref(fetcher, ref):
         if resolved['id'] in skip_ids:
             skipped += 1
             continue
-        stories.append(fetch_book(fetcher, resolved, progress))
+        stories.append(fetch_book(fetcher, resolved, progress, chapter_range=chapter_range))
     return stories, skipped
 
 
@@ -427,7 +500,7 @@ def story_address(story):
     return url_for(story['path'] + ('/' if story.get('dir') else ''))
 
 
-def iter_selection(fetcher, selection, skip_ids=frozenset(), progress=lambda msg: None, stats=None):
+def iter_selection(fetcher, selection, skip_ids=frozenset(), progress=lambda msg: None, stats=None, chapter_range=None):
     """Download each selection item in turn, yielding {'title', 'stories'} as soon as it is done, so a cancel keeps
     everything finished so far. stats collects 'skipped' (already in the library) and 'problems'.
 
@@ -442,7 +515,7 @@ def iter_selection(fetcher, selection, skip_ids=frozenset(), progress=lambda msg
             refs, errors = expand_targets(fetcher, item['addresses'], progress)
             stats['problems'] += errors
             for ref in refs:
-                got, skip = download_ref(fetcher, ref, skip_ids, progress)
+                got, skip = download_ref(fetcher, ref, skip_ids, progress, chapter_range=chapter_range)
                 stories += got
                 stats['skipped'] += skip
         except IOError as exc:

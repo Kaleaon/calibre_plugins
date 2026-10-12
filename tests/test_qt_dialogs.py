@@ -214,11 +214,12 @@ class OtherDialogTests(QtCase):
         dialog = ui.DownloadDialog(None)
         dialog.text.setPlainText('bennet-3120\n\n  https://metabods.com/mbxy/site/archive.php?list=author&id=368  \n')
         self.assertEqual(len(dialog.lines()), 2)
-        skip, combine, title = dialog.options.values()
-        self.assertEqual((skip, combine, title), (True, False, ''))
+        skip, combine, title, chapter_range = dialog.options.values()
+        self.assertEqual((skip, combine, title, chapter_range), (True, False, '', ''))
         dialog.options.combine.setChecked(True)
         dialog.options.title.setText('  Omnibus ')
-        self.assertEqual(dialog.options.values(), (True, True, 'Omnibus'))
+        dialog.options.chapter_range.setText('1-5')
+        self.assertEqual(dialog.options.values(), (True, True, 'Omnibus', '1-5'))
 
     def test_nifty_browse_dialog_loads_and_selects(self):
         package = self.load('nifty_downloader')

@@ -32,7 +32,7 @@ class MetabodsAction(libkit.DownloaderAction):
         lines = dialog.lines()
         if not lines:
             return
-        skip, combine, title = dialog.options.values()
+        skip, combine, title = dialog.options.values()[:3]
 
         def expand(task):
             task.status = 'Reading links…'
@@ -55,7 +55,7 @@ class MetabodsAction(libkit.DownloaderAction):
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
         ids = dialog.selected_ids()
-        _, combine, title = dialog.options.values()
+        _, combine, title = dialog.options.values()[:3]
         self.download(ids, combine, title, [], 0)
 
     # -- download + import
