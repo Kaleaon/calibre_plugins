@@ -124,15 +124,28 @@ def _snippet(text):
     return text if len(text) <= 120 else text[:117] + '...'
 
 
-def scrub_document(root, matcher):
-    """Scrub one parsed XHTML tree in place. Returns a list of change descriptions."""
+def scrub_document(root, matcher, file_name="", allowed_change_ids=None, dry_run=False):
+    """Scrub one parsed XHTML tree in place or collect proposed changes.
+
+    Returns a list of change item dicts.
+    """
     changes = []
-    # comments and processing instructions
+    candidates = []
+
+    # 1. comments and processing instructions
     for node in list(root.iter()):
         if not isinstance(node.tag, str) and node.getparent() is not None and matcher.hit(node.text or ''):
-            changes.append(('comment removed', _snippet(node.text or '')))
-            _remove(node)
-    # short blocks that are promotion from top to bottom, innermost first
+            text = node.text or ''
+            candidates.append({
+                'type': 'comment',
+                'node': node,
+                'action': 'comment removed',
+                'text': _snippet(text),
+                'detail': f'Comment containing promotional text: "{text}"',
+                'category': 'HTML Comments'
+            })
+
+    # 2. short blocks that are promotion from top to bottom, innermost first
     body = next((e for e in root.iter() if _local(e) == 'body'), root)
     for el in [e for e in body.iter() if _local(e) in LEAF_BLOCKS]:
         if el.getparent() is None or any(_local(d) in BLOCK_TAGS for d in el.iterdescendants()):
@@ -140,30 +153,39 @@ def scrub_document(root, matcher):
         text = _norm(''.join(el.itertext()))
         hrefs = ' '.join(unquote(d.get('href') or '') for d in el.iter() if _local(d) == 'a')
         if (matcher.promo_block(text) or matcher.promo_block(hrefs) and len(text) <= MAX_BLOCK_CHARS) and not _has_media(el):
-            changes.append(('block removed', _snippet(text)))
-            parent = el.getparent()
-            _remove(el)
-            while parent is not None and parent is not body and parent.getparent() is not None and _is_empty(parent) \
-                    and _local(parent) in BLOCK_TAGS | {'span'}:
-                grand = parent.getparent()
-                _remove(parent)
-                parent = grand
-    # hyperlinks pointing at a promotional site
+            candidates.append({
+                'type': 'block',
+                'node': el,
+                'action': 'block removed',
+                'text': _snippet(text),
+                'detail': f'Promotional block element (<{_local(el)}>):\n"{text}"',
+                'category': 'Content Blocks'
+            })
+
+    # 3. hyperlinks pointing at a promotional site
     for a in [e for e in root.iter() if _local(e) == 'a']:
         href = a.get('href') or ''
         if not matcher.hit(unquote(href)) or a.getparent() is None:
             continue
         text = _norm(''.join(a.itertext()))
         if not text or matcher.hit(text) or URLISH.fullmatch(text) or len(text) <= 3:
-            if _has_media(a):
-                del a.attrib['href']
-            else:
-                _remove(a)
-            changes.append(('link removed', f'{_snippet(text)} -> {href[:100]}'))
+            action = 'link removed'
+            detail = f'Hyperlink removed:\nText: "{text}"\nTarget: {href}'
         else:
-            _unwrap(a)
-            changes.append(('link unwrapped', f'{_snippet(text)} -> {href[:100]}'))
-    # leftover mentions inside longer text
+            action = 'link unwrapped'
+            detail = f'Hyperlink unwrapped (link removed, text preserved):\nText: "{text}"\nTarget: {href}'
+        candidates.append({
+            'type': 'link',
+            'node': a,
+            'action': action,
+            'text': f'{_snippet(text)} -> {href[:100]}',
+            'original_text': text,
+            'href': href,
+            'detail': detail,
+            'category': 'Hyperlinks'
+        })
+
+    # 4. leftover mentions inside longer text
     for el in root.iter():
         if not isinstance(el.tag, str):
             continue
@@ -172,8 +194,73 @@ def scrub_document(root, matcher):
             if value and matcher.hit(value):
                 new = matcher.clean_text(value)
                 if new != value:
-                    changes.append(('text trimmed', _snippet(value)))
+                    candidates.append({
+                        'type': 'text',
+                        'node': el,
+                        'attr': attr,
+                        'action': 'text trimmed',
+                        'text': _snippet(value),
+                        'detail': f'Promotional text trimmed:\nBefore: {value}\nAfter: {new}',
+                        'category': 'Text Mentions'
+                    })
+
+    for idx, cand in enumerate(candidates):
+        change_id = f"{file_name}:{cand['action']}:{idx}"
+        item = {
+            'file': file_name,
+            'action': cand['action'],
+            'text': cand['text'],
+            'id': change_id,
+            'detail': cand['detail'],
+            'category': cand['category']
+        }
+
+        if dry_run:
+            changes.append(item)
+            continue
+
+        if allowed_change_ids is not None and change_id not in allowed_change_ids:
+            continue
+
+        ctype = cand['type']
+        if ctype == 'comment':
+            node = cand['node']
+            if node.getparent() is not None:
+                _remove(node)
+                changes.append(item)
+        elif ctype == 'block':
+            el = cand['node']
+            if el.getparent() is not None:
+                parent = el.getparent()
+                _remove(el)
+                while parent is not None and parent is not body and parent.getparent() is not None and _is_empty(parent) \
+                        and _local(parent) in BLOCK_TAGS | {'span'}:
+                    grand = parent.getparent()
+                    _remove(parent)
+                    parent = grand
+                changes.append(item)
+        elif ctype == 'link':
+            a = cand['node']
+            if a.getparent() is not None:
+                text = cand['original_text']
+                if not text or matcher.hit(text) or URLISH.fullmatch(text) or len(text) <= 3:
+                    if _has_media(a):
+                        del a.attrib['href']
+                    else:
+                        _remove(a)
+                else:
+                    _unwrap(a)
+                changes.append(item)
+        elif ctype == 'text':
+            el = cand['node']
+            attr = cand['attr']
+            curr = getattr(el, attr)
+            if curr and matcher.hit(curr):
+                new = matcher.clean_text(curr)
+                if new != curr:
                     setattr(el, attr, new)
+                    changes.append(item)
+
     return changes
 
 
@@ -205,28 +292,74 @@ def _resolve(base, href):
     return posixpath.normpath(posixpath.join(posixpath.dirname(base), href)) if href else base
 
 
-def _scrub_metadata(opf_root, matcher, changes):
+def _scrub_metadata(opf_root, matcher, changes, opf_name="", allowed_change_ids=None, dry_run=False):
     metadata = next((e for e in opf_root.iter() if _local(e) == 'metadata'), None)
     if metadata is None:
         return
+    candidates = []
     for el in list(metadata):
         name = _local(el)
         if name is None:
             continue
         text = el.text or ''
-        if not matcher.hit(text) and not matcher.hit(el.get('content') or ''):
+        content = el.get('content') or ''
+        if not matcher.hit(text) and not matcher.hit(content):
             continue
-        if name in DC_SINGLE or name == 'meta' and not el.get('refines') and not el.get('content', '').strip():
-            changes.append(('metadata removed', f'{name}: {_snippet(text)}'))
+        if name in DC_SINGLE or (name == 'meta' and not el.get('refines') and not content.strip()):
+            action = 'metadata removed'
+            text_val = text or content
+            snippet = f'{name}: {_snippet(text_val)}'
+            detail = f'Metadata tag <{name}> removed:\n"{text_val}"'
+        elif name == 'meta':
+            action = 'metadata trimmed'
+            snippet = f'meta: {_snippet(content)}'
+            detail = f'Metadata <meta> tag content trimmed:\nBefore: {content}\nAfter: {tidy(matcher.clean_text(content))}'
+        else:
+            action = 'metadata trimmed'
+            snippet = f'{name}: {_snippet(text)}'
+            detail = f'Metadata tag <{name}> text trimmed:\nBefore: {text}\nAfter: {tidy(matcher.clean_text(text))}'
+
+        candidates.append({
+            'el': el,
+            'name': name,
+            'text': text,
+            'content': content,
+            'action': action,
+            'snippet': snippet,
+            'detail': detail
+        })
+
+    for idx, cand in enumerate(candidates):
+        change_id = f"{opf_name}:{cand['action']}:{idx}"
+        item = {
+            'file': opf_name,
+            'action': cand['action'],
+            'text': cand['snippet'],
+            'id': change_id,
+            'detail': cand['detail'],
+            'category': 'Package Metadata'
+        }
+
+        if dry_run:
+            changes.append(item)
+            continue
+
+        if allowed_change_ids is not None and change_id not in allowed_change_ids:
+            continue
+
+        el = cand['el']
+        name = cand['name']
+        if cand['action'] == 'metadata removed':
+            changes.append(item)
             _remove(el)
         elif name == 'meta':
-            before = el.get('content')
+            before = cand['content']
             el.set('content', tidy(matcher.clean_text(before)))
-            changes.append(('metadata trimmed', f'meta: {_snippet(before)}'))
+            changes.append(item)
         else:
-            new = tidy(matcher.clean_text(text))
+            new = tidy(matcher.clean_text(cand['text']))
             if new:
-                changes.append(('metadata trimmed', f'{name}: {_snippet(text)}'))
+                changes.append(item)
                 el.text = new
 
 
@@ -272,7 +405,7 @@ def _drop_references(zf_items, dropped, opf_name, opf_root, extra_docs, changes)
             changes.append(('toc entry removed', _resolve(name, target)))
 
 
-def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True):
+def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, allowed_change_ids=None, dry_run=False):
     """Return (new_bytes_or_None, report). None means nothing needed changing."""
     matcher = Matcher(extra_patterns, heuristic)
     try:
@@ -310,14 +443,28 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True):
                 if matcher.hit(raw.decode('utf-8', 'ignore')):
                     report['skipped'].append(f'{name}: not well-formed XML, left unchanged but mentions a blocked site')
                 continue
-            found = scrub_document(root, matcher)
+            found = scrub_document(root, matcher, name, allowed_change_ids=allowed_change_ids, dry_run=dry_run)
             if not found:
                 continue
-            report['changes'] += [{'file': name, 'action': a, 'text': t} for a, t in found]
+            report['changes'] += found
             trees[name] = (root, raw)
             body = next((e for e in root.iter() if _local(e) == 'body'), None)
             if drop_empty_pages and body is not None and name not in nav_names and _is_empty(body):
-                empties.append(name)
+                change_id = f"{name}:page dropped:0"
+                cand_item = {
+                    'file': name,
+                    'action': 'page dropped',
+                    'text': name,
+                    'id': change_id,
+                    'detail': f'Empty page containing only promotional content will be deleted: {name}',
+                    'category': 'Dropped Pages'
+                }
+                if dry_run:
+                    empties.append(name)
+                    report['changes'].append(cand_item)
+                elif allowed_change_ids is None or change_id in allowed_change_ids:
+                    empties.append(name)
+
         dropped = set(empties) if opf_root is not None else set()
         extra_docs = {}
         if dropped:
@@ -329,16 +476,30 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True):
                     extra_docs[name] = root
         meta_changes = []
         if opf_root is not None:
-            _scrub_metadata(opf_root, matcher, meta_changes)
-            if dropped:
+            _scrub_metadata(opf_root, matcher, meta_changes, opf_name=opf_name or '', allowed_change_ids=allowed_change_ids, dry_run=dry_run)
+            if dropped and not dry_run:
                 _drop_references(None, dropped, opf_name, opf_root, extra_docs, meta_changes)
-        report['changes'] += [{'file': opf_name, 'action': a, 'text': t} for a, t in meta_changes]
+        report['changes'] += meta_changes
         report['dropped_pages'] = sorted(dropped)
         comment_hit = bool(zf.comment and matcher.hit(zf.comment.decode('utf-8', 'ignore')))
         if comment_hit:
-            report['changes'].append({'file': '(zip)', 'action': 'archive comment removed', 'text': ''})
-        if not report['changes']:
+            change_id = "(zip):archive comment removed:0"
+            cand_item = {
+                'file': '(zip)',
+                'action': 'archive comment removed',
+                'text': '',
+                'id': change_id,
+                'detail': 'ZIP archive comment contains promotional text and will be removed.',
+                'category': 'Archive Comment'
+            }
+            if dry_run:
+                report['changes'].append(cand_item)
+            elif allowed_change_ids is None or change_id in allowed_change_ids:
+                pass
+
+        if dry_run or not report['changes']:
             return None, report
+
         for name, (root, raw) in trees.items():
             if name in dropped:
                 continue
@@ -360,12 +521,12 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True):
                 clone.compress_type = zipfile.ZIP_STORED if info.filename == 'mimetype' else zipfile.ZIP_DEFLATED
                 clone.external_attr = info.external_attr
                 new.writestr(clone, payload)
-            if zf.comment and not comment_hit:
+            if zf.comment and not (comment_hit and (allowed_change_ids is None or "(zip):archive comment removed:0" in allowed_change_ids)):
                 new.comment = zf.comment
         return out.getvalue(), report
 
 
-def scrub_files(source, output=None, extra_patterns=(), heuristic=True, drop_empty_pages=True, in_place=False):
+def scrub_files(source, output=None, extra_patterns=(), heuristic=True, drop_empty_pages=True, in_place=False, allowed_change_ids=None):
     """Scrub every .epub under source (file or folder).
 
     By default cleaned copies go to a separate output folder and originals are never modified.
@@ -384,7 +545,7 @@ def scrub_files(source, output=None, extra_patterns=(), heuristic=True, drop_emp
     for path in paths:
         row = {'input': str(path)}
         try:
-            data, report = scrub_epub(path.read_bytes(), extra_patterns, heuristic, drop_empty_pages)
+            data, report = scrub_epub(path.read_bytes(), extra_patterns, heuristic, drop_empty_pages, allowed_change_ids=allowed_change_ids)
             row.update(report)
             if data is None:
                 row['status'] = 'unchanged'

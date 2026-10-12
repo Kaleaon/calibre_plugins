@@ -4,10 +4,10 @@ from calibre.gui2 import error_dialog, info_dialog
 from calibre.utils.config import JSONConfig
 from qt.core import (QAction, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QLabel, QMenu,
                      QPlainTextEdit, QVBoxLayout)
-from calibre_plugins.epub_promo_scrubber.core import Matcher, scrub_epub, scrub_files, tidy
+from calibre_plugins.epub_promo_scrubber.core import Matcher, _snippet, scrub_epub, scrub_files, tidy
 
 prefs = JSONConfig('plugins/epub_promo_scrubber')
-prefs.defaults.update(extra_patterns='', heuristic=True, drop_empty_pages=True, backup=True, in_place=False)
+prefs.defaults.update(extra_patterns='', heuristic=True, drop_empty_pages=True, backup=True, in_place=False, show_preview=True)
 
 
 class ScrubAction(InterfaceAction):
@@ -39,6 +39,8 @@ class ScrubAction(InterfaceAction):
                                 'Extra site names or domains to remove, one per line (prefix a line with re: for a regular expression):'))
         patterns = QPlainTextEdit(prefs['extra_patterns'])
         layout.addWidget(patterns)
+        show_preview = QCheckBox('Show preview dialog before applying changes')
+        show_preview.setChecked(prefs.get('show_preview', True))
         heuristic = QCheckBox('Also remove short "Downloaded from <website>" / "free ebooks" style blocks from any site')
         heuristic.setChecked(prefs['heuristic'])
         drop = QCheckBox('Delete pages that contain nothing but promotion (and their contents entries)')
@@ -47,7 +49,7 @@ class ScrubAction(InterfaceAction):
         backup.setChecked(prefs['backup'])
         in_place = QCheckBox('Files and folders: replace the original files with cleaned versions instead of writing copies to another folder')
         in_place.setChecked(prefs['in_place'])
-        for box in (heuristic, drop, backup, in_place):
+        for box in (show_preview, heuristic, drop, backup, in_place):
             layout.addWidget(box)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dialog.accept)
@@ -55,6 +57,7 @@ class ScrubAction(InterfaceAction):
         layout.addWidget(buttons)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             prefs['extra_patterns'] = patterns.toPlainText()
+            prefs['show_preview'] = show_preview.isChecked()
             prefs['heuristic'] = heuristic.isChecked()
             prefs['drop_empty_pages'] = drop.isChecked()
             prefs['backup'] = backup.isChecked()
@@ -68,41 +71,144 @@ class ScrubAction(InterfaceAction):
         extra, heuristic, drop = self.options()
         db = self.gui.current_db.new_api
         matcher = Matcher(extra, heuristic)
-        changed, unchanged, errors = [], 0, []
-        for book_id in ids:
-            try:
-                data = db.format(book_id, 'EPUB')
-                if not data:
-                    continue
-                new, report = scrub_epub(data, extra, heuristic, drop)
-                if new is not None:
-                    if prefs['backup']:
-                        db.save_original_format(book_id, 'EPUB')
-                    elif 'ORIGINAL_EPUB' in (db.formats(book_id) or ()):
-                        db.remove_formats({book_id: {'ORIGINAL_EPUB'}})
-                    if not db.add_format(book_id, 'EPUB', BytesIO(new), replace=True):
-                        raise ValueError('Calibre could not save the scrubbed EPUB')
-                    changed.append(book_id)
-                else:
-                    unchanged += 1
-                self.scrub_fields(db, book_id, matcher)
-            except Exception as exc:
-                errors.append(f'{book_id}: {exc}')
-        self.gui.library_view.model().refresh()
-        self.gui.tags_view.recount()
-        info_dialog(self.gui, 'EPUB Promo Scrubber',
-                    f'{len(changed)} EPUB(s) scrubbed; {unchanged} had nothing to remove; {len(errors)} error(s).' +
-                    (f'\n{"; ".join(errors)}' if errors else ''), show=True)
 
-    def scrub_fields(self, db, book_id, matcher):
+        if prefs.get('show_preview', True):
+            try:
+                from .guikit import run_task
+            except ImportError:
+                from calibre_plugins.epub_promo_scrubber.guikit import run_task
+
+            def scan_worker(task):
+                scan_results = []
+                for idx, book_id in enumerate(ids):
+                    if task.cancelled():
+                        break
+                    task.status = f'Scanning book {idx + 1} of {len(ids)}...'
+                    mi = db.get_metadata(book_id)
+                    title = mi.title if mi else f'Book {book_id}'
+                    data = db.format(book_id, 'EPUB')
+                    book_changes = []
+                    if data:
+                        _, report = scrub_epub(data, extra, heuristic, drop, dry_run=True)
+                        book_changes.extend(report.get('changes', []))
+                    meta_changes = self.scrub_fields(db, book_id, matcher, dry_run=True)
+                    book_changes.extend(meta_changes)
+                    if book_changes:
+                        scan_results.append({
+                            'book_id': book_id,
+                            'title': title,
+                            'data': data,
+                            'changes': book_changes
+                        })
+                return scan_results
+
+            task = run_task(self.gui, 'Scanning EPUBs for promo content...', scan_worker)
+            if task.cancelled() or task.error:
+                if task.error:
+                    error_dialog(self.gui, 'Scan failed', str(task.error), show=True)
+                return
+            scan_results = task.result or []
+            if not scan_results:
+                info_dialog(self.gui, 'EPUB Promo Scrubber', 'No promotional items found in selected books.', show=True)
+                return
+
+            try:
+                from .ui import ScrubPreviewDialog
+            except ImportError:
+                from calibre_plugins.epub_promo_scrubber.ui import ScrubPreviewDialog
+
+            dialog = ScrubPreviewDialog(self.gui, scan_results)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+
+            allowed_ids = dialog.get_selected_change_ids()
+            if not allowed_ids:
+                return
+
+            changed, unchanged, errors = [], 0, []
+            for res in scan_results:
+                book_id = res['book_id']
+                data = res['data']
+                try:
+                    book_changed = False
+                    if data:
+                        new_bytes, report = scrub_epub(data, extra, heuristic, drop, allowed_change_ids=allowed_ids)
+                        if new_bytes is not None:
+                            if prefs['backup']:
+                                db.save_original_format(book_id, 'EPUB')
+                            elif 'ORIGINAL_EPUB' in (db.formats(book_id) or ()):
+                                db.remove_formats({book_id: {'ORIGINAL_EPUB'}})
+                            if not db.add_format(book_id, 'EPUB', BytesIO(new_bytes), replace=True):
+                                raise ValueError('Calibre could not save the scrubbed EPUB')
+                            book_changed = True
+
+                    field_changes = self.scrub_fields(db, book_id, matcher, allowed_change_ids=allowed_ids)
+                    if field_changes or book_changed:
+                        changed.append(book_id)
+                    else:
+                        unchanged += 1
+                except Exception as exc:
+                    errors.append(f'{book_id}: {exc}')
+
+            self.gui.library_view.model().refresh()
+            self.gui.tags_view.recount()
+            info_dialog(self.gui, 'EPUB Promo Scrubber',
+                        f'{len(changed)} EPUB(s) scrubbed; {unchanged} had nothing to remove; {len(errors)} error(s).' +
+                        (f'\n{"; ".join(errors)}' if errors else ''), show=True)
+
+        else:
+            changed, unchanged, errors = [], 0, []
+            for book_id in ids:
+                try:
+                    data = db.format(book_id, 'EPUB')
+                    if not data:
+                        continue
+                    new, report = scrub_epub(data, extra, heuristic, drop)
+                    if new is not None:
+                        if prefs['backup']:
+                            db.save_original_format(book_id, 'EPUB')
+                        elif 'ORIGINAL_EPUB' in (db.formats(book_id) or ()):
+                            db.remove_formats({book_id: {'ORIGINAL_EPUB'}})
+                        if not db.add_format(book_id, 'EPUB', BytesIO(new), replace=True):
+                            raise ValueError('Calibre could not save the scrubbed EPUB')
+                        changed.append(book_id)
+                    else:
+                        unchanged += 1
+                    self.scrub_fields(db, book_id, matcher)
+                except Exception as exc:
+                    errors.append(f'{book_id}: {exc}')
+            self.gui.library_view.model().refresh()
+            self.gui.tags_view.recount()
+            info_dialog(self.gui, 'EPUB Promo Scrubber',
+                        f'{len(changed)} EPUB(s) scrubbed; {unchanged} had nothing to remove; {len(errors)} error(s).' +
+                        (f'\n{"; ".join(errors)}' if errors else ''), show=True)
+
+    def scrub_fields(self, db, book_id, matcher, allowed_change_ids=None, dry_run=False):
         """Remove the same marks from the library's own title, publisher and comments fields."""
         mi = db.get_metadata(book_id)
+        field_changes = []
+        if not mi:
+            return field_changes
         for field, value in (('title', mi.title), ('publisher', mi.publisher), ('comments', mi.comments)):
             if value and matcher.hit(value):
                 new = tidy(matcher.clean_text(value))
                 if field == 'title' and not new:
                     continue
-                db.set_field(field, {book_id: new or None})
+                change_id = f"book_{book_id}:field_{field}"
+                item = {
+                    'file': f'Metadata: {field}',
+                    'action': f'calibre metadata trimmed',
+                    'text': _snippet(value),
+                    'id': change_id,
+                    'detail': f'Calibre metadata field "{field}" trimmed:\nBefore: {value}\nAfter: {new or "(empty)"}',
+                    'category': 'Calibre Metadata Fields'
+                }
+                if dry_run:
+                    field_changes.append(item)
+                elif allowed_change_ids is None or change_id in allowed_change_ids:
+                    db.set_field(field, {book_id: new or None})
+                    field_changes.append(item)
+        return field_changes
 
     def scrub_folder(self):
         from qt.core import QMessageBox
@@ -124,16 +230,82 @@ class ScrubAction(InterfaceAction):
             output = QFileDialog.getExistingDirectory(self.gui, 'Select a separate folder for scrubbed copies')
             if not output:
                 return
-        try:
-            extra, heuristic, drop = self.options()
-            rows, report_path = scrub_files(source, output, extra, heuristic, drop, in_place)
-            done = 'replaced' if in_place else 'scrubbed'
-            counts = {s: sum(r['status'] == s for r in rows) for s in (done, 'unchanged', 'error')}
-            info_dialog(self.gui, 'EPUB Promo Scrubber',
-                        f'{counts[done]} {done}, {counts["unchanged"]} unchanged, {counts["error"]} errors.\n' +
-                        ('Original files were overwritten.' if in_place else 'Originals were not modified.') + f'\nReport: {report_path}', show=True)
-        except Exception as exc:
-            error_dialog(self.gui, 'EPUB Promo Scrubber failed', str(exc), show=True)
+
+        extra, heuristic, drop = self.options()
+
+        if prefs.get('show_preview', True):
+            try:
+                from .guikit import run_task
+            except ImportError:
+                from calibre_plugins.epub_promo_scrubber.guikit import run_task
+
+            from pathlib import Path
+            src_path = Path(source)
+            paths = [src_path] if src_path.is_file() else sorted(src_path.rglob('*.epub'))
+
+            def scan_folder_worker(task):
+                scan_results = []
+                for idx, p in enumerate(paths):
+                    if task.cancelled():
+                        break
+                    task.status = f'Scanning file {idx + 1} of {len(paths)}...'
+                    try:
+                        data = p.read_bytes()
+                        _, report = scrub_epub(data, extra, heuristic, drop, dry_run=True)
+                        if report.get('changes'):
+                            scan_results.append({
+                                'path': str(p),
+                                'title': p.name,
+                                'changes': report['changes']
+                            })
+                    except Exception:
+                        pass
+                return scan_results
+
+            task = run_task(self.gui, 'Scanning EPUB files for promo content...', scan_folder_worker)
+            if task.cancelled() or task.error:
+                if task.error:
+                    error_dialog(self.gui, 'Scan failed', str(task.error), show=True)
+                return
+
+            scan_results = task.result or []
+            if not scan_results:
+                info_dialog(self.gui, 'EPUB Promo Scrubber', 'No promotional items found in selected file(s).', show=True)
+                return
+
+            try:
+                from .ui import ScrubPreviewDialog
+            except ImportError:
+                from calibre_plugins.epub_promo_scrubber.ui import ScrubPreviewDialog
+
+            dialog = ScrubPreviewDialog(self.gui, scan_results, is_folder=True)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+
+            allowed_ids = dialog.get_selected_change_ids()
+            if not allowed_ids:
+                return
+
+            try:
+                rows, report_path = scrub_files(source, output, extra, heuristic, drop, in_place, allowed_change_ids=allowed_ids)
+                done = 'replaced' if in_place else 'scrubbed'
+                counts = {s: sum(r['status'] == s for r in rows) for s in (done, 'unchanged', 'error')}
+                info_dialog(self.gui, 'EPUB Promo Scrubber',
+                            f'{counts[done]} {done}, {counts["unchanged"]} unchanged, {counts["error"]} errors.\n' +
+                            ('Original files were overwritten.' if in_place else 'Originals were not modified.') + f'\nReport: {report_path}', show=True)
+            except Exception as exc:
+                error_dialog(self.gui, 'EPUB Promo Scrubber failed', str(exc), show=True)
+
+        else:
+            try:
+                rows, report_path = scrub_files(source, output, extra, heuristic, drop, in_place)
+                done = 'replaced' if in_place else 'scrubbed'
+                counts = {s: sum(r['status'] == s for r in rows) for s in (done, 'unchanged', 'error')}
+                info_dialog(self.gui, 'EPUB Promo Scrubber',
+                            f'{counts[done]} {done}, {counts["unchanged"]} unchanged, {counts["error"]} errors.\n' +
+                            ('Original files were overwritten.' if in_place else 'Originals were not modified.') + f'\nReport: {report_path}', show=True)
+            except Exception as exc:
+                error_dialog(self.gui, 'EPUB Promo Scrubber failed', str(exc), show=True)
 
     def merge_selected(self):
         ids = list(self.gui.library_view.get_selected_ids())
@@ -176,4 +348,3 @@ class ScrubAction(InterfaceAction):
             info_dialog(self.gui, 'EPUB Merger', f'Merged {len(files)} EPUBs into:\n{out_path}', show=True)
         except Exception as exc:
             error_dialog(self.gui, 'EPUB Merger failed', str(exc), show=True)
-
