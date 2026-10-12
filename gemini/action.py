@@ -385,8 +385,6 @@ class GeminiFixerAction(InterfaceAction):
             if not chosen_fields():
                 return error_dialog(dialog, 'Gemini', 'Tick at least one thing to fix.', show=True)
             ids = selected if scope_selected.isChecked() else sorted(self.gui.current_db.new_api.all_book_ids())
-            if len(ids) > 100 and not question_dialog(dialog, 'Gemini', f'{len(ids)} books will be sent to Google in batches of {batch.value()}. Continue?'):
-                return
             tree.clear()
             update_ticked()
             activity.clear()
@@ -441,6 +439,29 @@ class GeminiFixerAction(InterfaceAction):
                 if cancel_flag.is_set():
                     log('Cancelled while reading. Nothing was sent to Google.')
                     return finish_run(None, len(books))
+
+                m_name = model.currentText().strip() or engine.DEFAULT_MODEL
+                est = engine.estimate_batch_usage(
+                    books,
+                    batch_size=batch.value(),
+                    covers=covers.isChecked(),
+                    min_interval=interval.value(),
+                    model=m_name
+                )
+                msg = (
+                    f"Pre-Flight API Usage Estimate:\n\n"
+                    f"• Selected Books: {est['books_count']}\n"
+                    f"• Batch Requests: {est['batch_count']} ({est['per_request']} books/request)\n"
+                    f"• Text Characters: {est['text_chars']:,}\n"
+                    f"• Estimated Tokens: ~{est['prompt_tokens']:,} ({est['text_tokens']:,} text, {est['image_tokens']:,} image)\n"
+                    f"• Estimated Duration: ~{est['estimated_duration']} seconds\n"
+                    f"• Estimated Cost: ${est['estimated_cost']:.4f} USD (Model: {m_name})\n\n"
+                    f"Do you want to proceed with sending these requests to Google Gemini?"
+                )
+                if not question_dialog(dialog, 'Gemini Pre-Flight Confirmation', msg):
+                    log('Cancelled at pre-flight confirmation. Nothing was sent to Google.')
+                    return finish_run(None, len(books))
+
                 result, error = ask_gemini(books)
             finally:
                 set_busy(False)
