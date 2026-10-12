@@ -11,6 +11,7 @@ import zipfile
 root = Path(__file__).resolve().parent
 SHARED = ['storykit.py', 'guikit.py', 'libkit.py']
 PLUGINS = {
+    'EpubPromoScrubber.zip': ('scrubber_plugin', 'epub_promo_scrubber', SHARED, False),
     'MetabodsDownloader.zip': ('metabods', 'metabods_downloader', SHARED, False),
     'NiftyDownloader.zip': ('nifty', 'nifty_downloader', SHARED, False),
     'StoryCollectionTagger.zip': ('tagger', 'story_collection_tagger', [], False),
