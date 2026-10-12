@@ -579,5 +579,42 @@ class BackgroundScanTests(unittest.TestCase):
         self.assertEqual(len(result_container['books']), 2, "Should stop after 2 books due to cancellation")
 
 
+class PartialExceptionPayloadTests(unittest.TestCase):
+    def test_sanitize_error_message_removes_api_keys(self):
+        msg = 'Failed call to https://generativelanguage.googleapis.com/v1beta?key=SECRET_123 with api_key=SECRET_123 in body'
+        clean = engine.sanitize_error_message(msg, api_key='SECRET_123')
+        self.assertNotIn('SECRET_123', clean)
+        self.assertIn('[REDACTED]', clean)
+
+    def test_partial_error_captures_earlier_suggestions_and_aborts_further_batches(self):
+        # Batch size 1, 3 books total. Batch 1 succeeds, Batch 2 raises network error.
+        calls = []
+
+        def reply_or_error(body):
+            calls.append(body)
+            ids = [row['id'] for row in json.loads(json.loads(body)['contents'][0]['parts'][0]['text'].split('\n', 1)[1])]
+            if 1 in ids:
+                return reply([{'id': 1, 'title': 'Clean Title 1', 'confidence': 'high'}])
+            raise engine.GeminiError('Network connection dropped')
+
+        t = Scripted(reply_or_error, reply_or_error, reply_or_error)
+        books = [book(1), book(2), book(3)]
+
+        with self.assertRaises(engine.GeminiPartialError) as cm:
+            engine.plan_fixes(books, 'secret-key-456', batch_size=1, transport=t)
+
+        err = cm.exception
+        # Check suggestions from batch 1 were captured
+        self.assertEqual(len(err.suggestions), 1)
+        self.assertEqual(err.suggestions[0]['id'], 1)
+        self.assertEqual(err.suggestions[0]['changes']['title'][1], 'Clean Title 1')
+        # Check original error details
+        self.assertIsNotNone(err.original_error)
+        self.assertIn('Network connection dropped', str(err))
+        # Check no further batch requests were attempted after batch 2 failed
+        self.assertEqual(len(calls), 2, 'Batch 3 should not be attempted after Batch 2 error')
+
+
 if __name__ == '__main__':
     unittest.main()
+
