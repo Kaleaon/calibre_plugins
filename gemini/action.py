@@ -84,7 +84,6 @@ class GeminiFixerAction(InterfaceAction):
                           'tags': list(mi.tags or []), 'languages': list(mi.languages or []), 'publisher': mi.publisher or '',
                           'filenames': names, 'excerpt': excerpt})
             on_book(i + 1, len(ids), books[-1])
-            QApplication.processEvents()  # keeps the window (and its Cancel button) alive while a big library is read
             if should_stop():
                 break
         return books
@@ -401,12 +400,44 @@ class GeminiFixerAction(InterfaceAction):
                 bar.setRange(0, max(1, len(ids)))
                 bar.setValue(0)
 
-                def on_book(index, total, book):
-                    bar.setValue(index)
-                    phase.setText(f'Reading your library: book {index} of {total}')
-                    log(f'  read {index}/{total}: {engine.describe_book(book)}')
+                read_messages = queue.Queue()
+                box = {}
 
-                books = self.books_for(ids, excerpt.isChecked(), on_book, cancel_flag.is_set, covers.isChecked())
+                def read_work():
+                    try:
+                        box['books'] = self.books_for(
+                            ids,
+                            excerpt.isChecked(),
+                            on_book=lambda index, total, book: read_messages.put(('progress', (index, total, book))),
+                            should_stop=cancel_flag.is_set,
+                            with_covers=covers.isChecked()
+                        )
+                    except Exception as exc:
+                        box['error'] = exc
+
+                reader = threading.Thread(target=read_work, daemon=True)
+                reader.start()
+
+                while reader.is_alive() or not read_messages.empty():
+                    while not read_messages.empty():
+                        kind, info = read_messages.get()
+                        if kind == 'progress':
+                            index, total, book = info
+                            bar.setValue(index)
+                            phase.setText(f'Reading your library: book {index} of {total}')
+                            log(f'  read {index}/{total}: {engine.describe_book(book)}')
+                    if cancel_flag.is_set():
+                        phase.setText('Cancelling… stopping library scan')
+                    else:
+                        phase.setText('Reading your library…')
+                    QApplication.processEvents()
+                    time.sleep(0.02)
+
+                if box.get('error'):
+                    log(f'✖ Stopped: {box["error"]}')
+                    return finish_run(None, 0, error=box['error'])
+
+                books = box.get('books', [])
                 if cancel_flag.is_set():
                     log('Cancelled while reading. Nothing was sent to Google.')
                     return finish_run(None, len(books))
