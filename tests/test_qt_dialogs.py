@@ -26,6 +26,7 @@ try:
     HAVE_QT = True
 except ImportError:  # also raised when system libraries such as libEGL are missing
     HAVE_QT = False
+    QtCore = QtGui = QtWidgets = None
 import build_plugins  # noqa: E402
 sys.path.insert(0, str(ROOT / 'tests'))
 from reddit_samples import entry, feed  # noqa: E402
