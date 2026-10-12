@@ -520,7 +520,7 @@ def is_big_change(changes):
 
 def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidence='medium', batch_size=15,
                tags_may_be_removed=False, progress=lambda text: None, cancelled=lambda: False, on_event=lambda kind, **info: None,
-               min_interval=0, sleep=time.sleep, clock=time.monotonic, **kw):
+               min_interval=0, sleep=time.sleep, clock=time.monotonic, fallback_model=None, **kw):
     """Returns (suggestions, skipped). A suggestion is {'id', 'title', 'changes', 'confidence', 'reason', 'big'}; skipped is a
     list of 'title: why' strings for books that could not be checked. On cancel, returns what was finished so far.
 
@@ -531,6 +531,8 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
     threshold = CONFIDENCE.get(min_confidence, 1)
     by_id = {b['id']: b for b in books}
     total = len(books)
+    active_model = model
+    current_fallback = fallback_model if (fallback_model and fallback_model != active_model) else None
 
     def finish(count):
         state['done'] += count
@@ -553,7 +555,7 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
             return
         on_event('sending', books=batch)
         try:
-            answers = generate(api_key, model, build_parts(batch), cancelled=cancelled, sleep=sleep,
+            answers = generate(api_key, active_model, build_parts(batch), cancelled=cancelled, sleep=sleep,
                                notify=lambda t: on_event('notice', text=t), **kw)
         except Blocked as exc:
             if len(batch) == 1:
@@ -598,11 +600,25 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
         try:
             ask(books[start:start + size])
         except QuotaExhausted as exc:
-            left = total - state['done']
-            skipped.append(f'{left} book(s) not checked: request limit used up')
-            on_event('notice', text=str(exc))
-            on_event('skipped', text=skipped[-1])
-            break
+            if current_fallback:
+                prev_model = active_model
+                active_model = current_fallback
+                current_fallback = None
+                on_event('notice', text=f'Quota exhausted for {prev_model}. Falling back to {active_model}.')
+                try:
+                    ask(books[start:start + size])
+                except QuotaExhausted as exc2:
+                    left = total - state['done']
+                    skipped.append(f'{left} book(s) not checked: request limit used up')
+                    on_event('notice', text=str(exc2))
+                    on_event('skipped', text=skipped[-1])
+                    break
+            else:
+                left = total - state['done']
+                skipped.append(f'{left} book(s) not checked: request limit used up')
+                on_event('notice', text=str(exc))
+                on_event('skipped', text=skipped[-1])
+                break
         except GeminiError as exc:
             if str(exc) == 'Cancelled':
                 break
