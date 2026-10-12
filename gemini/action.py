@@ -4,7 +4,11 @@ import queue
 import threading
 import time
 
-from calibre.gui2 import error_dialog, info_dialog, question_dialog
+try:
+    from calibre.gui2 import error_dialog, info_dialog, question_dialog, warning_dialog
+except ImportError:
+    from calibre.gui2 import error_dialog, info_dialog, question_dialog
+    warning_dialog = error_dialog
 from calibre.gui2.actions import InterfaceAction
 from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                      QBuffer, QImage, QIODevice, QPlainTextEdit, QProgressBar, QRadioButton, QSpinBox, QSplitter, Qt, QTreeWidget,
@@ -534,16 +538,28 @@ class GeminiFixerAction(InterfaceAction):
 
         def finish_run(result, count, error=None):
             phase.setText('Idle.')
+            partial_error = None
             if error:
-                log(f'✖ Stopped: {error}')
-                return error_dialog(dialog, 'Gemini', str(error), show=True)
+                if hasattr(error, 'suggestions') and getattr(error, 'suggestions') is not None:
+                    partial_error = error
+                    result = (getattr(error, 'suggestions', []), getattr(error, 'skipped', []))
+                    log(f'⚠ Stopped early due to an error: {error}')
+                else:
+                    log(f'✖ Stopped: {error}')
+                    return error_dialog(dialog, 'Gemini', str(error), show=True)
             if result is None:
                 status.setText('Cancelled before anything was sent.')
                 return
             suggestions, skipped = result
-            cancelled_note = ' (cancelled early)' if cancel_flag.is_set() else ''
+            cancelled_note = ' (cancelled early)' if cancel_flag.is_set() else (
+                ' (stopped early due to an error)' if partial_error else ''
+            )
             log(f'Done: {len(suggestions)} of {count} book(s) have suggested changes{cancelled_note}. Tick what you want below, then press Apply.')
+            seen_ids = set()
             for s in suggestions:
+                if s['id'] in seen_ids:
+                    continue
+                seen_ids.add(s['id'])
                 top = QTreeWidgetItem(tree, [s['title'] or f"book {s['id']}", f"{s['confidence']} confidence" + ('; BIG CHANGE' if s['big'] else '')])
                 top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
                 want = Qt.CheckState.Unchecked if s['big'] else Qt.CheckState.Checked  # adding a child resets an auto-tristate parent, so set the parent last
@@ -563,6 +579,8 @@ class GeminiFixerAction(InterfaceAction):
             status.setText(text)
             update_ticked()
             splitter.setSizes([120, 700])  # the changes are what needs reading now
+            if partial_error:
+                warning_dialog(dialog, 'Gemini', f'Processing stopped early due to an error:\n\n{partial_error}\n\nPartial results collected before the error are displayed below.', show=True)
 
         def collect():
             items = []

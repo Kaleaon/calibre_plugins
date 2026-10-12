@@ -73,6 +73,30 @@ class GeminiError(Exception):
     """A problem talking to the API that the user should read. Never contains the API key."""
 
 
+class GeminiPartialError(GeminiError):
+    """Raised when batch processing stops early due to an error, carrying partial suggestions and skipped records."""
+
+    def __init__(self, message, suggestions=None, skipped=None, original_error=None):
+        super().__init__(message)
+        self.suggestions = list(suggestions) if suggestions is not None else []
+        self.skipped = list(skipped) if skipped is not None else []
+        self.original_error = original_error
+
+
+PartialGeminiError = GeminiPartialError
+
+
+def sanitize_error_message(msg, api_key=None):
+    """Sanitizes sensitive information like API keys from exception messages."""
+    text = str(msg or '')
+    if api_key and str(api_key).strip():
+        key_str = str(api_key).strip()
+        text = text.replace(key_str, '[REDACTED]')
+    text = re.sub(r'([?&]key=)[^&\s]+', r'\1[REDACTED]', text)
+    text = re.sub(r'([?&]api_key=)[^&\s]+', r'\1[REDACTED]', text)
+    return text
+
+
 class QuotaExhausted(GeminiError):
     """The free (or paid) quota for this model is used up for now; waiting a few seconds will not help."""
 
@@ -582,5 +606,9 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
         except GeminiError as exc:
             if str(exc) == 'Cancelled':
                 break
-            raise
+            msg = sanitize_error_message(exc, api_key)
+            raise GeminiPartialError(msg, suggestions=suggestions, skipped=skipped, original_error=exc) from exc
+        except Exception as exc:
+            msg = sanitize_error_message(exc, api_key)
+            raise GeminiPartialError(msg, suggestions=suggestions, skipped=skipped, original_error=exc) from exc
     return suggestions, skipped

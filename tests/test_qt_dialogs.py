@@ -26,6 +26,7 @@ try:
     HAVE_QT = True
 except ImportError:  # also raised when system libraries such as libEGL are missing
     HAVE_QT = False
+    QtCore = QtGui = QtWidgets = None
 import build_plugins  # noqa: E402
 sys.path.insert(0, str(ROOT / 'tests'))
 from reddit_samples import entry, feed  # noqa: E402
@@ -1225,6 +1226,48 @@ class GeminiDialogTests(QtCase):
         self.assertEqual(len(calls), 1, 'the second and third requests never start')
         self.assertIn('Cancel pressed', seen['log'])
         self.assertTrue(seen['check_enabled'], 'the window is usable again afterwards')
+
+    def test_partial_error_renders_suggestions_and_shows_warning_dialog(self):
+        package = self.load('gemini_library_fixer')
+        sys.modules['calibre.gui2.actions'].InterfaceAction = object
+        engine = importlib.import_module(package + '.engine')
+        action_mod = importlib.import_module(package + '.action')
+
+        partial_suggestions = [{'id': 1, 'title': 'Book 1', 'changes': {'title': ('Old Title', 'New Title')}, 'confidence': 'high', 'reason': 'fix junk', 'big': False}]
+        partial_err = engine.GeminiPartialError('Batch 2 failed due to network error', suggestions=partial_suggestions, skipped=['Book 2: network error'])
+
+        db = GeminiDb()
+        gui = QtWidgets.QWidget()
+        gui.current_db = MagicMock(new_api=db)
+        gui.library_view = MagicMock()
+        gui.library_view.get_selected_ids.return_value = [1, 2]
+        gui.tags_view = MagicMock()
+        action = action_mod.GeminiFixerAction()
+        action.gui = gui
+        action_mod.prefs['api_key'] = 'k'
+
+        warnings_shown = []
+        action_mod.warning_dialog = lambda parent, title, msg, show=False: warnings_shown.append((title, msg))
+
+        seen = {}
+
+        def drive(dialog):
+            with unittest.mock.patch.object(engine, 'plan_fixes', side_effect=partial_err):
+                next(b for b in dialog.findChildren(QtWidgets.QPushButton) if b.text() == 'Check books').click()
+            seen['tree_count'] = dialog.findChild(QtWidgets.QTreeWidget).topLevelItemCount()
+            seen['log'] = dialog.findChild(QtWidgets.QPlainTextEdit).toPlainText()
+
+        original_exec = QtWidgets.QDialog.exec
+        QtWidgets.QDialog.exec = drive
+        try:
+            action.show_dialog()
+        finally:
+            QtWidgets.QDialog.exec = original_exec
+
+        self.assertEqual(seen['tree_count'], 1, 'partial suggestion for book 1 rendered in results tree')
+        self.assertIn('Stopped early due to an error', seen['log'])
+        self.assertEqual(len(warnings_shown), 1)
+        self.assertIn('Batch 2 failed due to network error', warnings_shown[0][1])
 
     def test_api_key_is_saved_when_the_window_closes_without_checking(self):
         package = self.load('gemini_library_fixer')
