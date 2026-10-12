@@ -4,7 +4,21 @@ from calibre.gui2 import error_dialog, info_dialog
 from calibre.utils.config import JSONConfig
 from qt.core import (QAction, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QLabel, QMenu,
                      QPlainTextEdit, QVBoxLayout)
-from calibre_plugins.epub_promo_scrubber.core import Matcher, _snippet, scrub_epub, scrub_files, tidy
+try:
+    from calibre_plugins.epub_promo_scrubber.guikit import run_task
+except ImportError:
+    try:
+        from .guikit import run_task
+    except ImportError:
+        from guikit import run_task
+
+try:
+    from calibre_plugins.epub_promo_scrubber.core import Matcher, _snippet, scrub_epub, scrub_files, tidy
+except ImportError:
+    try:
+        from .core import Matcher, _snippet, scrub_epub, scrub_files, tidy
+    except ImportError:
+        from core import Matcher, _snippet, scrub_epub, scrub_files, tidy
 
 prefs = JSONConfig('plugins/epub_promo_scrubber')
 prefs.defaults.update(extra_patterns='', heuristic=True, drop_empty_pages=True, backup=True, in_place=False, show_preview=True)
@@ -73,11 +87,6 @@ class ScrubAction(InterfaceAction):
         matcher = Matcher(extra, heuristic)
 
         if prefs.get('show_preview', True):
-            try:
-                from .guikit import run_task
-            except ImportError:
-                from calibre_plugins.epub_promo_scrubber.guikit import run_task
-
             def scan_worker(task):
                 scan_results = []
                 for idx, book_id in enumerate(ids):
@@ -126,62 +135,91 @@ class ScrubAction(InterfaceAction):
                 return
 
             changed, unchanged, errors = [], 0, []
-            for res in scan_results:
-                book_id = res['book_id']
-                data = res['data']
-                try:
-                    book_changed = False
-                    if data:
-                        new_bytes, report = scrub_epub(data, extra, heuristic, drop, allowed_change_ids=allowed_ids)
-                        if new_bytes is not None:
+
+            def apply_worker(task):
+                nonlocal unchanged
+                total = len(scan_results)
+                for idx, res in enumerate(scan_results):
+                    if task.cancelled():
+                        break
+                    task.status = f'Scrubbing book {idx + 1} of {total}…'
+                    book_id = res['book_id']
+                    data = res['data']
+                    try:
+                        book_changed = False
+                        if data:
+                            new_bytes, report = scrub_epub(data, extra, heuristic, drop, allowed_change_ids=allowed_ids)
+                            if new_bytes is not None:
+                                if prefs['backup']:
+                                    db.save_original_format(book_id, 'EPUB')
+                                elif 'ORIGINAL_EPUB' in (db.formats(book_id) or ()):
+                                    db.remove_formats({book_id: {'ORIGINAL_EPUB'}})
+                                if not db.add_format(book_id, 'EPUB', BytesIO(new_bytes), replace=True):
+                                    raise ValueError('Calibre could not save the scrubbed EPUB')
+                                book_changed = True
+
+                        field_changes = self.scrub_fields(db, book_id, matcher, allowed_change_ids=allowed_ids)
+                        if field_changes or book_changed:
+                            changed.append(book_id)
+                        else:
+                            unchanged += 1
+                    except Exception as exc:
+                        errors.append(f'{book_id}: {exc}')
+
+            task = run_task(self.gui, 'EPUB Promo Scrubber', apply_worker)
+            self.gui.library_view.model().refresh()
+            self.gui.tags_view.recount()
+            if task.error:
+                errors.append(f'Task error: {task.error}')
+
+            msg = f'{len(changed)} EPUB(s) scrubbed; {unchanged} had nothing to remove; {len(errors)} error(s).'
+            if task.cancelled():
+                msg += '\nOperation cancelled.'
+            if errors:
+                msg += f'\n{"; ".join(errors)}'
+            info_dialog(self.gui, 'EPUB Promo Scrubber', msg, show=True)
+
+        else:
+            changed, unchanged, errors = [], 0, []
+
+            def work(task):
+                nonlocal unchanged
+                total = len(ids)
+                for i, book_id in enumerate(ids):
+                    if task.cancelled():
+                        break
+                    task.status = f'Scrubbing book {i + 1} of {total}…'
+                    try:
+                        data = db.format(book_id, 'EPUB')
+                        if not data:
+                            continue
+                        new, report = scrub_epub(data, extra, heuristic, drop)
+                        if new is not None:
                             if prefs['backup']:
                                 db.save_original_format(book_id, 'EPUB')
                             elif 'ORIGINAL_EPUB' in (db.formats(book_id) or ()):
                                 db.remove_formats({book_id: {'ORIGINAL_EPUB'}})
-                            if not db.add_format(book_id, 'EPUB', BytesIO(new_bytes), replace=True):
+                            if not db.add_format(book_id, 'EPUB', BytesIO(new), replace=True):
                                 raise ValueError('Calibre could not save the scrubbed EPUB')
-                            book_changed = True
+                            changed.append(book_id)
+                        else:
+                            unchanged += 1
+                        self.scrub_fields(db, book_id, matcher)
+                    except Exception as exc:
+                        errors.append(f'{book_id}: {exc}')
 
-                    field_changes = self.scrub_fields(db, book_id, matcher, allowed_change_ids=allowed_ids)
-                    if field_changes or book_changed:
-                        changed.append(book_id)
-                    else:
-                        unchanged += 1
-                except Exception as exc:
-                    errors.append(f'{book_id}: {exc}')
-
+            task = run_task(self.gui, 'EPUB Promo Scrubber', work)
             self.gui.library_view.model().refresh()
             self.gui.tags_view.recount()
-            info_dialog(self.gui, 'EPUB Promo Scrubber',
-                        f'{len(changed)} EPUB(s) scrubbed; {unchanged} had nothing to remove; {len(errors)} error(s).' +
-                        (f'\n{"; ".join(errors)}' if errors else ''), show=True)
+            if task.error:
+                errors.append(f'Task error: {task.error}')
 
-        else:
-            changed, unchanged, errors = [], 0, []
-            for book_id in ids:
-                try:
-                    data = db.format(book_id, 'EPUB')
-                    if not data:
-                        continue
-                    new, report = scrub_epub(data, extra, heuristic, drop)
-                    if new is not None:
-                        if prefs['backup']:
-                            db.save_original_format(book_id, 'EPUB')
-                        elif 'ORIGINAL_EPUB' in (db.formats(book_id) or ()):
-                            db.remove_formats({book_id: {'ORIGINAL_EPUB'}})
-                        if not db.add_format(book_id, 'EPUB', BytesIO(new), replace=True):
-                            raise ValueError('Calibre could not save the scrubbed EPUB')
-                        changed.append(book_id)
-                    else:
-                        unchanged += 1
-                    self.scrub_fields(db, book_id, matcher)
-                except Exception as exc:
-                    errors.append(f'{book_id}: {exc}')
-            self.gui.library_view.model().refresh()
-            self.gui.tags_view.recount()
-            info_dialog(self.gui, 'EPUB Promo Scrubber',
-                        f'{len(changed)} EPUB(s) scrubbed; {unchanged} had nothing to remove; {len(errors)} error(s).' +
-                        (f'\n{"; ".join(errors)}' if errors else ''), show=True)
+            msg = f'{len(changed)} EPUB(s) scrubbed; {unchanged} had nothing to remove; {len(errors)} error(s).'
+            if task.cancelled():
+                msg += '\nOperation cancelled.'
+            if errors:
+                msg += f'\n{"; ".join(errors)}'
+            info_dialog(self.gui, 'EPUB Promo Scrubber', msg, show=True)
 
     def scrub_fields(self, db, book_id, matcher, allowed_change_ids=None, dry_run=False):
         """Remove the same marks from the library's own title, publisher and comments fields."""
@@ -234,11 +272,6 @@ class ScrubAction(InterfaceAction):
         extra, heuristic, drop = self.options()
 
         if prefs.get('show_preview', True):
-            try:
-                from .guikit import run_task
-            except ImportError:
-                from calibre_plugins.epub_promo_scrubber.guikit import run_task
-
             from pathlib import Path
             src_path = Path(source)
             paths = [src_path] if src_path.is_file() else sorted(src_path.rglob('*.epub'))
