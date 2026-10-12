@@ -18,11 +18,31 @@ class NiftyAction(InterfaceAction):
         menu = QMenu(self.gui)
         self.qaction.setMenu(menu)
         for title, slot in [('Download stories by address…', self.download_by_link), ('Browse by category…', self.browse),
-                            ('Browse by author…', self.browse_authors)]:
+                            ('Browse by author…', self.browse_authors),
+                            ('Organize/condense into posting-order omnibus…', self.organize_omnibus)]:
             action = QAction(title, self.gui)
             action.triggered.connect(slot)
             menu.addAction(action)
         self.qaction.triggered.connect(self.browse)
+
+    def organize_omnibus(self):
+        rows = self.gui.library_view.selectionModel().selectedRows()
+        selected_ids = [self.gui.library_view.model().id(r) for r in rows] if rows else None
+
+        def work(task):
+            task.status = 'Scanning library Nifty stories…'
+            return libkit.consolidate_nifty_omnibuses(self.gui, selected_ids)
+
+        task = run_task(self.gui, 'Organizing Nifty stories…', work)
+        if task.error:
+            return error_dialog(self.gui, 'Nifty', f'Could not organize stories into omnibus: {task.error}', show=True)
+        if task.result is None:
+            return
+        added, errors = task.result
+        if added:
+            info_dialog(self.gui, 'Nifty', f'{len(added)} posting-order omnibus(es) created/updated.' + ''.join('\n' + e for e in errors), show=True)
+        else:
+            info_dialog(self.gui, 'Nifty', 'No related Nifty stories found to combine.' + ''.join('\n' + e for e in errors), show=True)
 
     def existing_ids(self):
         return libkit.existing_ids(self.gui, IDENTIFIER)
