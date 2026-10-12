@@ -614,11 +614,12 @@ class MediaMatcherAction(InterfaceAction):
                 return error_dialog(dialog, 'Media Matcher', 'Nothing is ticked.', show=True)
             covers = {}
             wanted = {book_id: changes['cover'][1] for book_id, changes in items if 'cover' in changes}
+            cover_errors = []
             if wanted:
-                http = sources.Http(contact=contact.text().strip())
                 cache = {}
 
                 def download(task):
+                    http = sources.Http(contact=contact.text().strip(), cancelled=task.cancelled)
                     for book_id, urls in wanted.items():
                         if task.cancelled():
                             break
@@ -626,26 +627,35 @@ class MediaMatcherAction(InterfaceAction):
                         key = tuple(urls)
                         if key not in cache:
                             try:
-                                cache[key] = sources.fetch_image(http, urls)
-                            except sources.ServiceError:
-                                cache[key] = None
-                        if cache[key]:
-                            covers[book_id] = cache[key]
+                                img = sources.fetch_image(http, urls)
+                                cache[key] = (img, None)
+                            except sources.Cancelled:
+                                break
+                            except Exception as exc:
+                                cache[key] = (None, str(exc))
+                        img, err = cache[key]
+                        if img:
+                            covers[book_id] = img
+                        elif err:
+                            cover_errors.append(f'book {book_id}: cover download failed ({err})')
 
                 task = run_task(dialog, 'Downloading cover art…', download)
                 if task.error:
-                    return error_dialog(dialog, 'Media Matcher', str(task.error), show=True)
+                    cover_errors.append(f'Cover download error: {task.error}')
+                if task.cancelled() and not any('cancelled' in e for e in cover_errors):
+                    cover_errors.append('Cover download cancelled by user')
             done, errors, undo = self.write_changes(items, covers)
             if undo:
                 prefs['undo'] = undo
                 undo_btn.setEnabled(True)
             self.refresh(done)
+            all_errors = cover_errors + errors
             missing = len(wanted) - len(covers)
             text = f'Updated {len(done)} book(s)' + (f' and {len(covers)} cover(s)' if wanted else '') + '. "Undo last run" can put the old values back.'
             if missing:
                 text += f'\n\n{missing} ticked cover(s) could not be downloaded (the database has no front cover for them).'
-            if errors:
-                text += '\n\nProblems:\n' + '\n'.join(errors[:10])
+            if all_errors:
+                text += '\n\nProblems:\n' + '\n'.join(all_errors[:10])
             info_dialog(self.gui, 'Media Matcher', text, show=True)
             tree.clear()
             apply_btn.setEnabled(False)
