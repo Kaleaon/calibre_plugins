@@ -7,6 +7,7 @@ import xml.dom.minidom
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'common'))
+import storykit
 spec = importlib.util.spec_from_file_location('ncore', Path(__file__).resolve().parents[1] / 'nifty/core.py')
 core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
@@ -193,8 +194,8 @@ class RateLimitTests(unittest.TestCase):
             calls.append(1)
             raise urllib.error.HTTPError(req.full_url, 429, 'Too Many Requests', Headers({'Retry-After': '120'}), None)
 
-        fetcher = core.Fetcher(min_interval=0, opener=opener)
-        with self.assertRaises(core.RateLimited) as caught:
+        fetcher = storykit.Fetcher(min_interval=0, opener=opener)
+        with self.assertRaises(storykit.RateLimited) as caught:
             fetcher.get('https://example.org/x')
         self.assertEqual(caught.exception.retry_after, 120)
         self.assertEqual(len(calls), 1, 'a rate limit must not be hammered with retries')

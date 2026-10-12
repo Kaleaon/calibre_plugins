@@ -118,7 +118,7 @@ def check_urls(lines, allow_adult=False, extra_adult=()):
     return accepted, problems
 
 
-def supported_sites(allow_adult=False, extra_adult=()):
+def supported_sites(extra_adult=()):
     """[(domain, example url, adult?)] for the sites the bundled FanFicFare can read."""
     ns = load()
     rows = []
@@ -136,7 +136,7 @@ def split_series(value):
     return (m.group(1), float(m.group(2))) if m else ((value or '').strip(), None)
 
 
-def explain(exc, url=''):
+def explain(exc):
     """Turn FanFicFare exceptions into a message that says what to do."""
     ns = load()
     name = type(exc).__name__

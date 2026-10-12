@@ -363,7 +363,7 @@ def _scrub_metadata(opf_root, matcher, changes, opf_name="", allowed_change_ids=
                 el.text = new
 
 
-def _drop_references(zf_items, dropped, opf_name, opf_root, extra_docs, changes):
+def _drop_references(dropped, opf_name, opf_root, extra_docs, changes):
     """Remove spine/manifest/guide/TOC references to deleted pages."""
     ids = set()
     for item in [e for e in opf_root.iter() if _local(e) == 'item']:
@@ -478,7 +478,7 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, a
         if opf_root is not None:
             _scrub_metadata(opf_root, matcher, meta_changes, opf_name=opf_name or '', allowed_change_ids=allowed_change_ids, dry_run=dry_run)
             if dropped and not dry_run:
-                _drop_references(None, dropped, opf_name, opf_root, extra_docs, meta_changes)
+                _drop_references(dropped, opf_name, opf_root, extra_docs, meta_changes)
         report['changes'] += meta_changes
         report['dropped_pages'] = sorted(dropped)
         comment_hit = bool(zf.comment and matcher.hit(zf.comment.decode('utf-8', 'ignore')))

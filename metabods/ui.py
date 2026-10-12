@@ -1,6 +1,6 @@
 """Metabods dialogs. Network work never runs on the GUI thread (see guikit.run_task)."""
-from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit,
-                     QListWidget, QListWidgetItem, QPlainTextEdit, QProgressDialog, QPushButton, Qt, QVBoxLayout, QWidget)
+from qt.core import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit,
+                     QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, Qt, QVBoxLayout)
 
 from calibre_plugins.metabods_downloader.config import prefs
 from calibre_plugins.metabods_downloader import core
