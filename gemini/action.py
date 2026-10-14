@@ -73,15 +73,32 @@ class GeminiFixerAction(InterfaceAction):
                 excerpt = engine.epub_excerpt(db.format_abspath(book_id, 'EPUB'))
             images = []
             if with_covers:
-                front = prepare_image(db.cover(book_id))
-                if front:
-                    images.append({'label': 'front cover', 'mime': 'image/jpeg', 'data': front})
+                has_front = False
+                try:
+                    if hasattr(db, 'has_cover'):
+                        has_front = db.has_cover(book_id)
+                    else:
+                        has_front = bool(db.cover(book_id))
+                except Exception:
+                    has_front = False
+
+                if has_front:
+                    images.append({
+                        'type': 'front',
+                        'label': 'front cover',
+                        'mime': 'image/jpeg',
+                        'book_id': book_id,
+                        'loader': lambda bid=book_id: db.cover(bid)
+                    })
+
                 for fmt in fmts:
-                    found = engine.find_back_cover(db.format_abspath(book_id, fmt), fmt) if fmt.upper() in ('EPUB', 'CBZ') else None
-                    back = prepare_image(found[0]) if found else None
-                    if back:
-                        images.append({'label': found[1], 'mime': 'image/jpeg', 'data': back})
-                        break
+                    if fmt.upper() in ('EPUB', 'CBZ'):
+                        abspath = db.format_abspath(book_id, fmt)
+                        if abspath:
+                            desc = engine.find_back_cover_descriptor(abspath, fmt)
+                            if desc:
+                                images.append(desc)
+                                break
             books.append({'id': book_id, 'title': mi.title or '', 'authors': list(mi.authors or []),
                           'identifiers': dict(mi.identifiers or {}), 'images': images,
                           'series': mi.series or '', 'series_index': mi.series_index if mi.series else None,
@@ -490,7 +507,8 @@ class GeminiFixerAction(InterfaceAction):
                     box['result'] = engine.plan_fixes(
                         books, api_key(), model.currentText().strip() or engine.DEFAULT_MODEL, chosen_fields(), confidence.currentText(),
                         per_request, tags_remove.isChecked(), cancelled=cancel_flag.is_set, min_interval=interval.value(),
-                        on_event=lambda kind, **info: messages.put((kind, info)))
+                        on_event=lambda kind, **info: messages.put((kind, info)),
+                        image_hydrator=prepare_image, db=self.gui.current_db.new_api)
                 except Exception as exc:  # shown to the user by the caller
                     box['error'] = exc
 
