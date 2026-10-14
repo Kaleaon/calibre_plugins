@@ -35,6 +35,28 @@ Build every plugin zip with `python build_plugins.py` (output in `dist/`). The F
 
 Run `python -m unittest discover -s tests -p "test_*.py" -v`. Offline tests cover the Metabods and Nifty parsers, text cleaning, EPUB structure, the tagger, the fanfic engine and its zip contents, and an import check of each built zip under stubbed Calibre and Qt modules. The fanfic tests need `pip install fanficfare` and skip without it; `tests/test_media.py` covers Media Matcher (its real-encoder tag tests skip without `ffmpeg`), `tests/test_media_dialogs.py` runs its windows under PyQt6, and `tests/test_qt_dialogs.py` runs the real dialogs under PyQt6 (`pip install PyQt6`; on Linux it may also need system libraries such as libEGL) and skips without it. The one failing test in a plain environment is the older PDF test, which needs PyMuPDF.
 
+### Code Quality and Pre-Commit Hooks
+
+This repository uses [pre-commit](https://pre-commit.com/) and [Ruff](https://docs.astral.sh/ruff/) to enforce code formatting, trailing whitespace removal, end-of-file checks, and static lint rules.
+
+1. **Install tools and hooks**:
+   ```bash
+   pip install pre-commit ruff
+   pre-commit install
+   ```
+
+2. **Run static checks manually**:
+   ```bash
+   # Run all pre-commit hooks (trailing whitespace, EOF fixer, ruff, ruff-format)
+   pre-commit run --all-files
+
+   # Run Ruff linter or formatter directly
+   ruff check .
+   ruff format --check .
+   ```
+
+See [`AGENTS.md`](AGENTS.md) for detailed guidelines on developer guardrails and static analysis configuration.
+
 Against the live sites: 30 random Metabods stories plus a 50-part one, and 26 Nifty books across all four sections (including a 58-chapter series, `.html` chapter files and odd subjects) all produced well-formed EPUBs. One Archive of Our Own story (chapter 1) was downloaded through the engine from the built zip in a clean environment; Royal Road was not reachable (see the [Fanfic Site Downloader docs](fanfic/README.md)). **Not tested inside Calibre itself** (it was not available here): the dialogs, menus, library import, tag application and refresh. The Calibre calls used (`add_books`, `all_field_for`, `get_metadata`, `set_field`, `refresh_ids`, `JSONConfig`) were checked against Calibre's source on GitHub, and the modules were import-checked against stubs.
 ## Real Takeout validation
 
