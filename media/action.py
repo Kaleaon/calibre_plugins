@@ -47,6 +47,160 @@ def split_artists(text):
     return [a.strip() for a in (text or '').split(' / ') if a.strip()]
 
 
+class MatchInspectorDialog(QDialog):
+    def __init__(self, parent, book, suggestion, http, options, chosen_fields):
+        super().__init__(parent)
+        self.setWindowTitle(f"Match Inspector — {book.get('title') or 'Book ' + str(book['id'])}")
+        self.resize(800, 580)
+        self.book = book
+        self.suggestion = suggestion
+        self.http = http
+        self.options = options
+        self.chosen_fields = chosen_fields
+        self.candidates = list(suggestion.get('candidates') or ([suggestion['candidate']] if suggestion.get('candidate') else []))
+        self.selected_candidate = suggestion.get('candidate') or (self.candidates[0] if self.candidates else None)
+
+        layout = QVBoxLayout(self)
+
+        # Search Query Overrides
+        layout.addWidget(QLabel('<b>Search Parameters & Query Overrides:</b>'))
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel('Title:'))
+        self.title_edit = QLineEdit(book.get('title', ''))
+        row1.addWidget(self.title_edit, 2)
+
+        first_author = (book.get('authors') or [''])[0]
+        row1.addWidget(QLabel('Artist / Author:'))
+        self.artist_edit = QLineEdit(first_author)
+        row1.addWidget(self.artist_edit, 2)
+        layout.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel('Album / Series:'))
+        self.album_edit = QLineEdit(book.get('series', ''))
+        row2.addWidget(self.album_edit, 2)
+
+        row2.addWidget(QLabel('MBID / OLID:'))
+        ids = book.get('identifiers') or {}
+        cur_id = ids.get('mb_recording') or ids.get('mb_release') or ids.get('olid') or ''
+        self.id_edit = QLineEdit(cur_id)
+        row2.addWidget(self.id_edit, 2)
+
+        self.research_btn = QPushButton('Re-search')
+        row2.addWidget(self.research_btn, 1)
+        layout.addLayout(row2)
+
+        # Candidates List
+        layout.addWidget(QLabel('<b>Match Candidates:</b>'))
+        self.cand_tree = QTreeWidget()
+        self.cand_tree.setHeaderLabels(['Score', 'Source', 'Title', 'Artist / Author', 'Album / Series', 'Identifier'])
+        self.cand_tree.setColumnWidth(0, 60)
+        self.cand_tree.setColumnWidth(1, 100)
+        self.cand_tree.setColumnWidth(2, 180)
+        self.cand_tree.setColumnWidth(3, 140)
+        self.cand_tree.setColumnWidth(4, 140)
+        layout.addWidget(self.cand_tree, 1)
+
+        # Side-by-side Field Diffs
+        layout.addWidget(QLabel('<b>Side-by-Side Field Comparison (Current vs Selected Candidate):</b>'))
+        self.diff_tree = QTreeWidget()
+        self.diff_tree.setHeaderLabels(['Field', 'Current Value', 'Proposed Value', 'Status'])
+        self.diff_tree.setColumnWidth(0, 140)
+        self.diff_tree.setColumnWidth(1, 240)
+        self.diff_tree.setColumnWidth(2, 240)
+        layout.addWidget(self.diff_tree, 2)
+
+        # Dialog buttons
+        buttons = QDialogButtonBox()
+        self.use_btn = QPushButton('Use Selected Match')
+        buttons.addButton(self.use_btn, QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
+        buttons.rejected.connect(self.reject)
+        self.use_btn.clicked.connect(self.accept)
+        layout.addWidget(buttons)
+
+        # Connections
+        self.research_btn.clicked.connect(self.do_research)
+        self.cand_tree.currentItemChanged.connect(self.on_candidate_selected)
+
+        self.populate_candidates()
+
+    def populate_candidates(self):
+        self.cand_tree.clear()
+        target_item = None
+        for cand in self.candidates:
+            src = SOURCE_NAMES.get(cand.get('source'), cand.get('source', ''))
+            ident = cand.get('recording_id') or cand.get('olid') or cand.get('release_id') or ''
+            item = QTreeWidgetItem(self.cand_tree, [
+                f"{cand['score']:.0%}",
+                src,
+                cand.get('title', ''),
+                ', '.join(cand.get('authors') or []),
+                cand.get('album', ''),
+                ident
+            ])
+            item.setData(0, Qt.ItemDataRole.UserRole, cand)
+            if self.selected_candidate and cand.get('recording_id') == self.selected_candidate.get('recording_id') and cand.get('title') == self.selected_candidate.get('title'):
+                target_item = item
+
+        if self.cand_tree.topLevelItemCount() > 0:
+            if target_item:
+                self.cand_tree.setCurrentItem(target_item)
+            else:
+                self.cand_tree.setCurrentItem(self.cand_tree.topLevelItem(0))
+
+    def on_candidate_selected(self, current, previous):
+        if not current:
+            self.diff_tree.clear()
+            self.selected_candidate = None
+            return
+        cand = current.data(0, Qt.ItemDataRole.UserRole)
+        self.selected_candidate = cand
+        self.update_diffs(cand)
+
+    def update_diffs(self, cand):
+        self.diff_tree.clear()
+        kind = self.suggestion.get('kind', matching.classify(self.book, self.options.get('kind', 'auto')))
+        changes = matching.plan_changes(self.book, kind, cand, self.chosen_fields)
+        for field, label in FIELD_LABELS:
+            if field not in self.chosen_fields:
+                continue
+            is_changed = field in changes
+            if is_changed:
+                old, new = changes[field]
+                status = "Will Change"
+            else:
+                if field == 'title': old = self.book.get('title', ''); new = cand.get('title', '')
+                elif field == 'authors': old = list(self.book.get('authors') or []); new = list(cand.get('authors') or [])
+                elif field == 'album': old = [self.book.get('series') or '', self.book.get('series_index')]; new = [cand.get('album', ''), cand.get('track')]
+                elif field == 'date': old = self.book.get('pubdate'); new = cand.get('date')
+                elif field == 'tags': old = list(self.book.get('tags') or []); new = list(self.book.get('tags') or [])
+                elif field == 'identifiers': old = dict(self.book.get('identifiers') or {}); new = dict(self.book.get('identifiers') or {})
+                elif field == 'cover': old = None; new = cand.get('cover_urls')
+                else: old = ''; new = ''
+                status = "Unchanged"
+            item = QTreeWidgetItem(self.diff_tree, [SHOW.get(field, field), show_value(field, old), show_value(field, new), status])
+
+    def do_research(self):
+        title = self.title_edit.text().strip()
+        artist = self.artist_edit.text().strip()
+        album = self.album_edit.text().strip()
+        ident = self.id_edit.text().strip()
+
+        new_cands = matching.search_single_book(
+            self.book, self.http, self.options,
+            title=title, artist=artist, album=album, identifier=ident
+        )
+        if new_cands:
+            self.candidates = new_cands
+            self.selected_candidate = new_cands[0]
+            self.populate_candidates()
+        else:
+            self.cand_tree.clear()
+            self.diff_tree.clear()
+            info_dialog(self, 'Media Matcher', 'No candidates found for these search terms.', show=True)
+
+
 class MediaMatcherAction(InterfaceAction):
     name = 'Media Matcher'
     action_spec = ('Music & audiobooks', None, 'Add music files and audiobooks, and match music, audiobooks and books against free databases', None)
@@ -428,9 +582,20 @@ class MediaMatcherAction(InterfaceAction):
         activity.setPlaceholderText('Each book as it is looked up, what was searched for, and what came back.')
         layout.addWidget(activity, 2)
         tree = QTreeWidget()
-        tree.setHeaderLabels(['Suggested change', 'Match'])
-        tree.setColumnWidth(0, 440)
+        tree.setHeaderLabels(['Field / Book', 'Current Value', 'Proposed Value', 'Match Score / Info'])
+        tree.setColumnWidth(0, 200)
+        tree.setColumnWidth(1, 200)
+        tree.setColumnWidth(2, 220)
+        tree.setColumnWidth(3, 180)
         layout.addWidget(tree, 3)
+
+        row_inspect = QHBoxLayout()
+        inspect_btn = QPushButton('Inspect / Refine Match…')
+        inspect_btn.setEnabled(False)
+        row_inspect.addWidget(inspect_btn)
+        row_inspect.addStretch(1)
+        layout.addLayout(row_inspect)
+
         status = QLabel('Press Look up. Weak matches are not offered; uncertain ones are left unticked.')
         status.setWordWrap(True)
         layout.addWidget(status)
@@ -556,6 +721,38 @@ class MediaMatcherAction(InterfaceAction):
             bar.setValue(bar.maximum() if not cancel_flag.is_set() else bar.value())
             return box.get('result'), box.get('error')
 
+        def refresh_tree_item(top, s):
+            c = s['candidate']
+            flags = ''
+            if s['ambiguous']:
+                flags += f"; {c.get('rivals', 0)} similar recording(s), check this one"
+            if s['big']:
+                flags += '; BIG TITLE CHANGE'
+            match_info = f"{c['score']:.0%} {SOURCE_NAMES.get(c['source'], c['source'])}" + flags
+            proposed_summary = f"{c['title']} — {', '.join(c['authors'])}" + (f" / {c['album']}" if c.get('album') else '')
+
+            top.setText(0, s['title'] or f"book {s['id']}")
+            top.setText(1, '')
+            top.setText(2, proposed_summary)
+            top.setText(3, match_info)
+
+            while top.childCount() > 0:
+                top.removeChild(top.child(0))
+
+            sure = c['score'] >= matching.TICK_SCORE and not s['ambiguous'] and not s['big']
+            want = Qt.CheckState.Checked if sure else Qt.CheckState.Unchecked
+
+            for field, (old, new) in s['changes'].items():
+                cur_val = show_value(field, old)
+                prop_val = show_value(field, new)
+                child = QTreeWidgetItem(top, [SHOW.get(field, field), cur_val, prop_val, ''])
+                child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                child.setCheckState(0, want)
+                child.setData(0, Qt.ItemDataRole.UserRole, field)
+                child.setData(0, Qt.ItemDataRole.UserRole + 1, (old, new))
+            top.setCheckState(0, want)
+            top.setExpanded(True)
+
         def finish_run(result, count):
             result, error = result
             phase.setText('Idle.')
@@ -567,33 +764,49 @@ class MediaMatcherAction(InterfaceAction):
             log(f'Done: {len(found)} of {count} book(s) have suggested changes{note_cancel}. Tick what you want, then press Apply.')
             for s in found:
                 suggestions[s['id']] = s
-                c = s['candidate']
-                flags = ''
-                if s['ambiguous']:
-                    flags += f"; {c['rivals']} similar recording(s), check this one"
-                if s['big']:
-                    flags += '; BIG TITLE CHANGE'
-                top = QTreeWidgetItem(tree, [s['title'] or f"book {s['id']}", f"{c['score']:.0%} {SOURCE_NAMES[c['source']]}: "
-                                             f"{c['title']} — {', '.join(c['authors'])}" + (f" / {c['album']}" if c.get('album') else '') + flags])
+                top = QTreeWidgetItem(tree)
                 top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
-                sure = c['score'] >= matching.TICK_SCORE and not s['ambiguous'] and not s['big']
-                want = Qt.CheckState.Checked if sure else Qt.CheckState.Unchecked
                 top.setData(0, Qt.ItemDataRole.UserRole, s['id'])
-                for field, (old, new) in s['changes'].items():
-                    shown = f'{SHOW[field]}:  {show_value(field, old)}  →  {show_value(field, new)}' if field != 'cover' else \
-                        f'Cover:  {show_value(field, new)}'
-                    child = QTreeWidgetItem(top, [shown, ''])
-                    child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                    child.setCheckState(0, want)
-                    child.setData(0, Qt.ItemDataRole.UserRole, field)
-                    child.setData(0, Qt.ItemDataRole.UserRole + 1, (old, new))
-                top.setCheckState(0, want)
-                top.setExpanded(True)
+                refresh_tree_item(top, s)
             text = f'{len(found)} of {count} book(s) have suggested changes{note_cancel}.'
             if skipped:
                 text += f' {len(skipped)} problem(s): ' + '; '.join(skipped[:3]) + (' …' if len(skipped) > 3 else '')
             status.setText(text)
             apply_btn.setEnabled(bool(found))
+
+        def inspect_selected():
+            item = tree.currentItem()
+            if not item:
+                return
+            top = item.parent() or item
+            book_id = top.data(0, Qt.ItemDataRole.UserRole)
+            if not book_id or book_id not in suggestions:
+                return
+            s = suggestions[book_id]
+            book_list = self.books_for([book_id])
+            if not book_list:
+                return
+            book = book_list[0]
+            http_client = sources.Http(contact=contact.text().strip())
+
+            dlg = MatchInspectorDialog(dialog, book, s, http_client, options(), chosen_fields())
+            if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_candidate:
+                cand = dlg.selected_candidate
+                k = s.get('kind', matching.classify(book, kind.currentData()))
+                chgs = matching.plan_changes(book, k, cand, chosen_fields())
+                big = bool(chgs.get('title')) and matching.similarity(book.get('title', ''), cand['title']) < matching.MIN_SIMILAR_TITLE
+                s['candidate'] = cand
+                s['candidates'] = dlg.candidates
+                s['score'] = cand['score']
+                s['changes'] = chgs
+                s['big'] = big
+                s['ambiguous'] = bool(cand.get('ambiguous'))
+                refresh_tree_item(top, s)
+                apply_btn.setEnabled(True)
+
+        inspect_btn.clicked.connect(inspect_selected)
+        tree.itemDoubleClicked.connect(lambda item, col: inspect_selected())
+        tree.currentItemChanged.connect(lambda cur, prev: inspect_btn.setEnabled(cur is not None))
 
         def collect():
             items = []
