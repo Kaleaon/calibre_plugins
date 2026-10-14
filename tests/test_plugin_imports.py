@@ -31,7 +31,7 @@ class Meta:
 class PluginImportTests(unittest.TestCase):
     def setUp(self):
         self.saved = {k: v for k, v in sys.modules.items() if k.startswith(('calibre', 'qt', 'calibre_plugins'))}
-        for name in STUBS:
+        for name in STUBS + ['lxml', 'lxml.etree']:
             sys.modules[name] = MagicMock()
         sys.modules['calibre.ebooks.metadata.book.base'].Metadata = Meta
         sys.modules['calibre.gui2.actions'].InterfaceAction = object
@@ -67,6 +67,7 @@ class PluginImportTests(unittest.TestCase):
                        'gemini_library_fixer': ['config', 'action', 'engine'],
                        'media_matcher': ['config', 'action', 'tags', 'sources', 'matching'],
                        'epub_promo_scrubber': ['action', 'ui', 'core'],
+                       'takeout_book_fixer': ['config', 'action', 'ui', 'core', 'queue_db', 'daemon'],
                        'fanfic_downloader': ['config', 'action', 'ui', 'engine', 'flaresolverr']}.get(import_name, ['config', 'action', 'ui', 'core'])
             for module in modules:
                 with self.subTest(plugin=import_name, module=module):
