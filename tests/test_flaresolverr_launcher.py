@@ -1,6 +1,5 @@
 import importlib.util
 import os
-from pathlib import Path
 import socket
 import stat
 import sys
@@ -8,14 +7,15 @@ import tempfile
 import textwrap
 import time
 import unittest
+from pathlib import Path
 
-spec = importlib.util.spec_from_file_location('fs', Path(__file__).resolve().parents[1] / 'fanfic/flaresolverr.py')
+spec = importlib.util.spec_from_file_location("fs", Path(__file__).resolve().parents[1] / "fanfic/flaresolverr.py")
 fs = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fs)
 
-POSIX = not sys.platform.startswith('win')
+POSIX = not sys.platform.startswith("win")
 
-SERVER = textwrap.dedent('''\
+SERVER = textwrap.dedent("""\
     #!{python}
     import http.server, json, os, subprocess, sys
     open({envfile!r}, 'w').write(os.environ.get('HOST', '') + ' ' + os.environ.get('PORT', ''))
@@ -29,12 +29,12 @@ SERVER = textwrap.dedent('''\
             self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(data)
     print('fake flaresolverr listening', flush=True)
     http.server.HTTPServer((os.environ['HOST'], int(os.environ['PORT'])), H).serve_forever()
-''')
+""")
 
 
 def free_port():
     with socket.socket() as s:
-        s.bind(('127.0.0.1', 0))
+        s.bind(("127.0.0.1", 0))
         return str(s.getsockname()[1])
 
 
@@ -44,7 +44,7 @@ def alive(pid):
     except OSError:
         return False
     try:  # a zombie still answers signal 0; treat it as gone
-        return Path(f'/proc/{pid}/stat').read_text().split()[2] != 'Z'
+        return Path(f"/proc/{pid}/stat").read_text().split()[2] != "Z"
     except OSError:
         return True
 
@@ -60,28 +60,28 @@ def wait_gone(pid, seconds=10):
 
 class ValidationTests(unittest.TestCase):
     def test_validate_and_name_guard(self):
-        self.assertIn('No FlareSolverr', fs.validate_executable(''))
-        self.assertIn('does not exist', fs.validate_executable('/nonexistent/flaresolverr'))
+        self.assertIn("No FlareSolverr", fs.validate_executable(""))
+        self.assertIn("does not exist", fs.validate_executable("/nonexistent/flaresolverr"))
         with tempfile.TemporaryDirectory() as d:
-            path = Path(d) / 'flaresolverr'
-            path.write_text('#!/bin/sh\n')
+            path = Path(d) / "flaresolverr"
+            path.write_text("#!/bin/sh\n")
             if POSIX:
                 path.chmod(0o644)
-                self.assertIn('chmod +x', fs.validate_executable(str(path)))
+                self.assertIn("chmod +x", fs.validate_executable(str(path)))
                 path.chmod(0o755)
-                self.assertEqual(fs.validate_executable(str(path)), '')
-            self.assertIn('does not exist', fs.validate_executable(d))  # a folder is not a program
-        self.assertTrue(fs.looks_like_flaresolverr('/x/FlareSolverr.exe'))
-        self.assertFalse(fs.looks_like_flaresolverr('/x/some-other-tool'))
+                self.assertEqual(fs.validate_executable(str(path)), "")
+            self.assertIn("does not exist", fs.validate_executable(d))  # a folder is not a program
+        self.assertTrue(fs.looks_like_flaresolverr("/x/FlareSolverr.exe"))
+        self.assertFalse(fs.looks_like_flaresolverr("/x/some-other-tool"))
 
 
-@unittest.skipUnless(POSIX, 'launcher tests use a POSIX shell script')
+@unittest.skipUnless(POSIX, "launcher tests use a POSIX shell script")
 class LauncherTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self.tmp.name)
-        self.envfile, self.childfile = self.dir / 'env.txt', self.dir / 'child.txt'
-        self.settings = {'address': 'localhost', 'port': free_port(), 'protocol': 'http'}
+        self.envfile, self.childfile = self.dir / "env.txt", self.dir / "child.txt"
+        self.settings = {"address": "localhost", "port": free_port(), "protocol": "http"}
         self.launchers = []
 
     def tearDown(self):
@@ -94,14 +94,16 @@ class LauncherTests(unittest.TestCase):
         self.launchers.append(launcher)
         return launcher
 
-    def program(self, body, name='flaresolverr'):
+    def program(self, body, name="flaresolverr"):
         path = self.dir / name
         path.write_text(body)
         path.chmod(path.stat().st_mode | stat.S_IXUSR)
         return str(path)
 
     def server_program(self):
-        return self.program(SERVER.format(python=sys.executable, envfile=str(self.envfile), childfile=str(self.childfile)))
+        return self.program(
+            SERVER.format(python=sys.executable, envfile=str(self.envfile), childfile=str(self.childfile))
+        )
 
     def test_start_answer_and_stop_kills_the_whole_tree(self):
         launcher = self.launcher()
@@ -112,56 +114,60 @@ class LauncherTests(unittest.TestCase):
         child = int(self.childfile.read_text())
         self.assertTrue(alive(child))
         self.assertEqual(self.envfile.read_text(), f"127.0.0.1 {self.settings['port']}")  # bound to this computer only
-        self.assertIn('stopped', launcher.stop())
+        self.assertIn("stopped", launcher.stop())
         self.assertFalse(launcher.running())
         self.assertFalse(fs.check_server(self.settings, timeout=2)[0])
-        self.assertTrue(wait_gone(child), 'the helper process it started was left running')
+        self.assertTrue(wait_gone(child), "the helper process it started was left running")
 
     def test_does_not_start_a_second_copy(self):
         first, second = self.launcher(), self.launcher()
         self.assertTrue(first.start(self.server_program(), self.settings, wait=30)[0])
         ok, message = second.start(self.server_program(), self.settings, wait=30)
         self.assertTrue(ok)
-        self.assertIn('already answering', message)
+        self.assertIn("already answering", message)
         self.assertIsNone(second.process)
-        self.assertIn('already started', first.start(self.server_program(), self.settings)[1])
+        self.assertIn("already started", first.start(self.server_program(), self.settings)[1])
 
     def test_remote_address_is_refused(self):
-        ok, message = self.launcher().start(self.server_program(), dict(self.settings, address='192.168.1.9'))
+        ok, message = self.launcher().start(self.server_program(), dict(self.settings, address="192.168.1.9"))
         self.assertFalse(ok)
-        self.assertIn('another machine', message)
+        self.assertIn("another machine", message)
         self.assertFalse(self.envfile.exists())  # nothing was launched
 
     def test_bad_path_is_refused(self):
-        ok, message = self.launcher().start(str(self.dir / 'missing'), self.settings)
+        ok, message = self.launcher().start(str(self.dir / "missing"), self.settings)
         self.assertFalse(ok)
-        self.assertIn('does not exist', message)
+        self.assertIn("does not exist", message)
 
     def test_program_that_exits_reports_its_output(self):
         launcher = self.launcher()
-        ok, message = launcher.start(self.program('#!/bin/sh\necho boom: no chrome found\nexit 3\n'), self.settings, wait=20)
+        ok, message = launcher.start(
+            self.program("#!/bin/sh\necho boom: no chrome found\nexit 3\n"), self.settings, wait=20
+        )
         self.assertFalse(ok)
-        self.assertIn('code 3', message)
-        self.assertIn('boom: no chrome found', message)
+        self.assertIn("code 3", message)
+        self.assertIn("boom: no chrome found", message)
         self.assertFalse(launcher.running())
 
     def test_program_that_never_answers_is_stopped(self):
         launcher = self.launcher()
-        ok, message = launcher.start(self.program('#!/bin/sh\nsleep 300\n'), self.settings, wait=2)
+        ok, message = launcher.start(self.program("#!/bin/sh\nsleep 300\n"), self.settings, wait=2)
         self.assertFalse(ok)
-        self.assertIn('did not start answering', message)
+        self.assertIn("did not start answering", message)
         self.assertFalse(launcher.running())
 
     def test_cancel_stops_it(self):
         launcher = self.launcher()
-        ok, message = launcher.start(self.program('#!/bin/sh\nsleep 300\n'), self.settings, wait=30, cancelled=lambda: True)
+        ok, message = launcher.start(
+            self.program("#!/bin/sh\nsleep 300\n"), self.settings, wait=30, cancelled=lambda: True
+        )
         self.assertFalse(ok)
-        self.assertIn('Cancelled', message)
+        self.assertIn("Cancelled", message)
         self.assertFalse(launcher.running())
 
     def test_stop_with_nothing_running(self):
-        self.assertIn('no running FlareSolverr', self.launcher().stop())
+        self.assertIn("no running FlareSolverr", self.launcher().stop())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
