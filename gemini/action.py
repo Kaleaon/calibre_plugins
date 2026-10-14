@@ -16,7 +16,7 @@ from qt.core import (QApplication, QBuffer, QCheckBox, QComboBox, QDialog, QDial
 
 from calibre_plugins.gemini_library_fixer import engine
 from calibre_plugins.gemini_library_fixer.config import prefs
-from calibre_plugins.gemini_library_fixer.guikit import run_task
+from calibre_plugins.gemini_library_fixer.guikit import EmptyStateOverlay, run_task
 
 FIELD_LABELS = [('title', 'Titles'), ('authors', 'Authors'), ('series', 'Series and volume number'), ('tags', 'Tags'),
                 ('language', 'Language (only if empty)'), ('isbn', 'ISBN (read from the back cover or title page)')]
@@ -543,6 +543,16 @@ class GeminiFixerAction(InterfaceAction):
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
 
+        overlay = EmptyStateOverlay(
+            tree,
+            icon='✨',
+            title='Check your books with Gemini',
+            message='Select books and click "Check books" to ask Gemini for metadata suggestions.',
+            action_text='Check books',
+            on_action=check_btn.click
+        )
+        overlay.show_empty()
+
         def api_key():
             return key.text().strip() or os.environ.get('GEMINI_API_KEY', '') or os.environ.get('GOOGLE_API_KEY', '')
 
@@ -865,6 +875,16 @@ class GeminiFixerAction(InterfaceAction):
             if skipped:
                 text += f' {len(skipped)} could not be checked: ' + '; '.join(skipped[:3]) + (' …' if len(skipped) > 3 else '')
             status.setText(text)
+            if suggestions:
+                overlay.hide_empty()
+            else:
+                overlay.show_empty(
+                    title='No suggested changes found',
+                    message='Gemini did not find any metadata changes for the selected books. You can adjust confidence thresholds or choose different fields.',
+                    icon='🔍',
+                    action_text='Check books',
+                    on_action=check_btn.click
+                )
             update_ticked()
             splitter.setSizes([120, 700])  # the changes are what needs reading now
             if partial_error:
@@ -897,6 +917,13 @@ class GeminiFixerAction(InterfaceAction):
                 text += '\n\nProblems:\n' + '\n'.join(errors[:10])
             info_dialog(self.gui, 'Gemini', text, show=True)
             tree.clear()
+            overlay.show_empty(
+                title='Check your books with Gemini',
+                message='Select books and click "Check books" to ask Gemini for metadata suggestions.',
+                icon='✨',
+                action_text='Check books',
+                on_action=check_btn.click
+            )
             update_ticked()
 
         def do_undo():
