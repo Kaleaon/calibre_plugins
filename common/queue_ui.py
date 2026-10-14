@@ -4,8 +4,8 @@ Provides a multi-tabbed interface to monitor tasks, filter by state or failure c
 inspect diagnostic stack traces, and trigger manual task retries or purges.
 """
 
-from datetime import datetime
 import time
+from datetime import datetime
 
 try:
     from qt.core import (
@@ -19,13 +19,13 @@ try:
         QMessageBox,
         QPushButton,
         QSplitter,
+        Qt,
         QTableWidget,
         QTableWidgetItem,
         QTabWidget,
         QTextEdit,
         QVBoxLayout,
         QWidget,
-        Qt,
     )
 except ImportError:
     from PyQt6.QtCore import Qt
@@ -265,7 +265,7 @@ class QueueManagerDialog(QDialog):
             return
 
         trace_parts = [
-            f"=== Activity Log Details ===",
+            "=== Activity Log Details ===",
             f"Timestamp: {format_timestamp(log.get('timestamp'))}",
             f"Task ID: {log.get('task_id')}",
             f"Transition: {log.get('from_status')} -> {log.get('to_status')}",

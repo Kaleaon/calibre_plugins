@@ -1,7 +1,6 @@
 """Tests for Decoupled Task Queue Manager and UI components."""
 
 import os
-from pathlib import Path
 import sqlite3
 import sys
 import tempfile
@@ -9,6 +8,7 @@ import threading
 import time
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'common'))
@@ -162,7 +162,7 @@ class TaskQueueTests(unittest.TestCase):
 
         self.qm.prune_activity_logs()
         logs = self.qm.get_activity_logs(limit=2000)
-        task_ids = [l['task_id'] for l in logs]
+        task_ids = [log['task_id'] for log in logs]
         self.assertNotIn('old_task', task_ids)
 
     def test_calibre_restart_persistence(self):

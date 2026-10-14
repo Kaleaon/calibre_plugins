@@ -1,4 +1,5 @@
 """Qt helpers shared by the plugins: a background-task runner and the download options panel."""
+
 import threading
 import time
 
@@ -12,7 +13,7 @@ class Task:
 
     def __init__(self, func):
         self.func = func
-        self.status = ''
+        self.status = ""
         self.result = None
         self.error = None
         self._cancel = threading.Event()
@@ -33,7 +34,7 @@ def run_task(parent, title, func):
     """Returns the finished Task; check task.error and task.cancelled(). The GUI stays responsive meanwhile."""
     task = Task(func)
     thread = threading.Thread(target=task._run, daemon=True)
-    progress = QProgressDialog(title, 'Cancel', 0, 0, parent)
+    progress = QProgressDialog(title, "Cancel", 0, 0, parent)
     progress.setWindowTitle(title)
     progress.setWindowModality(Qt.WindowModality.WindowModal)
     progress.setMinimumDuration(0)
@@ -59,20 +60,27 @@ class DownloadOptions(QWidget):
         self.prefs = prefs
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.skip = QCheckBox('Skip stories already in this library')
-        self.skip.setChecked(bool(prefs['skip_existing']))
+        self.skip = QCheckBox("Skip stories already in this library")
+        self.skip.setChecked(bool(prefs["skip_existing"]))
         layout.addWidget(self.skip)
-        self.combine = QCheckBox('Combine everything into one book (otherwise each story is its own book, with its parts as chapters)')
+        self.combine = QCheckBox(
+            "Combine everything into one book (otherwise each story is its own book, with its parts as chapters)"
+        )
         layout.addWidget(self.combine)
         self.title = QLineEdit()
-        self.title.setPlaceholderText('Title for the combined book')
+        self.title.setPlaceholderText("Title for the combined book")
         self.title.setEnabled(False)
         self.combine.toggled.connect(self.title.setEnabled)
         layout.addWidget(self.title)
         self.chapter_range = QLineEdit()
-        self.chapter_range.setPlaceholderText('Chapter range (e.g. 1-5, 8, 10+)')
+        self.chapter_range.setPlaceholderText("Chapter range (e.g. 1-5, 8, 10+)")
         layout.addWidget(self.chapter_range)
 
     def values(self):
-        self.prefs['skip_existing'] = self.skip.isChecked()
-        return self.skip.isChecked(), self.combine.isChecked(), self.title.text().strip(), self.chapter_range.text().strip()
+        self.prefs["skip_existing"] = self.skip.isChecked()
+        return (
+            self.skip.isChecked(),
+            self.combine.isChecked(),
+            self.title.text().strip(),
+            self.chapter_range.text().strip(),
+        )

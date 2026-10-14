@@ -2,6 +2,7 @@
 
 Everything here is additive: the plan only ever adds tags, never removes or renames existing ones.
 """
+
 import re
 
 try:
@@ -11,23 +12,22 @@ except ImportError:  # tests load this file directly
 
 # (display name, hosts, identifier keys that mean "this came from there")
 CORE_SITES = [
-    ('Metabods', ['metabods.com'], ['metabods']),
-    ('Nifty', ['nifty.org', 'niftyarchives.org'], ['nifty']),
-    ('Royal Road', ['royalroad.com', 'royalroadl.com'], ['royalroad', 'royalroadl']),
-    ('Archive of Our Own', ['archiveofourown.org', 'ao3.org'], ['ao3']),
-    ('FanFiction.Net', ['fanfiction.net'], ['ffnet', 'fanfictionnet']),
-    ('Wattpad', ['wattpad.com'], []),
-    ('Scribble Hub', ['scribblehub.com'], []),
-    ('Literotica', ['literotica.com'], []),
-    ('Sufficient Velocity', ['sufficientvelocity.com'], []),
-    ('SpaceBattles', ['spacebattles.com'], []),
-    ('Webnovel', ['webnovel.com'], []),
-    ('Wuxiaworld', ['wuxiaworld.com'], []),
-    ('SoFurry', ['sofurry.com'], []),
-    ('Fur Affinity', ['furaffinity.net'], []),
-    ('Tapas', ['tapas.io'], []),
+    ("Metabods", ["metabods.com"], ["metabods"]),
+    ("Nifty", ["nifty.org", "niftyarchives.org"], ["nifty"]),
+    ("Royal Road", ["royalroad.com", "royalroadl.com"], ["royalroad", "royalroadl"]),
+    ("Archive of Our Own", ["archiveofourown.org", "ao3.org"], ["ao3"]),
+    ("FanFiction.Net", ["fanfiction.net"], ["ffnet", "fanfictionnet"]),
+    ("Wattpad", ["wattpad.com"], []),
+    ("Scribble Hub", ["scribblehub.com"], []),
+    ("Literotica", ["literotica.com"], []),
+    ("Sufficient Velocity", ["sufficientvelocity.com"], []),
+    ("SpaceBattles", ["spacebattles.com"], []),
+    ("Webnovel", ["webnovel.com"], []),
+    ("Wuxiaworld", ["wuxiaworld.com"], []),
+    ("SoFurry", ["sofurry.com"], []),
+    ("Fur Affinity", ["furaffinity.net"], []),
+    ("Tapas", ["tapas.io"], []),
 ]
-
 
 
 def _host_covered(host, claimed_hosts, claimed_keys):
@@ -37,7 +37,7 @@ def _host_covered(host, claimed_hosts, claimed_keys):
     if h in claimed_keys:
         return True
     for c in claimed_hosts:
-        if h == c or h.endswith('.' + c) or c.endswith('.' + h):
+        if h == c or h.endswith("." + c) or c.endswith("." + h):
             return True
     return False
 
@@ -49,13 +49,13 @@ def _key_covered(key, claimed_hosts, claimed_keys):
     if k in claimed_keys or k in claimed_hosts:
         return True
     for c in claimed_hosts:
-        if k == c or k.endswith('.' + c) or c.endswith('.' + k):
+        if k == c or k.endswith("." + c) or c.endswith("." + k):
             return True
     return False
 
 
 def _covered(host, claimed):
-    return any(host == c or host.endswith('.' + c) for c in claimed)
+    return any(host == c or host.endswith("." + c) for c in claimed)
 
 
 def merge_sites(core, extra):
@@ -94,17 +94,27 @@ _merge_sites = merge_sites
 
 DEFAULT_SITES = merge_sites(CORE_SITES, FFF_SITES)
 
-FIELDS = {'tag': 'tags', 'tags': 'tags', 'title': 'title', 'author': 'authors', 'authors': 'authors', 'series': 'series',
-          'comments': 'comments', 'publisher': 'publisher', 'source': 'source', 'any': 'any'}
-DEFAULT_FIELDS = ('title', 'tags', 'series')
+FIELDS = {
+    "tag": "tags",
+    "tags": "tags",
+    "title": "title",
+    "author": "authors",
+    "authors": "authors",
+    "series": "series",
+    "comments": "comments",
+    "publisher": "publisher",
+    "source": "source",
+    "any": "any",
+}
+DEFAULT_FIELDS = ("title", "tags", "series")
 
 
 class Rule:
     def __init__(self, field, pattern, tags):
         self.field, self.pattern, self.tags = field, pattern, tags
-        if pattern.startswith('re:'):
+        if pattern.startswith("re:"):
             self.match = re.compile(pattern[3:], re.I).search
-        elif pattern.startswith('='):
+        elif pattern.startswith("="):
             exact = pattern[1:].strip().casefold()
             self.match = lambda text: text.casefold() == exact
         else:
@@ -115,15 +125,15 @@ class Rule:
 def parse_sites(text):
     """Extra sites, one per line: 'host[, host2] => Name'. Returns (sites, errors)."""
     sites, errors = [], []
-    for n, line in enumerate((text or '').splitlines(), 1):
+    for n, line in enumerate((text or "").splitlines(), 1):
         line = line.strip()
-        if not line or line.startswith('#'):
+        if not line or line.startswith("#"):
             continue
-        if '=>' not in line:
+        if "=>" not in line:
             errors.append(f'Site line {n}: expected "host => Name"')
             continue
-        hosts, name = (x.strip() for x in line.split('=>', 1))
-        hosts = [h.strip().lower() for h in hosts.split(',') if h.strip()]
+        hosts, name = (x.strip() for x in line.split("=>", 1))
+        hosts = [h.strip().lower() for h in hosts.split(",") if h.strip()]
         if not hosts or not name:
             errors.append(f'Site line {n}: expected "host => Name"')
             continue
@@ -134,43 +144,45 @@ def parse_sites(text):
 def parse_rules(text):
     """Rules, one per line: '[field:]pattern => Tag A, Tag B'. Returns (rules, errors)."""
     rules, errors = [], []
-    for n, line in enumerate((text or '').splitlines(), 1):
+    for n, line in enumerate((text or "").splitlines(), 1):
         line = line.strip()
-        if not line or line.startswith('#'):
+        if not line or line.startswith("#"):
             continue
-        if '=>' not in line:
+        if "=>" not in line:
             errors.append(f'Rule line {n}: expected "pattern => tag"')
             continue
-        left, right = (x.strip() for x in line.split('=>', 1))
+        left, right = (x.strip() for x in line.split("=>", 1))
         field = None
-        m = re.match(r'^([A-Za-z]+):(.*)$', left)
+        m = re.match(r"^([A-Za-z]+):(.*)$", left)
         if m and m.group(1).lower() in FIELDS:
             field, left = FIELDS[m.group(1).lower()], m.group(2).strip()
-        tags = [t.strip() for t in right.split(',') if t.strip()]
+        tags = [t.strip() for t in right.split(",") if t.strip()]
         if not left or not tags:
             errors.append(f'Rule line {n}: expected "pattern => tag"')
             continue
         try:
             rules.append(Rule(field, left, tags))
         except re.error as exc:
-            errors.append(f'Rule line {n}: bad regular expression ({exc})')
+            errors.append(f"Rule line {n}: bad regular expression ({exc})")
     return rules, errors
 
 
 def _host_pattern(host):
-    return re.compile(r'(?<![\w-])' + re.escape(host) + r'(?![\w-])', re.I)
+    return re.compile(r"(?<![\w-])" + re.escape(host) + r"(?![\w-])", re.I)
 
 
 def detect_sites(book, sites, scan_comments=False):
     """Names of the sites a book appears to come from, in table order."""
-    idents = {str(k).lower(): str(v) for k, v in (book.get('identifiers') or {}).items()}
-    haystacks = list(idents.values()) + [book.get('publisher') or '']
+    idents = {str(k).lower(): str(v) for k, v in (book.get("identifiers") or {}).items()}
+    haystacks = list(idents.values()) + [book.get("publisher") or ""]
     if scan_comments:
-        haystacks.append(book.get('comments') or '')
+        haystacks.append(book.get("comments") or "")
     found = []
     for name, hosts, keys in sites:
-        if name not in found and (any(k.lower() in idents for k in keys) or any(
-                _host_pattern(h).search(text) for h in hosts for text in haystacks if text)):
+        if name not in found and (
+            any(k.lower() in idents for k in keys)
+            or any(_host_pattern(h).search(text) for h in hosts for text in haystacks if text)
+        ):
             found.append(name)
     return found
 
@@ -184,29 +196,36 @@ def _values(book, field):
 
 def rule_hits(book, rule, sources):
     field = rule.field
-    if field == 'source':
+    if field == "source":
         texts = list(sources)
-    elif field in (None, 'any'):
+    elif field in (None, "any"):
         texts = [t for f in DEFAULT_FIELDS for t in _values(book, f)]
-        if field == 'any':
-            texts += _values(book, 'authors') + _values(book, 'comments') + _values(book, 'publisher')
+        if field == "any":
+            texts += _values(book, "authors") + _values(book, "comments") + _values(book, "publisher")
     else:
         texts = _values(book, field)
     return any(rule.match(t) for t in texts)
 
 
-def plan_changes(books, source_prefix='Source.', add_source=True, series_prefix='', rules=(), sites=DEFAULT_SITES,
-                 scan_comments=False):
+def plan_changes(
+    books,
+    source_prefix="Source.",
+    add_source=True,
+    series_prefix="",
+    rules=(),
+    sites=DEFAULT_SITES,
+    scan_comments=False,
+):
     """Tags to add per book. Returns [{'id', 'title', 'add': [...], 'tags': [...final tags...]}] for books that change."""
     plan = []
     for book in books:
-        have = list(book.get('tags') or [])
+        have = list(book.get("tags") or [])
         known = {t.casefold() for t in have}
         sources = detect_sites(book, sites, scan_comments)
         wanted = []
         if add_source:
-            wanted += [f'{source_prefix}{s}' for s in sources]
-        if series_prefix and book.get('series'):
+            wanted += [f"{source_prefix}{s}" for s in sources]
+        if series_prefix and book.get("series"):
             wanted.append(f"{series_prefix}{book['series']}")
         for rule in rules:
             if rule_hits(book, rule, sources):
@@ -217,5 +236,5 @@ def plan_changes(books, source_prefix='Source.', add_source=True, series_prefix=
                 known.add(tag.casefold())
                 add.append(tag)
         if add:
-            plan.append({'id': book['id'], 'title': book.get('title', ''), 'add': add, 'tags': have + add})
+            plan.append({"id": book["id"], "title": book.get("title", ""), "add": add, "tags": have + add})
     return plan
