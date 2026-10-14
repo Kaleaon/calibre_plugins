@@ -497,17 +497,22 @@ class GeminiFixerAction(InterfaceAction):
             worker = threading.Thread(target=work, daemon=True)
             worker.start()
             waiting = {'since': None, 'count': 0}
+            completed_books = 0
 
             def handle(kind, info):
+                nonlocal completed_books
                 if kind == 'sending':
                     batch_books = info['books']
                     waiting['since'], waiting['count'] = time.time(), len(batch_books)
+                    bar.setRange(0, 0)
                     log(f'→ Sending {len(batch_books)} book(s) to Gemini:')
                     for b in batch_books:
                         log(f'     {engine.describe_book(b)}')
                 elif kind == 'received':
                     log(f'← Gemini answered after {time.time() - (waiting["since"] or time.time()):.0f}s ({info["count"]} entries)')
                     waiting['since'] = None
+                    bar.setRange(0, max(1, total))
+                    bar.setValue(completed_books)
                 elif kind == 'answer':
                     book, changes = info['book'], info['changes']
                     name = f"“{book.get('title') or book['id']}”"
@@ -525,7 +530,9 @@ class GeminiFixerAction(InterfaceAction):
                 elif kind == 'skipped':
                     log(f"✖ {info['text']}")
                 elif kind == 'progress':
-                    bar.setValue(info['done'])
+                    completed_books = info['done']
+                    bar.setRange(0, max(1, total))
+                    bar.setValue(completed_books)
 
             while worker.is_alive() or not messages.empty():
                 while not messages.empty():
@@ -538,10 +545,13 @@ class GeminiFixerAction(InterfaceAction):
                     phase.setText('Working…')
                 QApplication.processEvents()
                 time.sleep(0.05)
+            bar.setRange(0, max(1, total))
+            bar.setValue(completed_books)
             return box.get('result'), box.get('error')
 
         def finish_run(result, count, error=None):
             phase.setText('Idle.')
+            bar.setRange(0, max(1, count))
             partial_error = None
             if error:
                 if hasattr(error, 'suggestions') and getattr(error, 'suggestions') is not None:
