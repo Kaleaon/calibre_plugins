@@ -49,6 +49,105 @@ def show_value(field, value):
     return value or '(none)'
 
 
+class _DummyDialog:
+    def __init__(self, parent=None): pass
+    def setWindowTitle(self, title): pass
+    def resize(self, w, h): pass
+    def accept(self): pass
+    def reject(self): pass
+    def exec(self): pass
+
+
+_DialogBase = QDialog if isinstance(QDialog, type) else _DummyDialog
+
+
+class GeminiRecoveryDialog(_DialogBase):
+    """Interactive dialog presented when batch scanning is interrupted by rate limit or quota errors."""
+
+    def __init__(self, parent, paused_error):
+        super().__init__(parent)
+        self.setWindowTitle('Gemini - Scan Paused (Rate Limit Reached)')
+        self.resize(500, 320)
+        self.choice = 'cancel'
+        self.paused_error = paused_error
+        state = getattr(paused_error, 'state', None)
+
+        layout = QVBoxLayout(self)
+
+        title = QLabel('<b>Batch Scan Interrupted</b>')
+        layout.addWidget(title)
+
+        completed_count = len(state.completed_ids) if state else 0
+        pending_count = len(state.pending_books) if state else 0
+        info_text = (
+            f"The Gemini API rate limit or quota was reached.\n\n"
+            f"• Completed books: {completed_count}\n"
+            f"• Pending books: {pending_count}\n\n"
+            f"Select a recovery action below:"
+        )
+        msg_label = QLabel(info_text)
+        msg_label.setWordWrap(True)
+        layout.addWidget(msg_label)
+
+        # Settings group
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel('Fallback / Retry Model:'))
+        self.model_combo = QComboBox()
+        valid_models = list(engine.MODEL_COST_PER_1M.keys())
+        self.model_combo.addItems(valid_models)
+        current_model = (state.model_config.get('model') if state else '') or engine.DEFAULT_MODEL
+        default_selection = 'gemini-2.5-flash-lite' if 'gemini-2.5-flash-lite' in valid_models else current_model
+        if default_selection in valid_models:
+            self.model_combo.setCurrentText(default_selection)
+        elif current_model in valid_models:
+            self.model_combo.setCurrentText(current_model)
+        row1.addWidget(self.model_combo, 1)
+        layout.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel('Request delay (seconds):'))
+        self.interval_spin = QSpinBox()
+        self.interval_spin.setRange(0, 120)
+        current_interval = int(state.model_config.get('min_interval', 7) if state else 7)
+        self.interval_spin.setValue(max(10, current_interval))
+        row2.addWidget(self.interval_spin)
+        row2.addStretch(1)
+        layout.addLayout(row2)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_resume = QPushButton('Resume Scanning')
+        btn_resume.setDefault(True)
+        btn_resume.clicked.connect(self._on_resume)
+        btn_save = QPushButton('Save for Later')
+        btn_save.clicked.connect(self._on_save)
+        btn_cancel = QPushButton('Cancel')
+        btn_cancel.clicked.connect(self._on_cancel)
+
+        btn_layout.addWidget(btn_resume)
+        btn_layout.addWidget(btn_save)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+
+    def _on_resume(self):
+        self.choice = 'resume'
+        self.accept()
+
+    def _on_save(self):
+        self.choice = 'save'
+        self.accept()
+
+    def _on_cancel(self):
+        self.choice = 'cancel'
+        self.reject()
+
+    def get_action(self):
+        return self.choice
+
+    def get_settings(self):
+        return self.model_combo.currentText().strip(), self.interval_spin.value()
+
+
 class GeminiFixerAction(InterfaceAction):
     name = 'Gemini Library Fixer'
     action_spec = ('Gemini fix books', None, 'Rename, sort and fix book metadata with the Google Gemini API', None)
@@ -470,27 +569,60 @@ class GeminiFixerAction(InterfaceAction):
                     log('Cancelled at pre-flight confirmation. Nothing was sent to Google.')
                     return finish_run(None, len(books))
 
-                result, error = ask_gemini(books)
+                current_books = books
+                current_state = None
+
+                while True:
+                    result, error = ask_gemini(current_books, state=current_state)
+                    if isinstance(error, engine.GeminiBatchPausedError):
+                        rec_dialog = GeminiRecoveryDialog(dialog, paused_error=error)
+                        rec_dialog.exec()
+                        choice = rec_dialog.get_action()
+                        if choice == 'resume':
+                            new_model, new_interval = rec_dialog.get_settings()
+                            model.setCurrentText(new_model)
+                            interval.setValue(new_interval)
+                            save_prefs()
+
+                            current_state = error.state
+                            current_state.model_config['model'] = new_model
+                            current_state.model_config['min_interval'] = new_interval
+
+                            current_books = current_state.pending_books
+                            log(f"⚠ Resuming scan for {len(current_books)} remaining book(s) with model '{new_model}' and {new_interval}s delay...")
+                            cancel_flag.clear()
+                            continue
+                        elif choice == 'save':
+                            log("Scan state saved for later execution. Retaining current suggestions.")
+                            return finish_run((error.state.suggestions, error.state.skipped), len(books), error=None)
+                        else:  # cancel
+                            log("Recovery cancelled. Retaining current suggestions.")
+                            return finish_run((error.state.suggestions, error.state.skipped), len(books), error=None)
+                    else:
+                        return finish_run(result, len(books), error=error)
             finally:
                 set_busy(False)
-            return finish_run(result, len(books), error)
 
-        def ask_gemini(books):
+        def ask_gemini(books, state=None):
             """Runs the API calls in a thread; this loop shows what they report and keeps the window responsive."""
             messages = queue.Queue()
             box = {}
-            total = len(books)
+            total = len(books) if state is None else (len(state.completed_ids) + len(state.pending_books))
             per_request = min(batch.value(), 8) if covers.isChecked() else batch.value()  # pictures make requests heavy
-            log(f'Sending {total} book(s) to Gemini ({model.currentText().strip() or engine.DEFAULT_MODEL}), {per_request} per request. Only the details shown above leave your computer.')
+            count_label = len(books) if state is None else len(state.pending_books)
+            log(f'Sending {count_label} book(s) to Gemini ({model.currentText().strip() or engine.DEFAULT_MODEL}), {per_request} per request. Only the details shown above leave your computer.')
             bar.setRange(0, max(1, total))
-            bar.setValue(0)
+            if state is not None:
+                bar.setValue(len(state.completed_ids))
+            else:
+                bar.setValue(0)
 
             def work():
                 try:
                     box['result'] = engine.plan_fixes(
                         books, api_key(), model.currentText().strip() or engine.DEFAULT_MODEL, chosen_fields(), confidence.currentText(),
                         per_request, tags_remove.isChecked(), cancelled=cancel_flag.is_set, min_interval=interval.value(),
-                        on_event=lambda kind, **info: messages.put((kind, info)))
+                        on_event=lambda kind, **info: messages.put((kind, info)), state=state)
                 except Exception as exc:  # shown to the user by the caller
                     box['error'] = exc
 
