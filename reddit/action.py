@@ -10,6 +10,13 @@ from qt.core import QAction, QMenu, QTimer
 from calibre_plugins.reddit_follower import core, libkit
 from calibre_plugins.reddit_follower.config import prefs
 from calibre_plugins.reddit_follower.guikit import run_task
+try:
+    from calibre_plugins.reddit_follower.error_handler import show_friendly_error_dialog
+except ImportError:
+    try:
+        from .error_handler import show_friendly_error_dialog
+    except ImportError:
+        from error_handler import show_friendly_error_dialog
 from calibre_plugins.reddit_follower.ui import DiscoverDialog, ManageDialog, SettingsDialog
 
 IDENTIFIER = 'redditfollow'
@@ -110,9 +117,9 @@ class FollowerAction(InterfaceAction):
             task = run_task(self.gui, 'Checking Reddit…', lambda t: core.run_follows(
                 self.make_source(t.cancelled), copies, self.cache_dir(), t.cancelled, lambda msg: setattr(t, 'status', msg)))
         except core.SourceError as exc:
-            return error_dialog(self.gui, 'Reddit stories', str(exc), show=True)
+            return show_friendly_error_dialog(self.gui, 'Reddit stories', exc, show=True)
         if task.error:
-            return error_dialog(self.gui, 'Reddit stories', f'The check failed: {task.error}', show=True)
+            return show_friendly_error_dialog(self.gui, 'Reddit stories', task.error, show=True)
         if task.result is None:
             return
         self.finish(task.result, interactive=True)
@@ -121,7 +128,7 @@ class FollowerAction(InterfaceAction):
         """One request for the first page of this follow, reported to the user. Changes nothing."""
         task = run_task(self.gui, 'Testing…', lambda t: core.probe(self.make_source(t.cancelled), follow['source'], follow))
         if task.error:
-            return error_dialog(self.gui, 'Reddit stories', f'The test failed: {task.error}', show=True)
+            return show_friendly_error_dialog(self.gui, 'Reddit stories', task.error, show=True)
         if task.result is not None:
             info_dialog(self.gui, f"Test: {follow['name']}", task.result[1], show=True)
 

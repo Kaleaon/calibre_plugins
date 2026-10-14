@@ -2,6 +2,13 @@ from pathlib import Path
 from calibre.gui2.actions import InterfaceAction
 from calibre.gui2 import error_dialog, info_dialog
 from qt.core import QAction, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QLabel, QVBoxLayout, QProgressDialog, Qt
+try:
+    from calibre_plugins.takeout_book_fixer.error_handler import show_friendly_error_dialog
+except ImportError:
+    try:
+        from .error_handler import show_friendly_error_dialog
+    except ImportError:
+        from error_handler import show_friendly_error_dialog
 from calibre_plugins.takeout_book_fixer.core import recover
 
 class TakeoutAction(InterfaceAction):
@@ -77,7 +84,7 @@ class TakeoutAction(InterfaceAction):
             info_dialog(self.gui, 'Takeout recovery complete',
                         f'{len(files)} books recovered or already present; {errors} recovery errors.\n{len(imported)} imported into Calibre; {len(import_errors)} import errors.\nOutput: {output}\nReport: {report_path}', show=True)
         except Exception as e:
-            error_dialog(self.gui, 'Takeout recovery failed', str(e), show=True)
+            show_friendly_error_dialog(self.gui, 'Takeout recovery failed', e, show=True)
         finally:
             progress.close()
 
@@ -105,7 +112,7 @@ class TakeoutAction(InterfaceAction):
                         f'{len(repaired)} format(s) repaired; {len(skipped)} already correct; {len(errors)} errors.' +
                         (f'\nErrors: {"; ".join(errors)}' if errors else ''), show=True)
         except Exception as exc:
-            error_dialog(self.gui, 'Calibre repair failed', str(exc), show=True)
+            show_friendly_error_dialog(self.gui, 'Calibre repair failed', exc, show=True)
 
     def merge_selected(self):
         ids = list(self.gui.library_view.get_selected_ids())
@@ -124,5 +131,5 @@ class TakeoutAction(InterfaceAction):
             info_dialog(self.gui, 'EPUB Merger', 'Successfully merged books into a new omnibus EPUB in your library.' +
                         (f'\nNotes: {"; ".join(errors)}' if errors else ''), show=True)
         else:
-            error_dialog(self.gui, 'EPUB Merger', 'Could not merge books:\n' + '\n'.join(errors), show=True)
+            show_friendly_error_dialog(self.gui, 'EPUB Merger', 'Could not merge books:\n' + '\n'.join(errors), show=True)
 
