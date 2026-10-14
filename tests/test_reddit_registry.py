@@ -219,6 +219,36 @@ class SQLiteRegistryTests(unittest.TestCase):
         chapters = self.reg.get_chapters('concurrent_series')
         self.assertEqual(len(chapters), 40)
 
+    def test_cascade_deletion_and_out_of_order_sequencing(self):
+        s_id = 'cascade_test'
+        self.reg.save_series({
+            'id': s_id,
+            'name': 'Cascade Test Series',
+            'sources': [{'kind': 'subreddit', 'subreddit': 'HFY'}]
+        })
+
+        # Save chapter 2 first, then chapter 1 (out of order)
+        p2 = {'id': 't3_c2', 'title': 'Part 2', 'author': 'Author1', 'created': 2000.0, 'html': '<p>P2</p>'}
+        p1 = {'id': 't3_c1', 'title': 'Part 1', 'author': 'Author1', 'created': 1000.0, 'html': '<p>P1</p>'}
+
+        self.reg.save_chapter_and_manifest(s_id, p2)
+        manifest_before = self.reg.get_manifest(s_id)
+        self.assertEqual(len(manifest_before), 1)
+        self.assertEqual(manifest_before[0]['post_id'], 't3_c2')
+
+        self.reg.save_chapter_and_manifest(s_id, p1)
+        manifest_after = self.reg.get_manifest(s_id)
+        # Manifest sequence order should re-index Part 1 (created=1000) before Part 2 (created=2000)
+        self.assertEqual(len(manifest_after), 2)
+        self.assertEqual(manifest_after[0]['post_id'], 't3_c1')
+        self.assertEqual(manifest_after[1]['post_id'], 't3_c2')
+
+        # Test series deletion cascades to child tables
+        self.reg.delete_series(s_id)
+        self.assertIsNone(self.reg.get_series(s_id))
+        self.assertEqual(len(self.reg.get_chapters(s_id)), 0)
+        self.assertEqual(len(self.reg.get_manifest(s_id)), 0)
+
 
 if __name__ == '__main__':
     unittest.main()
