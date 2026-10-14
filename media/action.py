@@ -8,12 +8,14 @@ from datetime import datetime
 from calibre.gui2 import error_dialog, info_dialog, question_dialog
 from calibre.gui2.actions import InterfaceAction
 from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
-                     QMenu, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, Qt, QToolButton, QTreeWidget,
-                     QTreeWidgetItem, QVBoxLayout)
+                     QMenu, QPlainTextEdit, QProgressBar, QProgressDialog, QRadioButton, Qt, QToolButton, QTreeWidgetItem, QVBoxLayout)
 
 from calibre_plugins.media_matcher import matching, sources, tags as audio
 from calibre_plugins.media_matcher.config import prefs
-from calibre_plugins.media_matcher.guikit import run_task
+try:
+    from calibre_plugins.media_matcher.guikit import ThemeTokenEngine, create_token_button, create_token_tree, run_task
+except ImportError:
+    from common.guikit import ThemeTokenEngine, create_token_button, create_token_tree, run_task
 
 KIND_CHOICES = [('auto', 'Detect from each file'), ('music', 'Music'), ('audiobook', 'Audiobook'), ('book', 'Book')]
 FIELD_LABELS = [('title', 'Titles'), ('authors', 'Artists / authors'), ('album', 'Album (as series) and track number'),
@@ -220,6 +222,7 @@ class MediaMatcherAction(InterfaceAction):
 
     def add_dialog(self):
         dialog = QDialog(self.gui)
+        ThemeTokenEngine.register_widget(dialog)
         dialog.setWindowTitle('Add music and audiobooks')
         dialog.resize(900, 620)
         layout = QVBoxLayout(dialog)
@@ -227,8 +230,8 @@ class MediaMatcherAction(InterfaceAction):
         note.setWordWrap(True)
         layout.addWidget(note)
         row = QHBoxLayout()
-        files_btn = QPushButton('Choose files…')
-        folder_btn = QPushButton('Choose a folder (includes subfolders)…')
+        files_btn = create_token_button('Choose files…')
+        folder_btn = create_token_button('Choose a folder (includes subfolders)…')
         row.addWidget(files_btn)
         row.addWidget(folder_btn)
         row.addWidget(QLabel('Treat as:'))
@@ -239,9 +242,8 @@ class MediaMatcherAction(InterfaceAction):
         row.addWidget(treat)
         row.addStretch(1)
         layout.addLayout(row)
-        tree = QTreeWidget()
+        tree = create_token_tree(header_labels=['File', 'Title', 'Artist', 'Album', '#', 'Kind'])
         tree.setRootIsDecorated(False)
-        tree.setHeaderLabels(['File', 'Title', 'Artist', 'Album', '#', 'Kind'])
         tree.setColumnWidth(0, 220)
         tree.setColumnWidth(1, 220)
         tree.setColumnWidth(2, 160)
@@ -258,7 +260,7 @@ class MediaMatcherAction(InterfaceAction):
         status.setWordWrap(True)
         layout.addWidget(status)
         buttons = QDialogButtonBox()
-        add_btn = QPushButton('Add ticked files')
+        add_btn = create_token_button('Add ticked files')
         add_btn.setEnabled(False)
         buttons.addButton(add_btn, QDialogButtonBox.ButtonRole.AcceptRole)
         buttons.addButton(QDialogButtonBox.StandardButton.Close)
@@ -358,6 +360,7 @@ class MediaMatcherAction(InterfaceAction):
     def match_dialog(self, ids=None):
         selected = list(ids) if ids else list(self.gui.library_view.get_selected_ids())
         dialog = QDialog(self.gui)
+        ThemeTokenEngine.register_widget(dialog)
         dialog.setWindowTitle('Match with MusicBrainz / Open Library')
         dialog.resize(860, 820)
         layout = QVBoxLayout(dialog)
@@ -416,7 +419,7 @@ class MediaMatcherAction(InterfaceAction):
         bar.setValue(0)
         bar.setFormat('%v of %m')
         row.addWidget(bar, 1)
-        stop_btn = QPushButton('Cancel')
+        stop_btn = create_token_button('Cancel')
         stop_btn.setEnabled(False)
         row.addWidget(stop_btn)
         layout.addLayout(row)
@@ -427,8 +430,7 @@ class MediaMatcherAction(InterfaceAction):
         activity.setMaximumBlockCount(5000)
         activity.setPlaceholderText('Each book as it is looked up, what was searched for, and what came back.')
         layout.addWidget(activity, 2)
-        tree = QTreeWidget()
-        tree.setHeaderLabels(['Suggested change', 'Match'])
+        tree = create_token_tree(header_labels=['Suggested change', 'Match'])
         tree.setColumnWidth(0, 440)
         layout.addWidget(tree, 3)
         status = QLabel('Press Look up. Weak matches are not offered; uncertain ones are left unticked.')
@@ -436,10 +438,10 @@ class MediaMatcherAction(InterfaceAction):
         layout.addWidget(status)
 
         buttons = QDialogButtonBox()
-        check_btn = QPushButton('Look up')
-        apply_btn = QPushButton('Apply ticked changes')
+        check_btn = create_token_button('Look up')
+        apply_btn = create_token_button('Apply ticked changes')
         apply_btn.setEnabled(False)
-        undo_btn = QPushButton('Undo last run')
+        undo_btn = create_token_button('Undo last run')
         undo_btn.setEnabled(bool(prefs['undo']))
         buttons.addButton(check_btn, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.addButton(apply_btn, QDialogButtonBox.ButtonRole.AcceptRole)

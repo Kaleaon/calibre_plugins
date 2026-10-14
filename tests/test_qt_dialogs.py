@@ -369,7 +369,8 @@ class NiftyAuthorDialogTests(QtCase):
         ui.QMessageBox = YesBox
         dialog.filter.setText('writer')
         dialog.author_list.setCurrentRow(0)
-        names = lambda: [(dialog.tree.topLevelItem(i).text(0), dialog.tree.topLevelItem(i).childCount()) for i in range(dialog.tree.topLevelItemCount())]
+        def names():
+            return [(dialog.tree.topLevelItem(i).text(0), dialog.tree.topLevelItem(i).childCount()) for i in range(dialog.tree.topLevelItemCount())]
         before = names()
         self.assertEqual(before[0][1], 2, 'titles alone: Texas Tails and Texas Tails: Jeremiah')
         other = dialog.tree.topLevelItem(1)
@@ -988,7 +989,7 @@ class GeminiDialogTests(QtCase):
         gui.tags_view = MagicMock()
         action = action_mod.GeminiFixerAction()
         action.gui = gui
-        config = importlib.import_module(package + '.config')
+        importlib.import_module(package + '.config')
         action_mod.prefs['api_key'] = 'test-key'
         seen = {}
 
@@ -1098,7 +1099,7 @@ class GeminiDialogTests(QtCase):
 
         def labels(dialog):
             tree = dialog.findChild(QtWidgets.QTreeWidget)
-            text = next(l.text() for l in dialog.findChildren(QtWidgets.QLabel) if 'change(s) ticked' in l.text())
+            text = next(label.text() for label in dialog.findChildren(QtWidgets.QLabel) if 'change(s) ticked' in label.text())
             states = {tree.topLevelItem(i).text(0): tree.topLevelItem(i).child(0).checkState(0) for i in range(tree.topLevelItemCount())}
             return text, states, self._button(dialog, 'Apply ticked changes').isEnabled()
 
@@ -1134,7 +1135,6 @@ class GeminiDialogTests(QtCase):
         self.assertGreater(seen['sizes'][1], seen['sizes'][0], 'the list of changes is the larger part once results are in')
 
     def test_covers_are_sent_as_pictures_and_the_isbn_is_applied_and_undone(self):
-        import json
         db = GeminiDb()
         # a real PNG for book 1's front cover, and an EPUB for book 2 that holds a back-cover picture
         image = QtGui.QImage(1500, 2000, QtGui.QImage.Format.Format_RGB32)
@@ -1350,6 +1350,97 @@ class FanficDialogTests(QtCase):
         dialog.test_server()
         self.assertTrue(dialog.status.text().startswith('Problem: Nothing answered'), dialog.status.text())
         self.assertIn('localhost:1/v1', dialog.status.text(), 'the port from Advanced settings should be used')
+
+
+@unittest.skipUnless(HAVE_QT, 'PyQt6 (with its system libraries) is not installed')
+class ThemeTokenEngineTests(QtCase):
+    def test_stylesheet_generation_performance(self):
+        guikit = importlib.import_module(self.load('gemini_library_fixer') + '.guikit')
+        engine = guikit.ThemeTokenEngine
+
+        # Warm-up run
+        engine.generate_stylesheet()
+
+        # Measure 100 runs
+        start = time.perf_counter()
+        iterations = 100
+        for _ in range(iterations):
+            qss = engine.generate_stylesheet()
+            self.assertTrue(len(qss) > 0)
+        elapsed = (time.perf_counter() - start) / iterations * 1000  # ms per run
+
+        self.assertLess(elapsed, 5.0, f"Stylesheet generation took {elapsed:.3f}ms per run, exceeding 5.0ms threshold")
+
+    def test_light_dark_token_resolution(self):
+        guikit = importlib.import_module(self.load('gemini_library_fixer') + '.guikit')
+        engine = guikit.ThemeTokenEngine
+
+        light_tokens = engine.get_tokens(dark_mode=False)
+        dark_tokens = engine.get_tokens(dark_mode=True)
+
+        self.assertEqual(light_tokens['bg_primary'], '#ffffff')
+        self.assertEqual(dark_tokens['bg_primary'], '#1e1e2e')
+        self.assertNotEqual(light_tokens['text_primary'], dark_tokens['text_primary'])
+
+        try:
+            engine.set_forced_theme(True)
+            self.assertTrue(engine.is_dark_mode())
+            qss_dark = engine.generate_stylesheet()
+            self.assertIn('#1e1e2e', qss_dark)
+
+            engine.set_forced_theme(False)
+            self.assertFalse(engine.is_dark_mode())
+            qss_light = engine.generate_stylesheet()
+            self.assertIn('#ffffff', qss_light)
+        finally:
+            engine.set_forced_theme(None)
+
+    def test_high_contrast_preservation(self):
+        guikit = importlib.import_module(self.load('gemini_library_fixer') + '.guikit')
+        engine = guikit.ThemeTokenEngine
+
+        self.assertGreater(len(engine.generate_stylesheet()), 0)
+
+        original_hc = engine.is_high_contrast
+        try:
+            engine.is_high_contrast = classmethod(lambda cls, app=None: True)
+            self.assertEqual(engine.generate_stylesheet(), "")
+        finally:
+            engine.is_high_contrast = original_hc
+
+    def test_widget_registration_lifecycle(self):
+        guikit = importlib.import_module(self.load('gemini_library_fixer') + '.guikit')
+        engine = guikit.ThemeTokenEngine
+
+        widget = QtWidgets.QWidget()
+        engine.register_widget(widget)
+
+        inst = engine.get_instance()
+        self.assertIn(widget, inst._registered_widgets)
+        self.assertTrue(len(widget.styleSheet()) > 0)
+
+        engine.unregister_widget(widget)
+        self.assertNotIn(widget, inst._registered_widgets)
+
+    def test_token_widget_factories(self):
+        guikit = importlib.import_module(self.load('gemini_library_fixer') + '.guikit')
+
+        btn = guikit.create_token_button("Test Button", tool_tip="Tooltip")
+        self.assertIsInstance(btn, QtWidgets.QPushButton)
+        self.assertEqual(btn.text(), "Test Button")
+        self.assertEqual(btn.toolTip(), "Tooltip")
+
+        tree = guikit.create_token_tree(header_labels=["Col1", "Col2"])
+        self.assertIsInstance(tree, QtWidgets.QTreeWidget)
+        self.assertTrue(tree.alternatingRowColors())
+
+        table = guikit.create_token_table(2, 2, header_labels=["A", "B"])
+        self.assertIsInstance(table, QtWidgets.QTableWidget)
+        self.assertEqual(table.rowCount(), 2)
+        self.assertEqual(table.columnCount(), 2)
+
+        splitter = guikit.create_token_splitter()
+        self.assertIsInstance(splitter, QtWidgets.QSplitter)
 
 
 if __name__ == '__main__':
