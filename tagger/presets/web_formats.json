@@ -1,0 +1,45 @@
+{
+  "name": "Web Serials & Light Novels",
+  "category": "Web Formats",
+  "description": "Auto-tag Web Serials, Light Novels, Fanfiction, and popular story platform sources.",
+  "version": "1.0.0",
+  "rules": [
+    {
+      "field": "source",
+      "match_mode": "substring",
+      "pattern": "Royal Road",
+      "tags": ["Format.Web Serial"]
+    },
+    {
+      "field": "source",
+      "match_mode": "substring",
+      "pattern": "Scribble Hub",
+      "tags": ["Format.Web Serial"]
+    },
+    {
+      "field": "source",
+      "match_mode": "substring",
+      "pattern": "Archive of Our Own",
+      "tags": ["Format.Fanfiction"]
+    },
+    {
+      "field": "source",
+      "match_mode": "substring",
+      "pattern": "FanFiction.Net",
+      "tags": ["Format.Fanfiction"]
+    },
+    {
+      "field": "any",
+      "match_mode": "regex",
+      "pattern": "\\b(web serial|light novel|webnovel)\\b",
+      "tags": ["Format.Web Serial"]
+    }
+  ],
+  "sites": [
+    {
+      "name": "Stories Online",
+      "hosts": ["storiesonline.net", "sol.net"],
+      "keys": ["storiesonline"]
+    }
+  ]
+}

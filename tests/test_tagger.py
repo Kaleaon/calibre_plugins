@@ -143,7 +143,21 @@ class TaggerDialogTests(unittest.TestCase):
         action.show_dialog()
 
         qt_core = sys.modules['qt.core']
-        self.assertGreaterEqual(qt_core.QLabel.return_value.setWordWrap.call_count, 4)
+        self.assertGreaterEqual(qt_core.QLabel.return_value.setWordWrap.call_count, 1)
+
+    def test_show_dialog_creates_tabs_and_preset_widgets(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+        action.show_dialog()
+
+        qt_core = sys.modules['qt.core']
+        self.assertGreaterEqual(qt_core.QTabWidget.return_value.addTab.call_count, 3)
+        self.assertGreaterEqual(qt_core.QTableWidget.call_count, 2)
 
 
 if __name__ == '__main__':

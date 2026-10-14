@@ -1,0 +1,27 @@
+{
+  "name": "Sci-Fi & Cyberpunk",
+  "category": "Genres",
+  "description": "Auto-tag Science Fiction, Cyberpunk, Space Opera, and Time Travel works.",
+  "version": "1.0.0",
+  "rules": [
+    {
+      "field": "any",
+      "match_mode": "regex",
+      "pattern": "\\b(cyberpunk|space opera|time travel|dystopian)\\b",
+      "tags": ["Genre.Sci-Fi"]
+    },
+    {
+      "field": "tags",
+      "match_mode": "exact",
+      "pattern": "Cyberpunk",
+      "tags": ["Genre.Sci-Fi", "Subgenre.Cyberpunk"]
+    },
+    {
+      "field": "tags",
+      "match_mode": "exact",
+      "pattern": "Space Opera",
+      "tags": ["Genre.Sci-Fi", "Subgenre.Space Opera"]
+    }
+  ],
+  "sites": []
+}

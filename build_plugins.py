@@ -132,8 +132,10 @@ def build_all(dest, skip_unavailable=True):
         target = dest / zip_name
         try:
             with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as z:
-                for path in sorted((root / folder).glob('*.py')):
-                    z.write(path, path.name)
+                for path in sorted((root / folder).rglob('*')):
+                    if path.is_file() and '__pycache__' not in path.parts and path.suffix in ('.py', '.json'):
+                        arcname = path.relative_to(root / folder).as_posix()
+                        z.write(path, arcname)
                 for name in shared:
                     z.write(root / 'common' / name, name)
                 z.writestr(f'plugin-import-name-{import_name}.txt', '')
