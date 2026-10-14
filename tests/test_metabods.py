@@ -71,6 +71,84 @@ class ListTests(unittest.TestCase):
         self.assertEqual(core.combine_tag_results({}, True), [])
 
 
+class ConcurrentFakeFetcher:
+    def __init__(self, min_interval=0, cancelled=lambda: False, delays=None, errors=None):
+        self.min_interval = min_interval
+        self.cancelled = cancelled
+        self.delays = delays or {}
+        self.errors = errors or {}
+
+    def get(self, url):
+        if self.cancelled():
+            raise core.Cancelled()
+        tid_str = url.rsplit('=', 1)[-1]
+        if tid_str in self.errors:
+            raise IOError(self.errors[tid_str])
+        delay = self.delays.get(tid_str, 0.0)
+        if delay > 0:
+            import time
+            time.sleep(delay)
+        return f'<td><a href="/mbxy/site/story.php?id=story-{tid_str}">Story {tid_str}</a></td>'
+
+
+class SearchTagsTests(unittest.TestCase):
+    def test_search_tags_concurrent_and_progress(self):
+        import time
+        delays = {str(i): 0.15 for i in range(1, 6)}
+        fetcher = ConcurrentFakeFetcher(delays=delays)
+        progress_updates = []
+
+        start = time.monotonic()
+        results = core.search_tags(
+            fetcher,
+            [1, 2, 3, 4, 5],
+            progress=lambda c, t: progress_updates.append((c, t)),
+            max_workers=5,
+        )
+        elapsed = time.monotonic() - start
+
+        self.assertLess(elapsed, 0.5, f"5 tags took {elapsed:.2f}s; expected parallel completion under 0.5s")
+        self.assertEqual(len(results), 5)
+        self.assertIn(1, results)
+        self.assertEqual(results[1][0]['id'], 'story-1')
+        self.assertEqual(len(progress_updates), 5)
+        self.assertEqual(progress_updates[-1], (5, 5))
+
+    def test_search_tags_cancellation(self):
+        cancel_flag = False
+
+        def is_cancelled():
+            return cancel_flag
+
+        fetcher = ConcurrentFakeFetcher(cancelled=is_cancelled, delays={str(i): 0.1 for i in range(1, 6)})
+        cancel_flag = True
+        with self.assertRaises(core.Cancelled):
+            core.search_tags(fetcher, [1, 2, 3])
+
+    def test_search_tags_error_propagation(self):
+        fetcher = ConcurrentFakeFetcher(errors={'2': 'Network timeout'})
+        with self.assertRaises(IOError) as ctx:
+            core.search_tags(fetcher, [1, 2, 3])
+        self.assertIn('Network timeout', str(ctx.exception))
+
+    def test_search_tags_per_thread_fetchers(self):
+        import time
+
+        seen_fetchers = set()
+
+        class TrackingFetcher(core.Fetcher):
+            def get(self, url):
+                seen_fetchers.add(id(self))
+                time.sleep(0.02)
+                return '<td><a href="/mbxy/site/story.php?id=a">A</a></td>'
+
+        base_fetcher = TrackingFetcher()
+        results = core.search_tags(base_fetcher, [10, 20], max_workers=2)
+        self.assertEqual(len(results), 2)
+        self.assertNotIn(id(base_fetcher), seen_fetchers)
+        self.assertEqual(len(seen_fetchers), 2)
+
+
 class StoryTests(unittest.TestCase):
     def test_print_page(self):
         s = core.parse_print_page(PRINT)

@@ -1,6 +1,9 @@
 """Metabods parsing and download logic. Pure standard library so it can be tested outside Calibre."""
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import copy
 import html
 import re
+import threading
 from urllib.parse import parse_qs, urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
@@ -89,9 +92,79 @@ def parse_tag_index(page):
     return sorted(tags.items(), key=lambda t: t[1].casefold())
 
 
-def search_tags(fetcher, tag_ids):
+def _report_progress(progress_cb, completed, total):
+    if not progress_cb:
+        return
+    try:
+        progress_cb(completed, total)
+    except TypeError:
+        try:
+            progress_cb(f'Reading tag {completed} of {total}…')
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def search_tags(fetcher, tag_ids, progress=None, max_workers=5):
     """Stories carrying each tag; returns {tag_id: [rows]}."""
-    return {tid: parse_story_rows(fetcher.get(tag_url(tid))) for tid in tag_ids}
+    tag_ids = list(dict.fromkeys(tag_ids))
+    if not tag_ids:
+        return {}
+
+    def is_cancelled():
+        if hasattr(fetcher, 'cancelled') and callable(fetcher.cancelled):
+            return fetcher.cancelled()
+        return False
+
+    if is_cancelled():
+        raise Cancelled()
+
+    def make_thread_fetcher():
+        try:
+            tf = copy.copy(fetcher)
+            tf._last = 0.0
+            return tf
+        except Exception:
+            return fetcher
+
+    results = {}
+    completed_count = 0
+    lock = threading.Lock()
+
+    def fetch_one(tid):
+        nonlocal completed_count
+        if is_cancelled():
+            raise Cancelled()
+        t_fetcher = make_thread_fetcher()
+        page = t_fetcher.get(tag_url(tid))
+        rows = parse_story_rows(page)
+        with lock:
+            completed_count += 1
+            _report_progress(progress, completed_count, len(tag_ids))
+        return tid, rows
+
+    pool_size = min(max_workers, len(tag_ids)) if max_workers > 0 else 1
+    with ThreadPoolExecutor(max_workers=pool_size) as executor:
+        futures = {executor.submit(fetch_one, tid): tid for tid in tag_ids}
+        try:
+            for future in as_completed(futures):
+                if is_cancelled():
+                    for f in futures:
+                        f.cancel()
+                    raise Cancelled()
+                tid, rows = future.result()
+                results[tid] = rows
+        except Cancelled:
+            for f in futures:
+                f.cancel()
+            raise
+        except Exception:
+            for f in futures:
+                f.cancel()
+            raise
+
+    return results
 
 
 def combine_tag_results(results, match_all):
