@@ -32,6 +32,7 @@ class FollowerAction(InterfaceAction):
         self.qaction.triggered.connect(self.manage)
         self.busy = False
         self.backoff_until = 0.0
+        self.last_background_error = None
         self.stopping = False
         self._thread = None
         self._job = {}
@@ -183,6 +184,7 @@ class FollowerAction(InterfaceAction):
         if job.get('results'):
             self.finish(job['results'], interactive=False)
         elif job.get('error') and not isinstance(job['error'], core.Cancelled):
+            self.last_background_error = str(job['error'])
             self.gui.status_bar.show_message(f"Reddit stories: check failed ({job['error']})", 10000)
 
     # -- applying results
@@ -197,6 +199,15 @@ class FollowerAction(InterfaceAction):
         if any(r['rate_limited'] for r in results):
             wait = max([r['retry_after'] or 0 for r in results] + [MIN_BACKOFF])
             self.backoff_until = time.time() + wait
+        if not interactive:
+            if any(r['rate_limited'] for r in results):
+                wait = max([r['retry_after'] or 0 for r in results] + [MIN_BACKOFF])
+                self.last_background_error = f"Reddit asked us to slow down (HTTP 429 rate limit). Will try again after about {wait // 60} minutes."
+            elif any(r.get('error') for r in results):
+                errs = [r['error'] for r in results if r.get('error')]
+                self.last_background_error = f"Background check failed: {errs[0]}"
+            else:
+                self.last_background_error = None
         lines, changed_books = [], 0
         for r in results:
             name = r['follow']['name']

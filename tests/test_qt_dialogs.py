@@ -923,6 +923,47 @@ class RedditPluginTests(QtCase):
         z = zipfile.ZipFile(io.BytesIO(book['formats']['EPUB']))
         self.assertEqual(len([n for n in z.namelist() if n.startswith('OEBPS/s001_')]), 3)
 
+    def test_manage_dialog_live_backoff_countdown_and_reset(self):
+        action = self.make_action()
+        action.backoff_until = time.time() + 600
+        dialog = self.ui.ManageDialog(None, action)
+        self.assertFalse(dialog.backoff_banner.isHidden())
+        self.assertIn('Backoff active: retrying in', dialog.backoff_label.text())
+
+        dialog.reset_backoff_and_retry()
+        self.assertEqual(action.backoff_until, 0)
+        self.assertTrue(dialog.backoff_banner.isHidden())
+
+    def test_manage_dialog_persistent_error_banner(self):
+        action = self.make_action()
+        action.last_background_error = 'HTTP 429 Rate Limit Exceeded'
+        dialog = self.ui.ManageDialog(None, action)
+        self.assertFalse(dialog.error_banner.isHidden())
+        self.assertIn('HTTP 429 Rate Limit Exceeded', dialog.error_label.text())
+
+        dialog.dismiss_error()
+        self.assertIsNone(action.last_background_error)
+        self.assertTrue(dialog.error_banner.isHidden())
+
+    def test_settings_dialog_contextual_connection_guidance(self):
+        core = self.core
+
+        class FeedFake:
+            def __init__(self, min_interval=0, cancelled=lambda: False, **kwargs):
+                pass
+
+            def get(self, url, headers=None, **kwargs):
+                raise core.RateLimited(url, 300)
+        core.Fetcher = FeedFake
+        dialog = self.ui.SettingsDialog(None)
+        dialog.test_connection()
+        self.assertIn('HTTP 429', dialog.test_result.text())
+        self.assertIn('Official API', dialog.test_result.text())
+        self.assertFalse(dialog.switch_api_button.isHidden())
+        dialog.switch_api_button.click()
+        self.assertTrue(dialog.api.isChecked())
+        self.assertTrue(dialog.switch_api_button.isHidden())
+
 
 class GeminiDb:
     """Just enough of Calibre's db.new_api for the Gemini fixer: books in memory, every write recorded."""
