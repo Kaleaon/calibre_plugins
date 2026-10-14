@@ -652,6 +652,85 @@ class EstimateBatchUsageTests(unittest.TestCase):
         self.assertAlmostEqual(est_pro['estimated_cost'], (est_pro['prompt_tokens'] / 1_000_000.0) * 1.25, places=6)
 
 
+class AdaptiveDowngradeTests(unittest.TestCase):
+    def test_fallback_model_mapping(self):
+        f = engine.get_fallback_model
+        self.assertEqual(f('gemini-2.5-flash'), 'gemini-2.5-flash-lite')
+        self.assertEqual(f('gemini-2.5-pro'), 'gemini-2.5-flash-lite')
+        self.assertEqual(f('gemini-1.5-flash'), 'gemini-1.5-flash-lite')
+        self.assertEqual(f('gemini-1.5-pro'), 'gemini-1.5-flash-lite')
+        self.assertEqual(f('gemini-2.5-flash-lite'), 'gemini-2.5-flash-lite')
+        self.assertEqual(f('gemini-1.5-flash-lite'), 'gemini-1.5-flash-lite')
+
+    def test_rate_limit_error_detection(self):
+        self.assertTrue(engine.is_rate_limit_error(http_error(429, 'rate limit')))
+        self.assertTrue(engine.is_rate_limit_error(engine.GeminiError('Google says the request limit is used up')))
+        self.assertFalse(engine.is_rate_limit_error(engine.QuotaExhausted('Quota exhausted')))
+        self.assertFalse(engine.is_rate_limit_error(engine.GeminiError('Cancelled')))
+
+    def test_batch_split_and_model_downgrade_on_rate_limit(self):
+        notices = []
+        rate_limit_err1 = http_error(429, 'Resource exhausted rate limit key=SECRET123')
+        rate_limit_err2 = http_error(429, 'Resource exhausted rate limit key=SECRET123')
+
+        def resp_book1(body):
+            self.assertIn('gemini-2.5-flash-lite', t.calls[-1][0])
+            return reply([{'id': 1, 'title': 'Book One Clean', 'confidence': 'high'}])
+
+        def resp_book2(body):
+            self.assertIn('gemini-2.5-flash-lite', t.calls[-1][0])
+            return reply([{'id': 2, 'title': 'Book Two Clean', 'confidence': 'high'}])
+
+        t = Scripted(rate_limit_err1, rate_limit_err2, resp_book1, resp_book2)
+
+        books = [book(1, title='book 1'), book(2, title='book 2')]
+        out, skipped = engine.plan_fixes(
+            books,
+            'SECRET123',
+            model='gemini-2.5-flash',
+            batch_size=2,
+            transport=t,
+            retries=0,
+            sleep=lambda s: None,
+            on_event=lambda kind, **i: notices.append((kind, i.get('text', ''))) if kind in ('notice', 'skipped') else None
+        )
+
+        self.assertEqual(len(out), 2)
+        self.assertEqual(skipped, [])
+        notice_texts = [txt for kind, txt in notices if kind == 'notice']
+        self.assertTrue(any('Splitting' in txt for txt in notice_texts))
+        self.assertTrue(any('Downgrading' in txt for txt in notice_texts))
+        for _, txt in notices:
+            self.assertNotIn('SECRET123', txt)
+
+    def test_single_item_backoff_and_api_key_redaction(self):
+        notices = []
+        rate_limit_err = engine.GeminiError('Google says the request limit is used up: key=SECRET_KEY_XYZ')
+
+        t = Scripted(
+            rate_limit_err,
+            reply([{'id': 1, 'title': 'Clean Title', 'confidence': 'high'}])
+        )
+
+        out, skipped = engine.plan_fixes(
+            [book(1, title='dirty title')],
+            'SECRET_KEY_XYZ',
+            model='gemini-2.5-flash-lite',
+            batch_size=1,
+            transport=t,
+            retries=0,
+            sleep=lambda s: None,
+            on_event=lambda kind, **i: notices.append((kind, i.get('text', ''))) if kind in ('notice', 'skipped') else None
+        )
+
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]['changes']['title'][1], 'Clean Title')
+        notice_texts = [txt for kind, txt in notices if kind == 'notice']
+        self.assertTrue(any('Waiting' in txt for txt in notice_texts))
+        for _, txt in notices:
+            self.assertNotIn('SECRET_KEY_XYZ', txt)
+
+
 if __name__ == '__main__':
     unittest.main()
 
