@@ -112,6 +112,30 @@ class TakeoutAction(InterfaceAction):
         if not ids or len(ids) < 2:
             info_dialog(self.gui, 'EPUB Merger', 'Select two or more books in Calibre first to merge.', show=True)
             return
+
+        try:
+            try:
+                from .guikit import scan_library_books_for_merge, MergePreviewDialog
+            except ImportError:
+                from calibre_plugins.takeout_book_fixer.guikit import scan_library_books_for_merge, MergePreviewDialog
+        except ImportError:
+            from guikit import scan_library_books_for_merge, MergePreviewDialog
+
+        scan_results = scan_library_books_for_merge(self.gui, ids)
+        if not scan_results:
+            info_dialog(self.gui, 'EPUB Merger', 'No books found to merge.', show=True)
+            return
+
+        dialog = MergePreviewDialog(self.gui, scan_results)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        active_stories = dialog.get_active_stories()
+        meta = dialog.get_metadata()
+        if not active_stories:
+            info_dialog(self.gui, 'EPUB Merger', 'No valid books or chapters selected to merge.', show=True)
+            return
+
         try:
             try:
                 from .libkit import merge_library_books
@@ -119,7 +143,18 @@ class TakeoutAction(InterfaceAction):
                 from calibre_plugins.takeout_book_fixer.libkit import merge_library_books
         except ImportError:
             from libkit import merge_library_books
-        book_id, errors = merge_library_books(self.gui, ids)
+
+        book_id, errors = merge_library_books(
+            self.gui,
+            ids,
+            title=meta['title'],
+            author=meta['author'],
+            publisher=meta['publisher'],
+            tags=meta['tags'],
+            description=meta['description'],
+            stories_override=active_stories,
+            preserve_story_order=True
+        )
         if book_id:
             info_dialog(self.gui, 'EPUB Merger', 'Successfully merged books into a new omnibus EPUB in your library.' +
                         (f'\nNotes: {"; ".join(errors)}' if errors else ''), show=True)

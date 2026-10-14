@@ -304,17 +304,22 @@ def sort_by_posting_order(stories):
     return sorted(stories, key=key)
 
 
-def build_epub(stories, title=None, author=None, publisher=None):
+def build_epub(stories, title=None, author=None, publisher=None, tags=None, summary=None, preserve_story_order=False):
     """Return EPUB bytes. One story keeps its parts as chapters; several stories become one omnibus."""
     if not stories:
         raise ValueError('No stories to build')
-    stories = sort_by_posting_order(stories)
+    if not preserve_story_order:
+        stories = sort_by_posting_order(stories)
     combined = len(stories) > 1
     title = title or (stories[0]['title'] if not combined else f"{stories[0]['title']} and {len(stories) - 1} more")
     authors = list(dict.fromkeys(s['author'] for s in stories))
     author = author or ' & '.join(authors)
-    tags = list(dict.fromkeys(t for s in stories for t in s.get('tags', []) + s.get('categories', [])))
-    summary = stories[0].get('summary', '') if not combined else ''
+    if tags is None:
+        tags = list(dict.fromkeys(t for s in stories for t in s.get('tags', []) + s.get('categories', [])))
+    elif isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(',') if t.strip()]
+    if summary is None:
+        summary = stories[0].get('summary', '') if not combined else ''
     book_id = 'urn:uuid:' + str(uuid.uuid5(uuid.NAMESPACE_URL, '|'.join(s.get('id', s['title']) for s in stories)))
 
     files = []  # (filename, xhtml)
@@ -534,17 +539,20 @@ def extract_epub_story(epub_source):
         }
 
 
-def merge_epubs(epub_list, title=None, author=None, publisher=None):
+def merge_epubs(epub_list, title=None, author=None, publisher=None, tags=None, summary=None, stories_override=None, preserve_story_order=False):
     """Extract stories from a list of EPUB bytes or paths and build a merged EPUB byte string."""
-    stories = []
-    for item in epub_list:
-        try:
-            story = extract_epub_story(item)
-            if story and story['sections']:
-                stories.append(story)
-        except Exception:
-            continue
+    if stories_override is not None:
+        stories = stories_override
+    else:
+        stories = []
+        for item in epub_list:
+            try:
+                story = extract_epub_story(item)
+                if story and story['sections']:
+                    stories.append(story)
+            except Exception:
+                continue
     if not stories:
         raise ValueError('No valid EPUB stories found to merge')
-    return build_epub(stories, title=title, author=author, publisher=publisher)
+    return build_epub(stories, title=title, author=author, publisher=publisher, tags=tags, summary=summary, preserve_story_order=preserve_story_order)
 
