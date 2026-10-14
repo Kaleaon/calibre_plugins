@@ -2,8 +2,7 @@ from io import BytesIO
 from calibre.gui2.actions import InterfaceAction
 from calibre.gui2 import error_dialog, info_dialog
 from calibre.utils.config import JSONConfig
-from qt.core import (QAction, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QLabel, QMenu,
-                     QPlainTextEdit, QVBoxLayout)
+from qt.core import (QAction, QDialog, QFileDialog, QMenu)
 try:
     from calibre_plugins.epub_promo_scrubber.guikit import run_task
 except ImportError:
@@ -19,6 +18,26 @@ except ImportError:
         from .core import Matcher, _snippet, scrub_epub, scrub_files, tidy
     except ImportError:
         from core import Matcher, _snippet, scrub_epub, scrub_files, tidy
+
+try:
+    from calibre_plugins.epub_promo_scrubber.profiles import (
+        extract_domains_from_metadata,
+        get_profiles_from_prefs,
+        resolve_profile,
+    )
+except ImportError:
+    try:
+        from .profiles import (
+            extract_domains_from_metadata,
+            get_profiles_from_prefs,
+            resolve_profile,
+        )
+    except ImportError:
+        from profiles import (
+            extract_domains_from_metadata,
+            get_profiles_from_prefs,
+            resolve_profile,
+        )
 
 prefs = JSONConfig('plugins/epub_promo_scrubber')
 prefs.defaults.update(extra_patterns='', heuristic=True, drop_empty_pages=True, backup=True, in_place=False, show_preview=True)
@@ -42,49 +61,31 @@ class ScrubAction(InterfaceAction):
         self.qaction.triggered.connect(self.scrub_selected)
 
     def options(self):
-        extra = [line for line in prefs['extra_patterns'].splitlines() if line.strip()]
-        return extra, prefs['heuristic'], prefs['drop_empty_pages']
+        profiles = get_profiles_from_prefs(prefs)
+        default_prof = resolve_profile([], profiles)
+        extra = [line.strip() for line in default_prof.get('extra_patterns', '').splitlines() if line.strip()]
+        return extra, default_prof.get('heuristic', True), default_prof.get('drop_empty_pages', True)
 
     def settings(self):
-        dialog = QDialog(self.gui)
-        dialog.setWindowTitle('EPUB Promo Scrubber settings')
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel('Built in: OceanofPDF, PDFDrive, Z-Library, LibGen and similar names, URLs and links.\n'
-                                'Extra site names or domains to remove, one per line (prefix a line with re: for a regular expression):'))
-        patterns = QPlainTextEdit(prefs['extra_patterns'])
-        layout.addWidget(patterns)
-        show_preview = QCheckBox('Show preview dialog before applying changes')
-        show_preview.setChecked(prefs.get('show_preview', True))
-        heuristic = QCheckBox('Also remove short "Downloaded from <website>" / "free ebooks" style blocks from any site')
-        heuristic.setChecked(prefs['heuristic'])
-        drop = QCheckBox('Delete pages that contain nothing but promotion (and their contents entries)')
-        drop.setChecked(prefs['drop_empty_pages'])
-        backup = QCheckBox('Library books: keep the unmodified EPUB as ORIGINAL_EPUB (untick to replace the original with the cleaned version and discard any existing backup)')
-        backup.setChecked(prefs['backup'])
-        in_place = QCheckBox('Files and folders: replace the original files with cleaned versions instead of writing copies to another folder')
-        in_place.setChecked(prefs['in_place'])
-        for box in (show_preview, heuristic, drop, backup, in_place):
-            layout.addWidget(box)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            prefs['extra_patterns'] = patterns.toPlainText()
-            prefs['show_preview'] = show_preview.isChecked()
-            prefs['heuristic'] = heuristic.isChecked()
-            prefs['drop_empty_pages'] = drop.isChecked()
-            prefs['backup'] = backup.isChecked()
-            prefs['in_place'] = in_place.isChecked()
+        try:
+            from .ui import ScrubSettingsDialog
+        except ImportError:
+            try:
+                from calibre_plugins.epub_promo_scrubber.ui import ScrubSettingsDialog
+            except ImportError:
+                from ui import ScrubSettingsDialog
+
+        dialog = ScrubSettingsDialog(self.gui, prefs)
+        dialog.exec()
 
     def scrub_selected(self):
         ids = list(self.gui.library_view.get_selected_ids())
         if not ids:
             info_dialog(self.gui, 'EPUB Promo Scrubber', 'Select one or more books in Calibre first.', show=True)
             return
+        profiles = get_profiles_from_prefs(prefs)
         extra, heuristic, drop = self.options()
         db = self.gui.current_db.new_api
-        matcher = Matcher(extra, heuristic)
 
         if prefs.get('show_preview', True):
             def scan_worker(task):
@@ -97,17 +98,33 @@ class ScrubAction(InterfaceAction):
                     title = mi.title if mi else f'Book {book_id}'
                     data = db.format(book_id, 'EPUB')
                     book_changes = []
+                    active_profile_name = 'Global Default'
                     if data:
-                        _, report = scrub_epub(data, extra, heuristic, drop, dry_run=True)
+                        _, report = scrub_epub(data, extra, heuristic, drop, dry_run=True, profiles=profiles)
                         book_changes.extend(report.get('changes', []))
-                    meta_changes = self.scrub_fields(db, book_id, matcher, dry_run=True)
+                        active_profile_name = report.get('active_profile', 'Global Default')
+                    else:
+                        doms = extract_domains_from_metadata(mi)
+                        active_prof = resolve_profile(doms, profiles)
+                        active_profile_name = active_prof.get('name', 'Global Default')
+
+                    doms = extract_domains_from_metadata(mi)
+                    active_prof = resolve_profile(doms, profiles)
+                    p_extra = active_prof.get('extra_patterns', '')
+                    if isinstance(p_extra, str):
+                        p_extra = [line.strip() for line in p_extra.splitlines() if line.strip()]
+                    p_heuristic = active_prof.get('heuristic', True)
+                    field_matcher = Matcher(p_extra, p_heuristic)
+
+                    meta_changes = self.scrub_fields(db, book_id, field_matcher, dry_run=True)
                     book_changes.extend(meta_changes)
                     if book_changes:
                         scan_results.append({
                             'book_id': book_id,
                             'title': title,
                             'data': data,
-                            'changes': book_changes
+                            'changes': book_changes,
+                            'active_profile': active_profile_name
                         })
                 return scan_results
 
@@ -148,7 +165,7 @@ class ScrubAction(InterfaceAction):
                     try:
                         book_changed = False
                         if data:
-                            new_bytes, report = scrub_epub(data, extra, heuristic, drop, allowed_change_ids=allowed_ids)
+                            new_bytes, report = scrub_epub(data, extra, heuristic, drop, allowed_change_ids=allowed_ids, profiles=profiles)
                             if new_bytes is not None:
                                 if prefs['backup']:
                                     db.save_original_format(book_id, 'EPUB')
@@ -158,7 +175,16 @@ class ScrubAction(InterfaceAction):
                                     raise ValueError('Calibre could not save the scrubbed EPUB')
                                 book_changed = True
 
-                        field_changes = self.scrub_fields(db, book_id, matcher, allowed_change_ids=allowed_ids)
+                        mi = db.get_metadata(book_id)
+                        doms = extract_domains_from_metadata(mi)
+                        active_prof = resolve_profile(doms, profiles)
+                        p_extra = active_prof.get('extra_patterns', '')
+                        if isinstance(p_extra, str):
+                            p_extra = [line.strip() for line in p_extra.splitlines() if line.strip()]
+                        p_heuristic = active_prof.get('heuristic', True)
+                        field_matcher = Matcher(p_extra, p_heuristic)
+
+                        field_changes = self.scrub_fields(db, book_id, field_matcher, allowed_change_ids=allowed_ids)
                         if field_changes or book_changed:
                             changed.append(book_id)
                         else:
@@ -193,7 +219,7 @@ class ScrubAction(InterfaceAction):
                         data = db.format(book_id, 'EPUB')
                         if not data:
                             continue
-                        new, report = scrub_epub(data, extra, heuristic, drop)
+                        new, report = scrub_epub(data, extra, heuristic, drop, profiles=profiles)
                         if new is not None:
                             if prefs['backup']:
                                 db.save_original_format(book_id, 'EPUB')
@@ -204,7 +230,17 @@ class ScrubAction(InterfaceAction):
                             changed.append(book_id)
                         else:
                             unchanged += 1
-                        self.scrub_fields(db, book_id, matcher)
+
+                        mi = db.get_metadata(book_id)
+                        doms = extract_domains_from_metadata(mi)
+                        active_prof = resolve_profile(doms, profiles)
+                        p_extra = active_prof.get('extra_patterns', '')
+                        if isinstance(p_extra, str):
+                            p_extra = [line.strip() for line in p_extra.splitlines() if line.strip()]
+                        p_heuristic = active_prof.get('heuristic', True)
+                        field_matcher = Matcher(p_extra, p_heuristic)
+
+                        self.scrub_fields(db, book_id, field_matcher)
                     except Exception as exc:
                         errors.append(f'{book_id}: {exc}')
 
@@ -235,7 +271,7 @@ class ScrubAction(InterfaceAction):
                 change_id = f"book_{book_id}:field_{field}"
                 item = {
                     'file': f'Metadata: {field}',
-                    'action': f'calibre metadata trimmed',
+                    'action': 'calibre metadata trimmed',
                     'text': _snippet(value),
                     'id': change_id,
                     'detail': f'Calibre metadata field "{field}" trimmed:\nBefore: {value}\nAfter: {new or "(empty)"}',
@@ -269,6 +305,7 @@ class ScrubAction(InterfaceAction):
             if not output:
                 return
 
+        profiles = get_profiles_from_prefs(prefs)
         extra, heuristic, drop = self.options()
 
         if prefs.get('show_preview', True):
@@ -284,12 +321,13 @@ class ScrubAction(InterfaceAction):
                     task.status = f'Scanning file {idx + 1} of {len(paths)}...'
                     try:
                         data = p.read_bytes()
-                        _, report = scrub_epub(data, extra, heuristic, drop, dry_run=True)
+                        _, report = scrub_epub(data, extra, heuristic, drop, dry_run=True, profiles=profiles)
                         if report.get('changes'):
                             scan_results.append({
                                 'path': str(p),
                                 'title': p.name,
-                                'changes': report['changes']
+                                'changes': report['changes'],
+                                'active_profile': report.get('active_profile', 'Global Default')
                             })
                     except Exception:
                         pass
@@ -320,7 +358,7 @@ class ScrubAction(InterfaceAction):
                 return
 
             try:
-                rows, report_path = scrub_files(source, output, extra, heuristic, drop, in_place, allowed_change_ids=allowed_ids)
+                rows, report_path = scrub_files(source, output, extra, heuristic, drop, in_place, allowed_change_ids=allowed_ids, profiles=profiles)
                 done = 'replaced' if in_place else 'scrubbed'
                 counts = {s: sum(r['status'] == s for r in rows) for s in (done, 'unchanged', 'error')}
                 info_dialog(self.gui, 'EPUB Promo Scrubber',
@@ -331,7 +369,7 @@ class ScrubAction(InterfaceAction):
 
         else:
             try:
-                rows, report_path = scrub_files(source, output, extra, heuristic, drop, in_place)
+                rows, report_path = scrub_files(source, output, extra, heuristic, drop, in_place, profiles=profiles)
                 done = 'replaced' if in_place else 'scrubbed'
                 counts = {s: sum(r['status'] == s for r in rows) for s in (done, 'unchanged', 'error')}
                 info_dialog(self.gui, 'EPUB Promo Scrubber',
