@@ -998,7 +998,7 @@ class GeminiDialogTests(QtCase):
             tree = dialog.findChild(QtWidgets.QTreeWidget)
             button('Check books').click()
             bar = dialog.findChild(QtWidgets.QProgressBar)
-            seen['log'] = dialog.findChild(QtWidgets.QPlainTextEdit).toPlainText()
+            seen['log'] = next(e for e in dialog.findChildren(QtWidgets.QPlainTextEdit) if e.isReadOnly()).toPlainText()
             seen['bar'] = (bar.value(), bar.maximum())
             seen['cancel_enabled_after'] = button('Cancel').isEnabled()
             seen['rows'] = [(tree.topLevelItem(i).text(0), tree.topLevelItem(i).checkState(0), tree.topLevelItem(i).childCount())
@@ -1050,6 +1050,66 @@ class GeminiDialogTests(QtCase):
         self.assertEqual(restored['tags'], ('Sci-Fi',))
         self.assertEqual(restored['languages'], ())
         self.assertEqual(dict(action_mod.prefs['undo']), {}, 'a clean undo clears the saved run')
+
+    def test_gemini_system_instructions_ui_and_reset(self):
+        package = self.load('gemini_library_fixer')
+        sys.modules['calibre.gui2.actions'].InterfaceAction = object
+        action_mod = importlib.import_module(package + '.action')
+
+        db = GeminiDb()
+        gui = QtWidgets.QWidget()
+        gui.current_db = MagicMock(new_api=db)
+        gui.library_view = MagicMock()
+        gui.library_view.get_selected_ids.return_value = [1]
+        gui.tags_view = MagicMock()
+
+        action = action_mod.GeminiFixerAction()
+        action.gui = gui
+
+        action_mod.prefs['system_instruction_mode'] = 'override'
+        action_mod.prefs['custom_system_instructions'] = 'Custom test instruction prompt'
+
+        seen = {}
+
+        def drive(dialog):
+            mode_combo = next(c for c in dialog.findChildren(QtWidgets.QComboBox)
+                              if 'Append' in c.itemText(0) or 'Override' in c.itemText(0))
+            custom_edit = next(e for e in dialog.findChildren(QtWidgets.QPlainTextEdit)
+                               if 'placeholderText' in dir(e) and 'Always prefix' in e.placeholderText())
+            reset_btn = next(b for b in dialog.findChildren(QtWidgets.QPushButton)
+                             if 'Reset' in b.text())
+
+            seen['initial_mode_index'] = mode_combo.currentIndex()
+            seen['initial_text'] = custom_edit.toPlainText()
+
+            pixmap = dialog.grab()
+            pixmap.save('/tmp/gemini_settings.png')
+
+            reset_btn.click()
+
+            seen['after_reset_mode_index'] = mode_combo.currentIndex()
+            seen['after_reset_text'] = custom_edit.toPlainText()
+            seen['after_reset_pref_mode'] = action_mod.prefs['system_instruction_mode']
+            seen['after_reset_pref_text'] = action_mod.prefs['custom_system_instructions']
+
+            pixmap_reset = dialog.grab()
+            pixmap_reset.save('/tmp/gemini_settings_reset.png')
+
+            dialog.reject()
+
+        original_exec = QtWidgets.QDialog.exec
+        QtWidgets.QDialog.exec = drive
+        try:
+            action.show_dialog()
+        finally:
+            QtWidgets.QDialog.exec = original_exec
+
+        self.assertEqual(seen['initial_mode_index'], 1, 'Started in override mode index 1')
+        self.assertEqual(seen['initial_text'], 'Custom test instruction prompt')
+        self.assertEqual(seen['after_reset_mode_index'], 0, 'Reset set mode index back to 0 (append)')
+        self.assertEqual(seen['after_reset_text'], '', 'Reset cleared custom instructions text')
+        self.assertEqual(seen['after_reset_pref_mode'], 'append')
+        self.assertEqual(seen['after_reset_pref_text'], '')
 
     def _window(self, db, canned_answers, selected):
         """A Gemini window over a stand-in library with Google replaced by canned answers; returns (action, dialog_runner, sent_bodies)."""
@@ -1160,7 +1220,7 @@ class GeminiDialogTests(QtCase):
 
         def drive(dialog):
             self._button(dialog, 'Check books').click()
-            seen['log'] = dialog.findChild(QtWidgets.QPlainTextEdit).toPlainText()
+            seen['log'] = next(e for e in dialog.findChildren(QtWidgets.QPlainTextEdit) if e.isReadOnly()).toPlainText()
             self._button(dialog, 'Apply ticked changes').click()
             seen['after_apply'] = list(db.writes)
             self._button(dialog, 'Undo last run').click()
@@ -1214,7 +1274,7 @@ class GeminiDialogTests(QtCase):
             cancel = next(b for b in dialog.findChildren(QtWidgets.QPushButton) if b.text() == 'Cancel')
             QtCore.QTimer.singleShot(150, cancel.click)  # pressed while the first request is still in flight
             next(b for b in dialog.findChildren(QtWidgets.QPushButton) if b.text() == 'Check books').click()
-            seen['log'] = dialog.findChild(QtWidgets.QPlainTextEdit).toPlainText()
+            seen['log'] = next(e for e in dialog.findChildren(QtWidgets.QPlainTextEdit) if e.isReadOnly()).toPlainText()
             seen['check_enabled'] = next(b for b in dialog.findChildren(QtWidgets.QPushButton) if b.text() == 'Check books').isEnabled()
 
         original_exec = QtWidgets.QDialog.exec
@@ -1255,7 +1315,7 @@ class GeminiDialogTests(QtCase):
             with unittest.mock.patch.object(engine, 'plan_fixes', side_effect=partial_err):
                 next(b for b in dialog.findChildren(QtWidgets.QPushButton) if b.text() == 'Check books').click()
             seen['tree_count'] = dialog.findChild(QtWidgets.QTreeWidget).topLevelItemCount()
-            seen['log'] = dialog.findChild(QtWidgets.QPlainTextEdit).toPlainText()
+            seen['log'] = next(e for e in dialog.findChildren(QtWidgets.QPlainTextEdit) if e.isReadOnly()).toPlainText()
 
         original_exec = QtWidgets.QDialog.exec
         QtWidgets.QDialog.exec = drive

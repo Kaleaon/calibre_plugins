@@ -13,3 +13,5 @@ prefs.defaults['min_interval'] = 7
 prefs.defaults['covers'] = False
 prefs.defaults['active_template'] = 'Default Ebook Cleanup'
 prefs.defaults['custom_templates'] = {}
+prefs.defaults['system_instruction_mode'] = 'append'
+prefs.defaults['custom_system_instructions'] = ''
