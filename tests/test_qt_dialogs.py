@@ -1351,6 +1351,37 @@ class FanficDialogTests(QtCase):
         self.assertTrue(dialog.status.text().startswith('Problem: Nothing answered'), dialog.status.text())
         self.assertIn('localhost:1/v1', dialog.status.text(), 'the port from Advanced settings should be used')
 
+    def test_flaresolverr_wizard_pages(self):
+        ui = importlib.import_module(self.package + '.ui')
+        advanced = QtWidgets.QPlainTextEdit('[www.royalroad.com]\n')
+        wizard = ui.FlareSolverrSetupWizard(None, advanced)
+        self.assertEqual(wizard.pageCount(), 4)
+
+        # Page 1: Startup method selection
+        p1 = wizard.currentPage()
+        self.assertIsInstance(p1, ui.StartupMethodPage)
+        p1.rb_docker.setChecked(True)
+        p1.validatePage()
+        self.assertEqual(wizard.method, 1)
+
+        # Page 2: Configuration page
+        wizard.next()
+        p2 = wizard.currentPage()
+        self.assertIsInstance(p2, ui.MethodConfigPage)
+
+        # Page 3: Health checks
+        wizard.next()
+        p3 = wizard.currentPage()
+        self.assertIsInstance(p3, ui.HealthCheckPage)
+
+        # Page 4: Apply settings
+        wizard.next()
+        p4 = wizard.currentPage()
+        self.assertIsInstance(p4, ui.ApplySettingsPage)
+
+        self.assertIn('[www.royalroad.com]\nuse_flaresolverr_proxy:true', advanced.toPlainText())
+
+
 
 if __name__ == '__main__':
     unittest.main()
