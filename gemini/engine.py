@@ -651,6 +651,31 @@ def is_big_change(changes):
     return False
 
 
+def get_fallback_model(model):
+    """Returns the lightweight flash-lite variant for the given model if available."""
+    m = str(model or '').strip().lower()
+    if '1.5' in m:
+        if 'flash-lite' in m:
+            return model
+        return 'gemini-1.5-flash-lite'
+    else:
+        if 'flash-lite' in m:
+            return model
+        return 'gemini-2.5-flash-lite'
+
+
+def is_rate_limit_error(exc):
+    """Returns True if exc represents a transient HTTP 429 rate limit error (not a daily QuotaExhausted error)."""
+    if isinstance(exc, QuotaExhausted):
+        return False
+    if isinstance(exc, urllib.error.HTTPError) and exc.code == 429:
+        return True
+    msg = str(exc).lower()
+    if 'cancelled' in msg:
+        return False
+    return any(k in msg for k in ('429', 'request limit', 'rate limit', 'resource exhausted'))
+
+
 # ------------------------------------------------------------------------------------------------------------- driver
 
 def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidence='medium', batch_size=15,
@@ -666,6 +691,7 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
     threshold = CONFIDENCE.get(min_confidence, 1)
     by_id = {b['id']: b for b in books}
     total = len(books)
+    current_model = [model]
 
     instructions = kw.pop('instructions', None)
     template_vars = kw.pop('template_vars', None)
@@ -696,25 +722,13 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
                 wait -= 1.0
         state['last'] = clock()
 
-    def ask(batch):
+    def ask_direct(batch):
         pace()
         if cancelled():
             return
         on_event('sending', books=batch)
-        try:
-            answers = generate(api_key, model, build_parts(batch), cancelled=cancelled, sleep=sleep,
-                               notify=lambda t: on_event('notice', text=t), **kw)
-        except Blocked as exc:
-            if len(batch) == 1:
-                skipped.append(f"{batch[0].get('title') or batch[0]['id']}: {exc}")
-                on_event('skipped', text=skipped[-1])
-                finish(1)
-                return
-            on_event('notice', text=f'{exc} Splitting these {len(batch)} books to find the one responsible.')
-            half = len(batch) // 2  # find the book that trips the filter instead of losing the whole batch
-            ask(batch[:half])
-            ask(batch[half:])
-            return
+        answers = generate(api_key, current_model[0], build_parts(batch), cancelled=cancelled, sleep=sleep,
+                           notify=lambda t: on_event('notice', text=t), **kw)
         wanted = {b['id'] for b in batch}
         seen = set()
         on_event('received', count=len(answers))
@@ -737,6 +751,81 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
             on_event('skipped', text=skipped[-1])
         finish(len(batch))
 
+    def ask(batch):
+        if cancelled():
+            return
+        try:
+            ask_direct(batch)
+        except Blocked as exc:
+            if len(batch) == 1:
+                skipped.append(f"{batch[0].get('title') or batch[0]['id']}: {exc}")
+                on_event('skipped', text=skipped[-1])
+                finish(1)
+                return
+            on_event('notice', text=f'{exc} Splitting these {len(batch)} books to find the one responsible.')
+            half = len(batch) // 2  # find the book that trips the filter instead of losing the whole batch
+            ask(batch[:half])
+            ask(batch[half:])
+            return
+        except Exception as exc:
+            if str(exc) == 'Cancelled' or cancelled():
+                raise
+            if is_rate_limit_error(exc):
+                if len(batch) > 1:
+                    on_event('notice', text=f'Rate limit hit (HTTP 429) on batch of {len(batch)} books. Splitting into single-item requests with pacing delays.')
+                    for item in batch:
+                        if cancelled():
+                            break
+                        ask([item])
+                    return
+                else:
+                    item = batch[0]
+                    fallback = get_fallback_model(current_model[0])
+                    can_downgrade = (fallback != current_model[0])
+                    if can_downgrade:
+                        on_event('notice', text=f'Rate limit hit on model {current_model[0]}. Downgrading model to {fallback}.')
+                        current_model[0] = fallback
+                        try:
+                            ask_direct(batch)
+                            return
+                        except Exception as retry_exc:
+                            if str(retry_exc) == 'Cancelled' or cancelled():
+                                raise
+                            if not is_rate_limit_error(retry_exc):
+                                raise
+                            exc = retry_exc
+
+                    backoff = 2.0
+                    for attempt in range(2):
+                        if cancelled():
+                            return
+                        on_event('notice', text=f'Rate limit hit for "{item.get("title") or item["id"]}". Waiting {backoff:.0f}s before retrying single item.')
+                        left = backoff
+                        while left > 0 and not cancelled():
+                            sleep(min(1.0, left))
+                            left -= 1.0
+                        if cancelled():
+                            return
+                        try:
+                            ask_direct(batch)
+                            return
+                        except Exception as retry_exc:
+                            if str(retry_exc) == 'Cancelled' or cancelled():
+                                raise
+                            if not is_rate_limit_error(retry_exc):
+                                raise
+                            exc = retry_exc
+                        backoff *= 2.0
+
+                    msg = sanitize_error_message(exc, api_key)
+                    skipped.append(f"{item.get('title') or item['id']}: request limit used up ({msg})")
+                    on_event('notice', text=f'Request limit used up for {item.get("title") or item["id"]}: {msg}')
+                    on_event('skipped', text=skipped[-1])
+                    finish(1)
+                    return
+            else:
+                raise
+
     size = max(1, int(batch_size))
     # Books by the same author go in the same request, so volumes of one series can be recognised together.
     books = sorted(books, key=lambda b: ((b.get('authors') or [''])[0].lower(), (b.get('series') or '').lower(), (b.get('title') or '').lower()))
@@ -749,7 +838,7 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
         except QuotaExhausted as exc:
             left = total - state['done']
             skipped.append(f'{left} book(s) not checked: request limit used up')
-            on_event('notice', text=str(exc))
+            on_event('notice', text=sanitize_error_message(exc, api_key))
             on_event('skipped', text=skipped[-1])
             break
         except GeminiError as exc:
