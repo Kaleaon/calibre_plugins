@@ -174,6 +174,17 @@ def compile_instructions(template_text=None, template_vars=None, notify=None):
         return INSTRUCTIONS
 
 
+def get_system_instructions(mode='append', custom_text='', base_instructions=None):
+    """Returns compiled system instructions based on mode ('append' or 'override') and custom_text."""
+    base = base_instructions if base_instructions is not None else INSTRUCTIONS
+    text = str(custom_text or '').strip()
+    if not text:
+        return base
+    if mode == 'override':
+        return text
+    return f"{base}\n\n{text}"
+
+
 RESPONSE_SCHEMA = {
     'type': 'ARRAY',
     'items': {
@@ -350,11 +361,15 @@ def _request(method, url, api_key, body=None, retries=4, timeout=120, transport=
     raise GeminiError('Google did not answer.')
 
 
-def generate(api_key, model, prompt, **kw):
+def generate(api_key, model, prompt, system_instruction_mode='append', custom_instructions='', system_instruction=None, **kw):
     """Asks the model for JSON that matches RESPONSE_SCHEMA and returns the parsed list. prompt is text, or a list of API parts."""
-    instructions = kw.pop('instructions', None)
-    template_vars = kw.pop('template_vars', None)
-    sys_inst = compile_instructions(instructions, template_vars, notify=kw.get('notify'))
+    if system_instruction is not None:
+        sys_inst = system_instruction
+    else:
+        instructions = kw.pop('instructions', None)
+        template_vars = kw.pop('template_vars', None)
+        compiled = compile_instructions(instructions, template_vars, notify=kw.get('notify'))
+        sys_inst = get_system_instructions(system_instruction_mode, custom_instructions, base_instructions=compiled)
     parts = [{'text': prompt}] if isinstance(prompt, str) else prompt
     body = json.dumps({
         'systemInstruction': {'parts': [{'text': sys_inst}]},
@@ -468,9 +483,19 @@ def build_parts(books):
     return parts
 
 
-def estimate_batch_usage(books, batch_size=15, covers=False, min_interval=0, model=DEFAULT_MODEL, instructions=None, template_vars=None):
+def estimate_batch_usage(books, batch_size=15, covers=False, min_interval=0, model=DEFAULT_MODEL,
+                         system_instruction_mode='append', custom_instructions='', system_instruction=None,
+                         instructions=None, template_vars=None):
     """Calculates text characters, text tokens, image tokens, batch counts, estimated duration, and costs
     before dispatching API requests. Returns a dict with estimation details."""
+    if system_instruction is not None:
+        sys_inst = system_instruction
+    else:
+        if template_vars is None:
+            template_vars = get_default_template_vars(covers=covers, model=model, batch_size=batch_size)
+        compiled = compile_instructions(instructions, template_vars)
+        sys_inst = get_system_instructions(system_instruction_mode, custom_instructions, base_instructions=compiled)
+
     if not books:
         return {
             'books_count': 0,
@@ -485,10 +510,7 @@ def estimate_batch_usage(books, batch_size=15, covers=False, min_interval=0, mod
             'estimated_cost': 0.0,
         }
 
-    if template_vars is None:
-        template_vars = get_default_template_vars(covers=covers, model=model, batch_size=batch_size)
-    compiled_inst = compile_instructions(instructions, template_vars)
-    sys_inst_len = len(compiled_inst)
+    sys_inst_len = len(sys_inst)
 
     bsize = max(1, int(batch_size))
     per_request = min(bsize, 8) if covers else bsize
@@ -655,7 +677,8 @@ def is_big_change(changes):
 
 def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidence='medium', batch_size=15,
                tags_may_be_removed=False, progress=lambda text: None, cancelled=lambda: False, on_event=lambda kind, **info: None,
-               min_interval=0, sleep=time.sleep, clock=time.monotonic, **kw):
+               min_interval=0, sleep=time.sleep, clock=time.monotonic,
+               system_instruction_mode='append', custom_instructions='', system_instruction=None, **kw):
     """Returns (suggestions, skipped). A suggestion is {'id', 'title', 'changes', 'confidence', 'reason', 'big'}; skipped is a
     list of 'title: why' strings for books that could not be checked. On cancel, returns what was finished so far.
 
@@ -679,7 +702,10 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
         )
 
     compiled_inst = compile_instructions(instructions, template_vars, notify=lambda msg: on_event('notice', text=msg))
-    kw['instructions'] = compiled_inst
+    if system_instruction is not None:
+        sys_inst = system_instruction
+    else:
+        sys_inst = get_system_instructions(system_instruction_mode, custom_instructions, base_instructions=compiled_inst)
 
     def finish(count):
         state['done'] += count
@@ -702,7 +728,7 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
             return
         on_event('sending', books=batch)
         try:
-            answers = generate(api_key, model, build_parts(batch), cancelled=cancelled, sleep=sleep,
+            answers = generate(api_key, model, build_parts(batch), system_instruction=sys_inst, cancelled=cancelled, sleep=sleep,
                                notify=lambda t: on_event('notice', text=t), **kw)
         except Blocked as exc:
             if len(batch) == 1:
