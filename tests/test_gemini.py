@@ -285,10 +285,12 @@ class FreeTierTests(unittest.TestCase):
                                                          'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
         events = []
         t = Scripted(reply([{'id': 1, 'title': 'One', 'confidence': 'high'}]), daily)
-        out, skipped = engine.plan_fixes([book(1), book(2), book(3)], 'k', batch_size=1, transport=t, sleep=lambda s: None,
-                                         on_event=lambda kind, **i: events.append(kind))
-        self.assertEqual([s['id'] for s in out], [1])
-        self.assertEqual(skipped, ['2 book(s) not checked: request limit used up'])
+        with self.assertRaises(engine.GeminiBatchPausedError) as cm:
+            engine.plan_fixes([book(1), book(2), book(3)], 'k', batch_size=1, transport=t, sleep=lambda s: None,
+                              on_event=lambda kind, **i: events.append(kind))
+        err = cm.exception
+        self.assertEqual([s['id'] for s in err.suggestions], [1])
+        self.assertEqual([b['id'] for b in err.state.pending_books], [2, 3])
         self.assertEqual(len(t.calls), 2, 'it stops asking once the daily limit is hit')
         self.assertIn('notice', events)
 
@@ -596,6 +598,38 @@ class BackgroundScanTests(unittest.TestCase):
         qt_core.QDialog.return_value.resize.assert_called_with(1000, 700)
         self.assertTrue(qt_core.QScrollArea.called)
 
+    def test_recovery_dialog_options_and_resuming(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        state = engine.BatchExecutionState(
+            completed_ids=[1],
+            pending_books=[book(2)],
+            suggestions=[{'id': 1, 'title': 'One', 'changes': {}, 'confidence': 'high'}],
+            model_config={'model': 'gemini-2.5-flash', 'min_interval': 7}
+        )
+        paused_error = engine.GeminiBatchPausedError('Rate limit exceeded', state=state)
+
+        dialog = action_mod.GeminiRecoveryDialog(None, paused_error)
+        dialog.model_combo.currentText.return_value = 'gemini-2.5-flash-lite'
+        dialog.interval_spin.value.return_value = 15
+
+        self.assertEqual(dialog.get_action(), 'cancel')
+
+        dialog._on_resume()
+        self.assertEqual(dialog.get_action(), 'resume')
+
+        m_name, interval = dialog.get_settings()
+        self.assertEqual(m_name, 'gemini-2.5-flash-lite')
+        self.assertEqual(interval, 15)
+
+        dialog._on_save()
+        self.assertEqual(dialog.get_action(), 'save')
+
+        dialog._on_cancel()
+        self.assertEqual(dialog.get_action(), 'cancel')
+
 
 class EstimateBatchUsageTests(unittest.TestCase):
     def test_zero_books_returns_zero_usage(self):
@@ -650,6 +684,81 @@ class EstimateBatchUsageTests(unittest.TestCase):
 
         est_pro = engine.estimate_batch_usage(books, batch_size=2, covers=False, min_interval=0, model='gemini-1.5-pro')
         self.assertAlmostEqual(est_pro['estimated_cost'], (est_pro['prompt_tokens'] / 1_000_000.0) * 1.25, places=6)
+
+
+class ResumableBatchStateTests(unittest.TestCase):
+    def test_batch_execution_state_properties_and_serialization(self):
+        b1, b2 = book(1), book(2)
+        s1 = {'id': 1, 'title': 'One', 'changes': {'title': ('old', 'One')}, 'confidence': 'high'}
+        config = {'model': 'gemini-2.5-flash', 'batch_size': 15, 'api_key': 'SECRET_KEY_123'}
+
+        state = engine.BatchExecutionState(
+            completed_ids=[1],
+            pending_books=[b2],
+            suggestions=[s1],
+            skipped=['Book 0: skipped'],
+            model_config=config
+        )
+
+        self.assertTrue(state.is_resumable)
+        self.assertEqual(state.completed_ids, [1])
+        self.assertEqual(state.pending_books, [b2])
+        self.assertNotIn('api_key', state.model_config, "API key must not be cached in state object")
+
+        serialized = state.to_dict()
+        self.assertNotIn('api_key', serialized['model_config'])
+        self.assertEqual(serialized['completed_ids'], [1])
+
+        restored = engine.BatchExecutionState.from_dict(serialized)
+        self.assertEqual(restored.completed_ids, [1])
+        self.assertEqual(restored.pending_books, [b2])
+        self.assertEqual(restored.suggestions, [s1])
+        self.assertNotIn('api_key', restored.model_config)
+
+    def test_rate_limit_raises_batch_paused_error_with_state(self):
+        daily = http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                                                         'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
+        events = []
+        t = Scripted(reply([{'id': 1, 'title': 'One', 'confidence': 'high'}]), daily)
+        books = [book(1), book(2), book(3)]
+
+        with self.assertRaises(engine.GeminiBatchPausedError) as cm:
+            engine.plan_fixes(books, 'k', batch_size=1, transport=t, sleep=lambda s: None,
+                              on_event=lambda kind, **i: events.append(kind))
+
+        err = cm.exception
+        self.assertIsNotNone(err.state)
+        self.assertEqual(err.state.completed_ids, [1])
+        self.assertEqual([b['id'] for b in err.state.pending_books], [2, 3])
+        self.assertEqual([s['id'] for s in err.state.suggestions], [1])
+        self.assertIn('notice', events)
+
+    def test_resume_scanning_from_pending_item_without_re_evaluating_completed(self):
+        b1, b2, b3 = book(1), book(2), book(3)
+        daily = http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                                                         'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
+        # First attempt: book 1 succeeds, book 2 fails with 429
+        t1 = Scripted(reply([{'id': 1, 'title': 'One', 'confidence': 'high'}]), daily)
+        with self.assertRaises(engine.GeminiBatchPausedError) as cm:
+            engine.plan_fixes([b1, b2, b3], 'k', batch_size=1, transport=t1, sleep=lambda s: None)
+
+        paused_state = cm.exception.state
+        self.assertEqual([b['id'] for b in paused_state.pending_books], [2, 3])
+        self.assertEqual([s['id'] for s in paused_state.suggestions], [1])
+
+        # Resume attempt with lightweight model: processes book 2 and book 3
+        t2 = Scripted(reply([{'id': 2, 'title': 'Two', 'confidence': 'high'}]),
+                      reply([{'id': 3, 'title': 'Three', 'confidence': 'high'}]))
+
+        out, skipped = engine.plan_fixes([b1, b2, b3], 'k', model='gemini-2.5-flash-lite', batch_size=1,
+                                          transport=t2, sleep=lambda s: None, state=paused_state)
+
+        # Output should contain all 3 accumulated suggestions without duplicates
+        self.assertEqual([s['id'] for s in out], [1, 2, 3])
+        # Only 2 network calls made during resume (for pending books 2 and 3)
+        self.assertEqual(len(t2.calls), 2)
+        sent_ids_first_call = [r['id'] for r in json.loads(json.loads(t2.calls[0][2])['contents'][0]['parts'][0]['text'].split('\n', 1)[1])]
+        self.assertEqual(sent_ids_first_call, [2])
 
 
 class PromptTemplateManagerTests(unittest.TestCase):
