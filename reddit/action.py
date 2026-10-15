@@ -73,27 +73,41 @@ class FollowerAction(InterfaceAction):
         QueueManagerDialog(self.gui, qm, run_now_callback=self.auto_check).exec()
 
     def registry(self):
-        if getattr(self, '_registry', None) is None:
+        db_path = os.path.join(self.cache_dir(), 'series_registry.db')
+        if getattr(self, '_registry', None) is None or self._registry.db_path != db_path:
             try:
                 from .registry import SeriesRegistry
-                from .migration import migrate_json_to_sqlite
             except ImportError:
                 try:
                     from registry import SeriesRegistry
-                    from migration import migrate_json_to_sqlite
                 except ImportError:
                     import sys as _sys, os as _os
                     _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
                     if _pkg_dir not in _sys.path:
                         _sys.path.insert(0, _pkg_dir)
                     from registry import SeriesRegistry
-                    from migration import migrate_json_to_sqlite
-            db_path = os.path.join(self.cache_dir(), 'series_registry.db')
             self._registry = SeriesRegistry(db_path)
-            migrate_json_to_sqlite(self._registry, prefs, self.cache_dir())
+            self._migrate()
         return self._registry
 
+    def _migrate(self):
+        if getattr(self, '_registry', None) is None:
+            return
+        try:
+            from .migration import migrate_json_to_sqlite
+        except ImportError:
+            try:
+                from migration import migrate_json_to_sqlite
+            except ImportError:
+                import sys as _sys, os as _os
+                _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
+                if _pkg_dir not in _sys.path:
+                    _sys.path.insert(0, _pkg_dir)
+                from migration import migrate_json_to_sqlite
+        migrate_json_to_sqlite(self._registry, prefs, self.cache_dir())
+
     def get_follows(self):
+        self._migrate()
         series_list = self.registry().get_all_series()
         return series_list if series_list else prefs['follows']
 

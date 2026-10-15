@@ -860,6 +860,8 @@ class ChapterCache:
 
 def check_follow(source, follow, cache, max_pages=None, cancelled=lambda: False, progress=lambda msg: None):
     """Fetch new posts for one follow across all its configured feed sources into the cache."""
+    if hasattr(cache, 'registry') and cache.registry and follow.get('id'):
+        cache.registry.save_series(follow)
     sources = follow.get('sources')
     if not sources:
         src = follow.get('source', {})

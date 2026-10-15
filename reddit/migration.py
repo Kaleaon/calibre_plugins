@@ -75,3 +75,19 @@ def migrate_json_to_sqlite(registry, prefs, cache_dir):
 
             if added_ids:
                 registry.set_added_to_lib(series_id, added_ids)
+        else:
+            # Sync updated configuration fields from prefs if present
+            changed = False
+            for key in ('name', 'author_note', 'title_from_body', 'index_url', 'layout'):
+                if key in follow and follow[key] != existing.get(key):
+                    existing[key] = follow[key]
+                    changed = True
+            if 'last_checked' in follow and follow['last_checked'] != existing.get('last_checked', 0.0):
+                if follow['last_checked'] != 0.0 or not existing.get('last_checked'):
+                    existing['last_checked'] = follow['last_checked']
+                    changed = True
+            if 'sources' in follow and follow['sources'] != existing.get('sources'):
+                existing['sources'] = follow['sources']
+                changed = True
+            if changed:
+                registry.save_series(existing)

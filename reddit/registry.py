@@ -20,107 +20,121 @@ class SeriesRegistry:
         self.init_db()
 
     def _get_connection(self):
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute("PRAGMA journal_mode = WAL;")
+        try:
+            conn.execute("PRAGMA foreign_keys = ON;")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("PRAGMA journal_mode = WAL;")
+        except sqlite3.OperationalError:
+            pass
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='series';")
+        if not cursor.fetchone():
+            self._create_tables(conn)
         return conn
+
+    def _create_tables(self, conn):
+        cursor = conn.cursor()
+        
+        # 1. Series table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS series (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            layout TEXT DEFAULT 'series',
+            author_note INTEGER DEFAULT 0,
+            title_from_body INTEGER DEFAULT 0,
+            index_url TEXT DEFAULT '',
+            last_checked REAL DEFAULT 0.0,
+            last_status TEXT DEFAULT '',
+            complete INTEGER DEFAULT 0,
+            newest_created REAL DEFAULT 0.0,
+            newest_id TEXT DEFAULT '',
+            index_data TEXT DEFAULT '',
+            signature TEXT DEFAULT '',
+            created_at REAL
+        );
+        """)
+        try:
+            cursor.execute("ALTER TABLE series ADD COLUMN signature TEXT DEFAULT '';")
+        except Exception:
+            pass
+
+        # 2. Feed sources table (multi-source feed aggregation)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS feed_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            series_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            subreddit TEXT DEFAULT '',
+            user TEXT DEFAULT '',
+            query TEXT DEFAULT '',
+            title_filter TEXT DEFAULT '',
+            author_filter TEXT DEFAULT '',
+            flair_filter TEXT DEFAULT '',
+            FOREIGN KEY(series_id) REFERENCES series(id) ON DELETE CASCADE
+        );
+        """)
+
+        # 3. Authors table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS authors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            series_id TEXT NOT NULL,
+            author_name TEXT NOT NULL,
+            FOREIGN KEY(series_id) REFERENCES series(id) ON DELETE CASCADE,
+            UNIQUE(series_id, author_name)
+        );
+        """)
+
+        # 4. Chapters table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chapters (
+            id TEXT PRIMARY KEY,
+            series_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            author TEXT NOT NULL,
+            created REAL NOT NULL,
+            link TEXT DEFAULT '',
+            html TEXT DEFAULT '',
+            flair TEXT DEFAULT '',
+            note TEXT DEFAULT '',
+            sequence_number REAL DEFAULT 0.0,
+            added_to_lib INTEGER DEFAULT 0,
+            FOREIGN KEY(series_id) REFERENCES series(id) ON DELETE CASCADE
+        );
+        """)
+
+        # 5. Manifests table
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS manifests (
+            series_id TEXT NOT NULL,
+            post_id TEXT NOT NULL,
+            sequence_order INTEGER NOT NULL,
+            chapter_title TEXT DEFAULT '',
+            author_attribution TEXT DEFAULT '',
+            is_duplicate INTEGER DEFAULT 0,
+            canonical_post_id TEXT DEFAULT '',
+            PRIMARY KEY (series_id, post_id),
+            FOREIGN KEY(series_id) REFERENCES series(id) ON DELETE CASCADE,
+            FOREIGN KEY(post_id) REFERENCES chapters(id) ON DELETE CASCADE
+        );
+        """)
+
+        conn.commit()
 
     def init_db(self):
         with self._lock, self._get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # 1. Series table
-            cursor.execute("""
-            CREATE TABLE IF NOT EXISTS series (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                layout TEXT DEFAULT 'series',
-                author_note INTEGER DEFAULT 0,
-                title_from_body INTEGER DEFAULT 0,
-                index_url TEXT DEFAULT '',
-                last_checked REAL DEFAULT 0.0,
-                last_status TEXT DEFAULT '',
-                complete INTEGER DEFAULT 0,
-                newest_created REAL DEFAULT 0.0,
-                newest_id TEXT DEFAULT '',
-                index_data TEXT DEFAULT '',
-                signature TEXT DEFAULT '',
-                created_at REAL
-            );
-            """)
-            try:
-                cursor.execute("ALTER TABLE series ADD COLUMN signature TEXT DEFAULT '';")
-            except Exception:
-                pass
-
-            # 2. Feed sources table (multi-source feed aggregation)
-            cursor.execute("""
-            CREATE TABLE IF NOT EXISTS feed_sources (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                series_id TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                subreddit TEXT DEFAULT '',
-                user TEXT DEFAULT '',
-                query TEXT DEFAULT '',
-                title_filter TEXT DEFAULT '',
-                author_filter TEXT DEFAULT '',
-                flair_filter TEXT DEFAULT '',
-                FOREIGN KEY(series_id) REFERENCES series(id) ON DELETE CASCADE
-            );
-            """)
-
-            # 3. Authors table
-            cursor.execute("""
-            CREATE TABLE IF NOT EXISTS authors (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                series_id TEXT NOT NULL,
-                author_name TEXT NOT NULL,
-                FOREIGN KEY(series_id) REFERENCES series(id) ON DELETE CASCADE,
-                UNIQUE(series_id, author_name)
-            );
-            """)
-
-            # 4. Chapters table
-            cursor.execute("""
-            CREATE TABLE IF NOT EXISTS chapters (
-                id TEXT PRIMARY KEY,
-                series_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                author TEXT NOT NULL,
-                created REAL NOT NULL,
-                link TEXT DEFAULT '',
-                html TEXT DEFAULT '',
-                flair TEXT DEFAULT '',
-                note TEXT DEFAULT '',
-                sequence_number REAL DEFAULT 0.0,
-                added_to_lib INTEGER DEFAULT 0,
-                FOREIGN KEY(series_id) REFERENCES series(id) ON DELETE CASCADE
-            );
-            """)
-
-            # 5. Manifests table
-            cursor.execute("""
-            CREATE TABLE IF NOT EXISTS manifests (
-                series_id TEXT NOT NULL,
-                post_id TEXT NOT NULL,
-                sequence_order INTEGER NOT NULL,
-                chapter_title TEXT DEFAULT '',
-                author_attribution TEXT DEFAULT '',
-                is_duplicate INTEGER DEFAULT 0,
-                canonical_post_id TEXT DEFAULT '',
-                PRIMARY KEY (series_id, post_id),
-                FOREIGN KEY(series_id) REFERENCES series(id) ON DELETE CASCADE,
-                FOREIGN KEY(post_id) REFERENCES chapters(id) ON DELETE CASCADE
-            );
-            """)
-
-            conn.commit()
+            pass
 
     def get_all_series(self):
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM series ORDER BY name COLLATE NOCASE;")
+            cursor.execute("SELECT * FROM series ORDER BY rowid ASC;")
             rows = cursor.fetchall()
             series_list = []
             for r in rows:
@@ -268,7 +282,8 @@ class SeriesRegistry:
                 html = excluded.html,
                 flair = excluded.flair,
                 note = CASE WHEN excluded.note != '' THEN excluded.note ELSE chapters.note END,
-                sequence_number = excluded.sequence_number;
+                sequence_number = excluded.sequence_number,
+                added_to_lib = excluded.added_to_lib;
             """, (
                 post_id,
                 series_id,

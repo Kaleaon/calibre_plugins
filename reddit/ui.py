@@ -337,7 +337,7 @@ class FollowDialog(QDialog):
         )
         if self.follow and self.follow.get('id'):
             res['id'] = self.follow['id']
-            res['last_checked'] = self.follow.get('last_checked', 0.0)
+            res['last_checked'] = 0.0
             res['last_status'] = 'changed; will be checked again'
         return res
 
@@ -684,7 +684,12 @@ class ManageDialog(QDialog):
         for r, follow in enumerate(follows):
             checked = time.strftime('%Y-%m-%d %H:%M', time.localtime(follow['last_checked'])) if follow.get('last_checked') else 'never'
             sources = follow.get('sources') or ([follow.get('source')] if follow.get('source') else [])
-            source_desc = f"{len(sources)} source(s) (" + ", ".join(core.describe_source(s) for s in sources[:2]) + (", …" if len(sources) > 2 else "") + ")" if sources else core.describe_source(follow.get('source', {}))
+            if len(sources) > 1:
+                source_desc = f"{len(sources)} source(s) (" + ", ".join(core.describe_source(s) for s in sources[:2]) + (", …" if len(sources) > 2 else "") + ")"
+            elif sources:
+                source_desc = core.describe_source(sources[0])
+            else:
+                source_desc = core.describe_source(follow.get('source', {}))
             cells = [follow['name'], source_desc + core.describe_filters(follow), str(self.action.chapter_count(follow)), checked, follow.get('last_status', '')]
             for c, text in enumerate(cells):
                 item = QTableWidgetItem(text)
