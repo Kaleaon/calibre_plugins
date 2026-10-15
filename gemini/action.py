@@ -11,7 +11,7 @@ except ImportError:
     warning_dialog = error_dialog
 from calibre.gui2.actions import InterfaceAction
 from qt.core import (QApplication, QBuffer, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QIODevice, QImage, QLabel,
-                     QLineEdit, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSpinBox, QSplitter, Qt, QTreeWidget,
+                     QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSpinBox, QSplitter, Qt, QTreeWidget,
                      QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from calibre_plugins.gemini_library_fixer import engine
@@ -24,6 +24,235 @@ SHOW = {'title': 'Title', 'authors': 'Authors', 'series': 'Series', 'tags': 'Tag
 PRIVACY = ('Your API key is stored unencrypted in Calibre\'s settings folder. Only book details (title, authors, series, tags, '
            'publisher, language, file names) are sent to Google; the opening text and the cover pictures of a book are sent only if you tick those options. '
            'Changing a title or author also renames the book\'s folder and files in your library. Nothing changes until you press Apply.')
+
+
+class TemplateManagerDialog(QDialog):
+    def __init__(self, parent, sample_vars_fn):
+        super().__init__(parent)
+        self.sample_vars_fn = sample_vars_fn
+        self.setWindowTitle('Instruction Template Manager')
+        self.resize(800, 550)
+
+        main_layout = QVBoxLayout(self)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.addWidget(QLabel('Templates & Presets:'))
+
+        self.list_widget = QListWidget()
+        left_layout.addWidget(self.list_widget, 1)
+
+        btn_row = QHBoxLayout()
+        self.new_btn = QPushButton('New')
+        self.dup_btn = QPushButton('Duplicate')
+        self.del_btn = QPushButton('Delete')
+        btn_row.addWidget(self.new_btn)
+        btn_row.addWidget(self.dup_btn)
+        btn_row.addWidget(self.del_btn)
+        left_layout.addLayout(btn_row)
+
+        splitter.addWidget(left_widget)
+
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.read_only_badge = QLabel('<b>Built-in Preset (Read-Only)</b>')
+        self.read_only_badge.setStyleSheet('color: #666;')
+        right_layout.addWidget(self.read_only_badge)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel('Template Name:'))
+        self.name_edit = QLineEdit()
+        row.addWidget(self.name_edit, 1)
+        right_layout.addLayout(row)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel('Description:'))
+        self.desc_edit = QLineEdit()
+        row.addWidget(self.desc_edit, 1)
+        right_layout.addLayout(row)
+
+        right_layout.addWidget(QLabel('Template Content / Instructions:'))
+        self.text_edit = QPlainTextEdit()
+        right_layout.addWidget(self.text_edit, 1)
+
+        ref_text = (
+            "Available Variables:\n"
+            "• {fields} — Active library fields being fixed\n"
+            "• {min_confidence} — Minimum confidence threshold\n"
+            "• {tag_policy} — Tag removal / addition policy guidelines\n"
+            "• {batch_size} — Books per batch request\n"
+            "• {model} — Gemini model name\n"
+            "• {covers} — Cover inspection status\n"
+            "• {excerpt} — EPUB excerpt status"
+        )
+        ref_label = QLabel(ref_text)
+        ref_label.setWordWrap(True)
+        ref_label.setStyleSheet("font-size: 11px; color: #555; background: #f0f0f0; padding: 4px; border-radius: 4px;")
+        right_layout.addWidget(ref_label)
+
+        action_row = QHBoxLayout()
+        self.preview_btn = QPushButton('Preview Rendered Instructions')
+        self.save_btn = QPushButton('Save Template')
+        action_row.addWidget(self.preview_btn)
+        action_row.addStretch(1)
+        action_row.addWidget(self.save_btn)
+        right_layout.addLayout(action_row)
+
+        splitter.addWidget(right_widget)
+        splitter.setSizes([220, 580])
+        main_layout.addWidget(splitter, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        main_layout.addWidget(buttons)
+
+        self.list_widget.currentItemChanged.connect(self.on_selection_changed)
+        self.new_btn.clicked.connect(self.on_new)
+        self.dup_btn.clicked.connect(self.on_duplicate)
+        self.del_btn.clicked.connect(self.on_delete)
+        self.save_btn.clicked.connect(self.on_save)
+        self.preview_btn.clicked.connect(self.on_preview)
+
+        self.refresh_list()
+
+    def refresh_list(self, select_name=None):
+        self.list_widget.clear()
+        self.all_templates = engine.get_all_templates(prefs.get('custom_templates', {}))
+        select_item = None
+        for name, data in self.all_templates.items():
+            label = f"{name} [Preset]" if data.get('read_only') else name
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, name)
+            self.list_widget.addItem(item)
+            if select_name and name == select_name:
+                select_item = item
+        if select_item:
+            self.list_widget.setCurrentItem(select_item)
+        elif self.list_widget.count() > 0:
+            self.list_widget.setCurrentRow(0)
+
+    def get_current_data(self):
+        curr = self.list_widget.currentItem()
+        if not curr:
+            return None
+        name = curr.data(Qt.ItemDataRole.UserRole)
+        return self.all_templates.get(name)
+
+    def on_selection_changed(self, current, previous):
+        data = self.get_current_data()
+        if not data:
+            self.name_edit.clear()
+            self.desc_edit.clear()
+            self.text_edit.clear()
+            self.read_only_badge.setVisible(False)
+            self.name_edit.setReadOnly(True)
+            self.desc_edit.setReadOnly(True)
+            self.text_edit.setReadOnly(True)
+            self.save_btn.setEnabled(False)
+            self.del_btn.setEnabled(False)
+            return
+
+        is_readonly = bool(data.get('read_only'))
+        self.read_only_badge.setVisible(is_readonly)
+        self.name_edit.setText(data.get('name', ''))
+        self.desc_edit.setText(data.get('description', ''))
+        self.text_edit.setPlainText(data.get('text', ''))
+
+        self.name_edit.setReadOnly(is_readonly)
+        self.desc_edit.setReadOnly(is_readonly)
+        self.text_edit.setReadOnly(is_readonly)
+        self.save_btn.setEnabled(not is_readonly)
+        self.del_btn.setEnabled(not is_readonly)
+
+    def on_new(self):
+        self.list_widget.clearSelection()
+        self.read_only_badge.setVisible(False)
+        self.name_edit.setReadOnly(False)
+        self.desc_edit.setReadOnly(False)
+        self.text_edit.setReadOnly(False)
+        self.save_btn.setEnabled(True)
+        self.del_btn.setEnabled(False)
+
+        self.name_edit.setText('Custom Template')
+        self.desc_edit.setText('Custom system instructions for book metadata cleanup')
+        self.text_edit.setPlainText(
+            "You clean up ebook metadata for fields: {fields}.\n\nRules:\n"
+            "- Fix titles, authors, series, and tags ({tag_policy}).\n"
+            "- Set confidence to {min_confidence} when sure.\n"
+            "- Return JSON array in order."
+        )
+        self.name_edit.setFocus()
+
+    def on_duplicate(self):
+        data = self.get_current_data()
+        if not data:
+            return
+        new_name = f"{data.get('name', 'Template')} Copy"
+        self.list_widget.clearSelection()
+        self.read_only_badge.setVisible(False)
+        self.name_edit.setReadOnly(False)
+        self.desc_edit.setReadOnly(False)
+        self.text_edit.setReadOnly(False)
+        self.save_btn.setEnabled(True)
+        self.del_btn.setEnabled(False)
+
+        self.name_edit.setText(new_name)
+        self.desc_edit.setText(data.get('description', ''))
+        self.text_edit.setPlainText(data.get('text', ''))
+        self.name_edit.setFocus()
+
+    def on_save(self):
+        name = self.name_edit.text().strip()
+        desc = self.desc_edit.text().strip()
+        text = self.text_edit.toPlainText().strip()
+
+        if not name:
+            return error_dialog(self, 'Template Manager', 'Please enter a template name.', show=True)
+        if name in engine.BUILTIN_PRESETS:
+            return error_dialog(self, 'Template Manager', f'"{name}" is a built-in preset name. Please pick a different name for your custom template.', show=True)
+        if not text:
+            return error_dialog(self, 'Template Manager', 'Template content cannot be empty.', show=True)
+
+        try:
+            sample_vars = self.sample_vars_fn()
+            engine.render_template(text, sample_vars)
+        except engine.TemplateError as exc:
+            return error_dialog(self, 'Template Syntax Error', str(exc), show=True)
+
+        customs = dict(prefs.get('custom_templates', {}))
+        customs[name] = {'name': name, 'description': desc, 'text': text}
+        prefs['custom_templates'] = customs
+        self.refresh_list(select_name=name)
+        info_dialog(self, 'Template Manager', f'Saved template "{name}".', show=True)
+
+    def on_delete(self):
+        data = self.get_current_data()
+        if not data or data.get('read_only'):
+            return
+        name = data.get('name')
+        if not question_dialog(self, 'Delete Template', f'Are you sure you want to delete custom template "{name}"?'):
+            return
+        customs = dict(prefs.get('custom_templates', {}))
+        customs.pop(name, None)
+        prefs['custom_templates'] = customs
+        if prefs.get('active_template', 'Default Ebook Cleanup') == name:
+            prefs['active_template'] = 'Default Ebook Cleanup'
+        self.refresh_list()
+
+    def on_preview(self):
+        text = self.text_edit.toPlainText().strip()
+        sample_vars = self.sample_vars_fn()
+        try:
+            rendered = engine.render_template(text, sample_vars)
+            info_dialog(self, 'Rendered Instruction Preview', rendered, show=True)
+        except engine.TemplateError as exc:
+            error_dialog(self, 'Template Syntax Error', str(exc), show=True)
+
 
 
 def prepare_image(data, max_side=1000):
@@ -203,6 +432,15 @@ class GeminiFixerAction(InterfaceAction):
         row.addWidget(models_btn)
         layout.addLayout(row)
 
+        row = QHBoxLayout()
+        row.addWidget(QLabel('Instruction Template:'))
+        template_combo = QComboBox()
+        manage_templates_btn = QPushButton('Manage Templates...')
+        manage_templates_btn.setToolTip('Create, edit, or delete instruction templates and presets')
+        row.addWidget(template_combo, 1)
+        row.addWidget(manage_templates_btn)
+        layout.addLayout(row)
+
         layout.addWidget(QLabel('Fix:'))
         boxes = {}
         for field, label in FIELD_LABELS:
@@ -310,6 +548,44 @@ class GeminiFixerAction(InterfaceAction):
         def chosen_fields():
             return tuple(f for f, _ in FIELD_LABELS if boxes[f].isChecked())
 
+        def update_template_combo():
+            all_tpls = engine.get_all_templates(prefs.get('custom_templates', {}))
+            current = template_combo.currentText().strip() or prefs.get('active_template', 'Default Ebook Cleanup')
+            template_combo.clear()
+            for tname in all_tpls:
+                template_combo.addItem(tname)
+            if current in all_tpls:
+                template_combo.setCurrentText(current)
+            elif 'Default Ebook Cleanup' in all_tpls:
+                template_combo.setCurrentText('Default Ebook Cleanup')
+
+        update_template_combo()
+
+        def get_current_sample_vars():
+            return engine.get_default_template_vars(
+                fields=chosen_fields(),
+                min_confidence=confidence.currentText(),
+                tags_remove=tags_remove.isChecked(),
+                batch_size=batch.value(),
+                model=model.currentText().strip() or engine.DEFAULT_MODEL,
+                covers=covers.isChecked(),
+                excerpt=excerpt.isChecked()
+            )
+
+        def get_active_template_text():
+            all_tpls = engine.get_all_templates(prefs.get('custom_templates', {}))
+            active_name = template_combo.currentText().strip()
+            tdata = all_tpls.get(active_name, all_tpls.get('Default Ebook Cleanup', {}))
+            return tdata.get('text', engine.INSTRUCTIONS)
+
+        def do_manage_templates():
+            save_prefs()
+            dlg = TemplateManagerDialog(dialog, get_current_sample_vars)
+            dlg.exec()
+            update_template_combo()
+
+        manage_templates_btn.clicked.connect(do_manage_templates)
+
         def save_prefs():
             prefs['api_key'] = key.text().strip()
             prefs['model'] = model.currentText().strip() or engine.DEFAULT_MODEL
@@ -320,6 +596,7 @@ class GeminiFixerAction(InterfaceAction):
             prefs['min_confidence'] = confidence.currentText()
             prefs['batch_size'] = batch.value()
             prefs['min_interval'] = interval.value()
+            prefs['active_template'] = template_combo.currentText().strip() or 'Default Ebook Cleanup'
 
         cancel_flag = threading.Event()
 
@@ -448,12 +725,16 @@ class GeminiFixerAction(InterfaceAction):
                     return finish_run(None, len(books))
 
                 m_name = model.currentText().strip() or engine.DEFAULT_MODEL
+                active_text = get_active_template_text()
+                tpl_vars = get_current_sample_vars()
                 est = engine.estimate_batch_usage(
                     books,
                     batch_size=batch.value(),
                     covers=covers.isChecked(),
                     min_interval=interval.value(),
-                    model=m_name
+                    model=m_name,
+                    instructions=active_text,
+                    template_vars=tpl_vars
                 )
                 msg = (
                     f"Pre-Flight API Usage Estimate:\n\n"
@@ -486,9 +767,12 @@ class GeminiFixerAction(InterfaceAction):
 
             def work():
                 try:
+                    active_text = get_active_template_text()
+                    tpl_vars = get_current_sample_vars()
                     box['result'] = engine.plan_fixes(
                         books, api_key(), model.currentText().strip() or engine.DEFAULT_MODEL, chosen_fields(), confidence.currentText(),
                         per_request, tags_remove.isChecked(), cancelled=cancel_flag.is_set, min_interval=interval.value(),
+                        instructions=active_text, template_vars=tpl_vars,
                         on_event=lambda kind, **info: messages.put((kind, info)))
                 except Exception as exc:  # shown to the user by the caller
                     box['error'] = exc

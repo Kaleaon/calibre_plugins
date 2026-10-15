@@ -13,6 +13,7 @@ jobs:
 
     env:
       QT_QPA_PLATFORM: offscreen
+      PYTHONPATH: .
 
     steps:
       - name: Checkout code

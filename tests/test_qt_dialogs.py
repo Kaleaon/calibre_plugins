@@ -248,6 +248,57 @@ class OtherDialogTests(QtCase):
         dialog.text.setPlainText('https://www.nifty.org/nifty/gay/college/\n\n')
         self.assertEqual(dialog.lines(), ['https://www.nifty.org/nifty/gay/college/'])
 
+    def test_nifty_preview_dialog(self):
+        ui = importlib.import_module(self.load('nifty_downloader') + '.ui')
+        groups = [
+            {
+                'id': 'gay/college/saga',
+                'title': 'Saga',
+                'chapters': [
+                    {'file': 'gay/college/saga-1', 'title': 'Chapter 1', 'enabled': True},
+                    {'file': 'gay/college/saga-2', 'title': 'Chapter 2', 'enabled': True},
+                    {'file': 'gay/college/saga-10', 'title': 'Chapter 10', 'enabled': True}
+                ]
+            },
+            {
+                'id': 'gay/college/epic',
+                'title': 'Epic',
+                'chapters': [
+                    {'file': 'gay/college/epic-1', 'title': 'Epic 1', 'enabled': True}
+                ]
+            }
+        ]
+        dialog = ui.NiftyPreviewDialog(None, groups)
+        self.assertEqual(dialog.tree.topLevelItemCount(), 2)
+
+        saga_item = dialog.tree.topLevelItem(0)
+        ch2_item = saga_item.child(1)
+        dialog.tree.setCurrentItem(ch2_item)
+        dialog.move_up()
+
+        mod_groups = dialog.get_groups()
+        self.assertEqual(mod_groups[0]['chapters'][0]['file'], 'gay/college/saga-2')
+
+        saga_item = dialog.tree.topLevelItem(0)
+        dialog.tree.setCurrentItem(saga_item)
+        dialog.split_group()
+        self.assertEqual(len(dialog.groups), 4)
+
+        top0 = dialog.tree.topLevelItem(0)
+        top1 = dialog.tree.topLevelItem(1)
+        top0.setSelected(True)
+        top1.setSelected(True)
+
+        original_get_text = ui.QInputDialog.getText
+        ui.QInputDialog.getText = staticmethod(lambda *args, **kwargs: ('Merged Saga Part 1', True))
+        try:
+            dialog.merge_groups()
+        finally:
+            ui.QInputDialog.getText = original_get_text
+
+        final_groups = dialog.get_groups()
+        self.assertEqual(final_groups[0]['title'], 'Merged Saga Part 1')
+
 
 def _panel(anchor, name, *entries):
     lis = '\n'.join(f'<li><a href="{href}">{title}</a>' for href, title in entries)
@@ -1350,6 +1401,37 @@ class FanficDialogTests(QtCase):
         dialog.test_server()
         self.assertTrue(dialog.status.text().startswith('Problem: Nothing answered'), dialog.status.text())
         self.assertIn('localhost:1/v1', dialog.status.text(), 'the port from Advanced settings should be used')
+
+    def test_flaresolverr_wizard_pages(self):
+        ui = importlib.import_module(self.package + '.ui')
+        advanced = QtWidgets.QPlainTextEdit('[www.royalroad.com]\n')
+        wizard = ui.FlareSolverrSetupWizard(None, advanced)
+        self.assertEqual(wizard.pageCount(), 4)
+
+        # Page 1: Startup method selection
+        p1 = wizard.currentPage()
+        self.assertIsInstance(p1, ui.StartupMethodPage)
+        p1.rb_docker.setChecked(True)
+        p1.validatePage()
+        self.assertEqual(wizard.method, 1)
+
+        # Page 2: Configuration page
+        wizard.next()
+        p2 = wizard.currentPage()
+        self.assertIsInstance(p2, ui.MethodConfigPage)
+
+        # Page 3: Health checks
+        wizard.next()
+        p3 = wizard.currentPage()
+        self.assertIsInstance(p3, ui.HealthCheckPage)
+
+        # Page 4: Apply settings
+        wizard.next()
+        p4 = wizard.currentPage()
+        self.assertIsInstance(p4, ui.ApplySettingsPage)
+
+        self.assertIn('[www.royalroad.com]\nuse_flaresolverr_proxy:true', advanced.toPlainText())
+
 
 
 if __name__ == '__main__':
