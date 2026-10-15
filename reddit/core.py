@@ -49,16 +49,39 @@ class SourceError(ValueError):
 _NAME = r'[A-Za-z0-9_\-]{2,32}'
 
 
+def parse_authors(value):
+    """Parse a string or sequence of author usernames into a list of cleaned usernames.
+    Accepts comma- or pipe-separated strings (e.g. 'u/Author1, u/Author2' or 'Author1|Author2'),
+    or a list/tuple/set of names."""
+    if not value:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        items = list(value)
+    else:
+        items = re.split(r'[,|\n]+', str(value))
+    authors = []
+    for item in items:
+        cleaned = str(item).strip()
+        cleaned = re.sub(r'^(?:https?://[^/]+)?/?(?:u|user)/', '', cleaned, flags=re.I)
+        cleaned = cleaned.lstrip('@/').strip()
+        if cleaned and cleaned not in authors:
+            authors.append(cleaned)
+    return authors
+
+
 def parse_source(text):
     """Turn a pasted address or shorthand into {'kind', 'subreddit', 'user', 'query'}.
 
-    Accepts r/HFY, /r/hfy/new, https://www.reddit.com/r/HFY/, u/name, /user/name/submitted, and search addresses such as
+    Accepts r/HFY, r/sub1+sub2, /r/hfy/new, https://www.reddit.com/r/HFY/, u/name, u/name1+name2,
+    /user/name/submitted, and search addresses such as
     https://www.reddit.com/r/HFY/search/?q=Out+of+Cruel+Space&restrict_sr=1."""
     raw = (text or '').strip()
     if not raw:
         raise SourceError('Enter a subreddit (r/HFY), a user (u/name) or a Reddit search address.')
     if '://' not in raw and not raw.startswith('/'):
         raw = ('/' + raw) if re.match(r'(?i)^(r|u|user)/', raw) else raw
+    if re.match(r'(?i)^/(?:u|user)/', raw):
+        raw = re.sub(r'\s*,\s*', ',', raw)
     if '://' in raw or re.match(r'(?i)^(www\.|old\.|new\.)?reddit\.com', raw):
         if '://' not in raw:
             raw = 'https://' + raw
@@ -69,8 +92,8 @@ def parse_source(text):
     else:
         path, query = raw, {}
     path = re.sub(r'\.(rss|json)$', '', path.rstrip('/'))
-    m_sub = re.match(r'(?i)^/r/(' + _NAME + r')(/.*)?$', path)
-    m_user = re.match(r'(?i)^/(?:u|user)/(' + _NAME + r')(/.*)?$', path)
+    m_sub = re.match(r'(?i)^/r/([A-Za-z0-9_\-+]{2,128})(/.*)?$', path)
+    m_user = re.match(r'(?i)^/(?:u|user)/(.*)$', path)
     if m_sub and (m_sub.group(2) or '').lower().startswith('/search') or (m_sub and query.get('q')):
         q = (query.get('q') or [''])[0].strip()
         if not q:
@@ -81,7 +104,11 @@ def parse_source(text):
             raise SourceError('That is a single post. Follow the subreddit, the author, or a search instead.')
         return {'kind': 'subreddit', 'subreddit': m_sub.group(1), 'user': '', 'query': ''}
     if m_user:
-        return {'kind': 'user', 'subreddit': '', 'user': m_user.group(1), 'query': ''}
+        raw_user_part = re.split(r'(?i)/(?:submitted|search|comments)', m_user.group(1))[0]
+        user_names = parse_authors(raw_user_part)
+        if user_names:
+            user_str = '+'.join(user_names)
+            return {'kind': 'user', 'subreddit': '', 'user': user_str, 'query': ''}
     if path.lower().startswith('/search') and query.get('q'):
         return {'kind': 'search', 'subreddit': '', 'user': '', 'query': query['q'][0].strip()}
     raise SourceError('Could not tell what to follow. Use r/NAME, u/NAME, or a Reddit search address.')
@@ -407,8 +434,8 @@ def _stem_key(stem):
     return re.sub(r'\W+', ' ', stem.casefold()).strip()
 
 
-def group_series(entries):
-    """Group posts into likely series by author and title stem. Returns groups, biggest first: {'name', 'author', 'posts',
+def group_series(entries, cross_author=False):
+    """Group posts into likely series by author and/or title stem. Returns groups, biggest first: {'name', 'author', 'authors', 'posts',
     'numbers', 'flairs', 'is_series'}. A group is a series when two different part numbers appear, or the posts carry a
     'series' flair; everything else is a single story. Posts without story text (links, images) are left out."""
     groups = {}
@@ -416,8 +443,16 @@ def group_series(entries):
         if not e.get('html') or not e.get('title'):
             continue
         stem, number = series_parts(e['title'])
-        g = groups.setdefault((e.get('author', '').casefold(), _stem_key(stem)), {
-            'name': stem, 'author': e.get('author', ''), 'posts': {}, 'numbers': set(), 'flairs': set(), 'score': 0})
+        if cross_author:
+            key = _stem_key(stem)
+        else:
+            key = (e.get('author', '').casefold(), _stem_key(stem))
+        g = groups.setdefault(key, {
+            'name': stem, 'authors': [], 'posts': {}, 'numbers': set(), 'flairs': set(), 'score': 0})
+        if e.get('author'):
+            cleaned_a = e['author'].strip()
+            if cleaned_a and cleaned_a not in g['authors']:
+                g['authors'].append(cleaned_a)
         g['posts'][e['id']] = e
         g['score'] = g.get('score', 0) + int(e.get('score') or 0)  # public feeds carry no score, so this stays 0 without the API
         if number is not None:
@@ -428,6 +463,7 @@ def group_series(entries):
     for g in groups.values():
         g['posts'] = sorted(g['posts'].values(), key=lambda p: p['created'])
         g['is_series'] = len(g['numbers']) >= 2 or any(re.search(r'(?i)series', f) for f in g['flairs']) and len(g['posts']) >= 2
+        g['author'] = ', '.join(g['authors']) if g['authors'] else 'Unknown'
         out.append(g)
     return sorted(out, key=lambda g: (-g['is_series'], -len(g['posts']), g['name'].casefold()))
 
@@ -439,19 +475,28 @@ def rank_groups(groups, by='score'):
 
 
 def followed_keys(follows):
-    """(author, name) of series already followed, to avoid adding the same one twice."""
+    """(author, name) tuples of series already followed, to avoid adding the same one twice."""
     keys = set()
     for f in follows:
-        if f.get('author_filter'):
-            keys.add((f['author_filter'].casefold(), _stem_key(f['name'])))
+        authors = parse_authors(f.get('author_filter') or f.get('authors', ''))
+        stem = _stem_key(f.get('name', ''))
+        for a in authors:
+            keys.add((a.casefold(), stem))
     return keys
 
 
 def top_series(groups, count=5, min_parts=3, follows=()):
     """The highest rated series among discovered groups: real series with at least `min_parts` parts found, not already followed."""
     taken = followed_keys(follows)
-    chosen = [g for g in rank_groups(groups, 'score') if g['is_series'] and len(g['posts']) >= min_parts
-              and (g['author'].casefold(), _stem_key(g['name'])) not in taken]
+    chosen = []
+    for g in rank_groups(groups, 'score'):
+        if not g['is_series'] or len(g['posts']) < min_parts:
+            continue
+        g_stem = _stem_key(g['name'])
+        g_authors = [a.casefold() for a in (g.get('authors') or parse_authors(g.get('author', '')))]
+        if any((a, g_stem) in taken for a in g_authors):
+            continue
+        chosen.append(g)
     return chosen[:count]
 
 
@@ -463,7 +508,7 @@ def discover_source(subreddit, words='', browse='relevance'):
     """The listing to look through: a search (with words) or a browse of the subreddit's top or newest posts."""
     subreddit = subreddit.strip().lstrip('/').replace('r/', '', 1).strip()
     sort, _, period = browse.partition('-')
-    if not re.fullmatch(_NAME, subreddit or '-'):
+    if not re.fullmatch(r'[A-Za-z0-9_\-+]{2,128}', subreddit or '-'):
         raise SourceError('Enter a subreddit name such as HFY.')
     if words.strip():
         src = {'kind': 'search', 'subreddit': subreddit, 'user': '', 'query': words.strip(), 'sort': sort if sort in ('relevance', 'top', 'new') else 'relevance'}
@@ -492,17 +537,26 @@ def series_follow(group, author_note=False):
     """A follow for a discovered series: the author's posts whose title starts with the series name."""
     stem = group['name']
     name = re.escape(stem).replace('\\ ', ' ')  # spaces need no escaping here, and the pattern is shown to people
-    return new_follow(stem, f"u/{group['author']}", 're:^\\s*' + _LEAD_TAGS + name + r'(?![A-Za-z0-9])', group['author'], author_note=author_note)
+    authors = group.get('authors') or parse_authors(group.get('author', ''))
+    author_str = ', '.join(authors) if authors else group.get('author', '')
+    if len(authors) == 1:
+        source_str = f"u/{authors[0]}"
+    elif len(authors) > 1:
+        source_str = f"u/{'+'.join(authors)}"
+    else:
+        source_str = f"u/{author_str}" if author_str else 'r/HFY'
+    return new_follow(stem, source_str, 're:^\\s*' + _LEAD_TAGS + name + r'(?![A-Za-z0-9])', author_str, author_note=author_note)
 
 
 def preview_series(source, follow, pages=FIRST_RUN_PAGES, cancelled=lambda: False, progress=lambda msg: None):
     """Everything the author has under this series name, so the whole series can be judged before following it.
     Returns {'count', 'first', 'last', 'titles'} (titles: first and last few)."""
     posts, after = {}, None
+    authors_label = follow.get('author_filter') or (follow['source'].get('user') if follow.get('source') else '') or 'author'
     for number in range(pages):
         if cancelled():
             raise Cancelled()
-        progress(f'Looking through {follow["source"]["user"]}\'s posts, page {number + 1}')
+        progress(f'Looking through {authors_label}\'s posts, page {number + 1}')
         found, after = source.page(follow['source'], after)
         for e in found:
             if matches(e, follow):
@@ -542,11 +596,12 @@ def parse_index(csv_text, author=''):
     cols = {c.strip().lower(): i for i, c in enumerate(rows[head]) if c.strip()}
     col_date, col_author, col_chapter = cols.get('date (cest)', cols.get('date', 0)), cols.get('author', 1), cols.get('chapter', 2)
     col_note = cols.get('note')
+    author_set = {a.casefold() for a in parse_authors(author)}
     out = []
     for r in rows[head + 1:]:
         if len(r) <= col_chapter or not r[col_date].strip():
             continue
-        if author and r[col_author].strip().casefold() != author.casefold():
+        if author_set and r[col_author].strip().casefold() not in author_set:
             continue
         m = _CHAPTER_LABEL.search(r[col_chapter])
         if not m or not re.match(r'\d{4}/\d\d/\d\d', r[col_date].strip()):
@@ -653,8 +708,10 @@ def probe(source, src, follow=None, limit=25):
 
 def new_follow(name, source_text, title_filter='', author_filter='', author_note=False, layout='series', flair_filter='', index_url='', title_from_body=False):
     src = parse_source(source_text)
+    authors = parse_authors(author_filter)
+    fmt_authors = ', '.join(authors) if authors else author_filter.strip()
     return {'id': uuid.uuid4().hex[:10], 'name': name.strip() or describe_source(src), 'source': src,
-            'title_filter': title_filter.strip(), 'author_filter': author_filter.strip().lstrip('/').replace('u/', '', 1),
+            'title_filter': title_filter.strip(), 'author_filter': fmt_authors,
             'author_note': bool(author_note), 'layout': 'each' if layout == 'each' else 'series', 'flair_filter': flair_filter.strip(), 'index_url': index_url.strip(), 'title_from_body': bool(title_from_body),
             'last_checked': 0.0, 'last_status': ''}
 
@@ -677,8 +734,12 @@ def matches(entry, follow):
         return False
     if follow.get('layout') == 'each' and stated_minor_age(entry['title']):
         return False
-    author = follow.get('author_filter', '')
-    return not author or entry.get('author', '').casefold() == author.casefold()
+    authors = parse_authors(follow.get('author_filter') or follow.get('authors', ''))
+    if authors:
+        entry_author = (entry.get('author') or '').strip().casefold()
+        if not any(a.casefold() == entry_author for a in authors):
+            return False
+    return True
 
 
 def _text_matches(flt, text):
@@ -910,16 +971,27 @@ def build_story(follow, cache):
     if (cache.data.get('index') or {}).get('rows'):
         matched, _, _ = match_index(posts, cache.data['index']['rows'])
         titles = {pid: index_title(row, None, with_note=not from_body) for pid, row in matched.items()}
+
+    authors = []
+    for p in posts:
+        a = (p.get('author') or '').strip()
+        if a and a not in authors:
+            authors.append(a)
+    author_str = ', '.join(authors) if authors else 'Unknown'
+
     def section(p):
         name = titles.get(p['id']) or p['title']
         chapter = split_body_title(p['html'] or '')[0] if from_body else ''
-        return (f'{name} \u2013 {chapter}' if chapter else name), chapter_html(p, from_body)
-    author = Counter(p['author'] for p in posts).most_common(1)[0][0] or 'Unknown'
+        display_name = f'{name} \u2013 {chapter}' if chapter else name
+        if len(authors) > 1 and p.get('author'):
+            display_name = f'{display_name} (by {p["author"]})'
+        return display_name, chapter_html(p, from_body)
+
     last = datetime.fromtimestamp(posts[-1]['created'], timezone.utc).date().isoformat()
     first = datetime.fromtimestamp(posts[0]['created'], timezone.utc).date().isoformat()
     src = follow['source']
     tags = ['Reddit'] + ([f"r/{src['subreddit']}"] if src.get('subreddit') else [])
-    return {'id': 'reddit-' + follow['id'], 'url': posts[-1]['link'] or WWW, 'title': follow['name'], 'author': author,
+    return {'id': 'reddit-' + follow['id'], 'url': posts[-1]['link'] or WWW, 'title': follow['name'], 'author': author_str,
             'sections': [section(p) for p in posts], 'tags': tags, 'categories': [],
             'summary': f"{len(posts)} chapters collected from Reddit ({describe_source(src)}), {first} to {last}.",
             'publisher': PUBLISHER, 'pubdate': first}

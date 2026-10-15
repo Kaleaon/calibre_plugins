@@ -996,5 +996,87 @@ class ApiSourceTests(unittest.TestCase):
         self.assertEqual(caught.exception.retry_after, 45)
 
 
+class MultiAuthorTests(unittest.TestCase):
+    """Tests for multi-author subscriptions, multireddit source parsing, set-based matching, cross-author series grouping, and EPUB metadata attribution."""
+
+    def test_parse_authors_formatting_and_delimiters(self):
+        self.assertEqual(core.parse_authors('KyleKKent'), ['KyleKKent'])
+        self.assertEqual(core.parse_authors('u/Author1, u/Author2'), ['Author1', 'Author2'])
+        self.assertEqual(core.parse_authors('Author1 | /u/Author2 | @Author3'), ['Author1', 'Author2', 'Author3'])
+        self.assertEqual(core.parse_authors(['u/Author1', 'Author2', 'Author1']), ['Author1', 'Author2'])
+        self.assertEqual(core.parse_authors(''), [])
+
+    def test_multireddit_and_multiuser_source_parsing(self):
+        src_sub = core.parse_source('r/HFY+writingprompts')
+        self.assertEqual(src_sub, {'kind': 'subreddit', 'subreddit': 'HFY+writingprompts', 'user': '', 'query': ''})
+
+        src_user = core.parse_source('u/Author1+Author2')
+        self.assertEqual(src_user, {'kind': 'user', 'subreddit': '', 'user': 'Author1+Author2', 'query': ''})
+
+        src_user_comma = core.parse_source('u/Author1, u/Author2')
+        self.assertEqual(src_user_comma, {'kind': 'user', 'subreddit': '', 'user': 'Author1+Author2', 'query': ''})
+
+        src_url = core.parse_source('https://www.reddit.com/r/sub1+sub2/new')
+        self.assertEqual(src_url, {'kind': 'subreddit', 'subreddit': 'sub1+sub2', 'user': '', 'query': ''})
+
+    def test_multi_author_set_based_matching(self):
+        follow = core.new_follow('Collab Series', 'r/HFY', title_filter='Shared World', author_filter='Author1, Author2')
+        self.assertEqual(follow['author_filter'], 'Author1, Author2')
+
+        post1 = {'title': 'Shared World - Part 1', 'author': 'Author1', 'html': '<p>Text 1</p>', 'flair': ''}
+        post2 = {'title': 'Shared World - Part 2', 'author': 'Author2', 'html': '<p>Text 2</p>', 'flair': ''}
+        post3 = {'title': 'Shared World - Part 3', 'author': 'Author3', 'html': '<p>Text 3</p>', 'flair': ''}
+
+        self.assertTrue(core.matches(post1, follow))
+        self.assertTrue(core.matches(post2, follow))
+        self.assertFalse(core.matches(post3, follow))
+
+    def test_cross_author_series_grouping(self):
+        entries = [
+            {'id': 't3_1', 'title': 'Shared Universe 1', 'author': 'Author1', 'html': '<p>Chapter 1</p>', 'created': 100.0},
+            {'id': 't3_2', 'title': 'Shared Universe 2', 'author': 'Author2', 'html': '<p>Chapter 2</p>', 'created': 200.0},
+            {'id': 't3_3', 'title': 'Shared Universe 3', 'author': 'Author1', 'html': '<p>Chapter 3</p>', 'created': 300.0},
+        ]
+        groups = core.group_series(entries, cross_author=True)
+        self.assertEqual(len(groups), 1)
+        g = groups[0]
+        self.assertEqual(g['name'], 'Shared Universe')
+        self.assertEqual(g['authors'], ['Author1', 'Author2'])
+        self.assertEqual(g['author'], 'Author1, Author2')
+        self.assertTrue(g['is_series'])
+
+    def test_multi_author_epub_metadata_and_chapter_attribution(self):
+        follow = core.new_follow('Collab Series', 'r/HFY', author_filter='Author1, Author2')
+        cache = core.ChapterCache('/tmp/fake_cache', follow['id'])
+        cache.data['posts'] = {
+            't3_1': {'id': 't3_1', 'title': 'Collab 1', 'author': 'Author1', 'created': 100.0, 'html': '<p>Chapter 1 text</p>', 'link': 'https://reddit.com/1'},
+            't3_2': {'id': 't3_2', 'title': 'Collab 2', 'author': 'Author2', 'created': 200.0, 'html': '<p>Chapter 2 text</p>', 'link': 'https://reddit.com/2'},
+        }
+
+        story = core.build_story(follow, cache)
+        self.assertEqual(story['author'], 'Author1, Author2')
+        self.assertIn('(by Author1)', story['sections'][0][0])
+        self.assertIn('(by Author2)', story['sections'][1][0])
+
+        epub_bytes = core.build_epub(story)
+        extracted = core._build_epub.__module__  # check storykit extraction
+        try:
+            from common.storykit import extract_epub_story
+        except ModuleNotFoundError:
+            from calibre_plugins.common.storykit import extract_epub_story
+        extracted_story = extract_epub_story(epub_bytes)
+        self.assertEqual(extracted_story['author'], 'Author1, Author2')
+
+    def test_followed_keys_multi_author(self):
+        follows = [
+            core.new_follow('Series A', 'r/HFY', author_filter='Author1, Author2'),
+            core.new_follow('Series B', 'r/HFY', author_filter='Author3'),
+        ]
+        keys = core.followed_keys(follows)
+        self.assertIn(('author1', 'series a'), keys)
+        self.assertIn(('author2', 'series a'), keys)
+        self.assertIn(('author3', 'series b'), keys)
+
+
 if __name__ == '__main__':
     unittest.main()
