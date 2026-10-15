@@ -11,11 +11,122 @@ class FanficAction(InterfaceAction):
     action_spec = ('Fanfic sites', None, 'Download stories from Royal Road, AO3 and many other sites as EPUB', None)
 
     def genesis(self):
+        from qt.core import QAction, QMenu
+        menu = QMenu(self.gui)
+        self.qaction.setMenu(menu)
+
+        dl_action = QAction('Download new stories from URLs...', self.gui)
+        dl_action.triggered.connect(self.download)
+        menu.addAction(dl_action)
+
+        update_action = QAction('Update selected library books', self.gui)
+        update_action.triggered.connect(self.update_selected)
+        menu.addAction(update_action)
+
         self.qaction.triggered.connect(self.download)
 
     def existing_urls(self):
         # Calibre stores ':' as '|' inside identifier values; FanFicFare's own plugin does the same.
         return {u.replace('|', ':') for u in libkit.existing_ids(self.gui, 'url')}
+
+    def update_selected(self):
+        try:
+            from calibre_plugins.fanfic_downloader.config import prefs
+        except ImportError:
+            try:
+                from .config import prefs
+            except ImportError:
+                from config import prefs
+
+        selected_ids = list(self.gui.library_view.get_selected_ids())
+        if not selected_ids:
+            info_dialog(self.gui, 'Fanfic downloader', 'No books selected in the library.', show=True)
+            return
+
+        db = self.gui.current_db.new_api
+        all_idents = db.all_field_for('identifiers', selected_ids, {})
+        allow_adult = prefs['allow_adult']
+        extra_adult = engine.parse_extra_adult(prefs['extra_adult'])
+        ini = prefs['advanced_ini']
+
+        valid_targets = []
+        skipped = []
+        problems = []
+
+        for book_id in selected_ids:
+            title = db.field_for('title', book_id, f'Book ID {book_id}') or f'Book ID {book_id}'
+            idents = all_idents.get(book_id) or {}
+            raw_url = idents.get('url', '')
+            if raw_url:
+                raw_url = raw_url.replace('|', ':').strip()
+            if not raw_url:
+                skipped.append(f"Skipped '{title}' (ID {book_id}): No 'url' identifier.")
+                continue
+
+            try:
+                info = engine.inspect_url(raw_url, allow_adult, extra_adult)
+                info['book_id'] = book_id
+                info['book_title'] = title
+                valid_targets.append(info)
+            except engine.EngineError as exc:
+                problems.append(f"'{title}' ({raw_url}): {exc}")
+            except Exception as exc:
+                problems.append(f"'{title}' ({raw_url}): {exc}")
+
+        if not valid_targets:
+            lines = ['No valid books to update.']
+            if skipped:
+                lines.extend(skipped)
+            if problems:
+                lines.extend(problems)
+            info_dialog(self.gui, 'Fanfic downloader', '\n'.join(lines), show=True)
+            return
+
+        results, failures = [], []
+
+        def work(task):
+            for n, info in enumerate(valid_targets, 1):
+                if task.cancelled():
+                    return
+                task.status = f"[{n}/{len(valid_targets)}] {info['domain']}: {info['book_title']}"
+                try:
+                    res = engine.download_story(info, ini, allow_adult)
+                    res['target_info'] = info
+                    results.append(res)
+                except Exception as exc:
+                    failures.append(f"{info['book_title']} ({info['url']}): {engine.explain(exc, info['url'])}")
+
+        task = run_task(self.gui, 'Updating selected books…', work)
+        if task.error:
+            failures.append(str(task.error))
+
+        updated_count = 0
+        update_errors = []
+        for res in results:
+            mi = self.metadata_for(res)
+            info = res['target_info']
+            try:
+                libkit.upsert_epub(self.gui, mi, res['epub'], 'url', info['url'])
+                updated_count += 1
+            except Exception as exc:
+                update_errors.append(f"{info['book_title']}: {exc}")
+
+        summary_lines = [f'{updated_count} book(s) updated.']
+        if skipped:
+            summary_lines.extend(skipped)
+        if task.cancelled():
+            summary_lines.append('Cancelled; stories finished before that were kept.')
+        partial = [r['title'] for r in results if r.get('chapter_errors')]
+        if partial:
+            summary_lines.append('Some chapters failed to download in: ' + '; '.join(partial))
+        if problems:
+            summary_lines.extend(problems)
+        if failures:
+            summary_lines.extend(failures)
+        if update_errors:
+            summary_lines.extend(update_errors)
+
+        info_dialog(self.gui, 'Fanfic downloader', '\n'.join(summary_lines), show=True)
 
     def download(self):
         dialog = DownloadDialog(self.gui)
