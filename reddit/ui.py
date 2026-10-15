@@ -459,7 +459,7 @@ class ManageDialog(QDialog):
         self.mode_label = QLabel('')
         layout.addWidget(self.mode_label)
         row = QHBoxLayout()
-        for label, slot in (('Find stories…', self.find), ('Add…', self.add), ('Edit…', self.edit), ('Remove', self.remove), ('Test selected', self.test_selected), ('Check selected now', self.check_selected),
+        for label, slot in (('Find stories…', self.find), ('Add…', self.add), ('Edit…', self.edit), ('Remove', self.remove), ('Queue manager…', self.open_queue_manager), ('Test selected', self.test_selected), ('Check selected now', self.check_selected),
                             ('Check all now', self.check_all), ('Settings…', self.settings)):
             button = QPushButton(label)
             button.clicked.connect(slot)
@@ -468,6 +468,10 @@ class ManageDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        self.refresh()
+
+    def open_queue_manager(self):
+        self.action.open_queue_manager()
         self.refresh()
 
     def follows(self):

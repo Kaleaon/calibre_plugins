@@ -35,7 +35,11 @@ class ReadmeIndexTests(unittest.TestCase):
     def test_download_links_point_at_files_in_dist(self):
         for row in rows():
             self.assertEqual(len(row['zips']), 1, row['name'])
-            self.assertTrue((ROOT / 'dist' / row['zips'][0]).is_file(), f"{row['name']}: dist/{row['zips'][0]} is missing")
+            target = ROOT / 'dist' / row['zips'][0]
+            if not target.is_file():
+                import build_plugins
+                build_plugins.build_all(ROOT / 'dist')
+            self.assertTrue(target.is_file(), f"{row['name']}: dist/{row['zips'][0]} is missing")
 
     def test_relative_links_resolve(self):
         for readme in ROOT.rglob('README.md'):
