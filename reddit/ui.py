@@ -8,6 +8,13 @@ from qt.core import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogBu
 from calibre_plugins.reddit_follower import core, login
 from calibre_plugins.reddit_follower.config import prefs
 from calibre_plugins.reddit_follower.guikit import run_task
+try:
+    from calibre_plugins.reddit_follower.error_handler import show_friendly_error_dialog
+except ImportError:
+    try:
+        from .error_handler import show_friendly_error_dialog
+    except ImportError:
+        from error_handler import show_friendly_error_dialog
 from calibre_plugins.reddit_follower.storykit import Fetcher
 
 ACCESS_NOTE = (
@@ -236,11 +243,11 @@ class SettingsDialog(QDialog):
                     Fetcher(cancelled=t.cancelled), client_id, secret, server, self.open_browser, t.cancelled,
                     **{k: v for k, v in self.login_endpoints.items() if k != 'revoke_url'}))
         except login.LoginError as exc:
-            QMessageBox.warning(self, 'Reddit Story Follower', str(exc))
+            show_friendly_error_dialog(self, 'Reddit Story Follower', exc, show=True)
             return
         if task.error:
             if 'cancelled' not in str(task.error).lower():
-                QMessageBox.warning(self, 'Reddit Story Follower', f'Login failed: {task.error}')
+                show_friendly_error_dialog(self, 'Reddit Story Follower', task.error, show=True)
             return
         if task.result:
             self.refresh_token = task.result['refresh_token']
@@ -459,7 +466,7 @@ class ManageDialog(QDialog):
         self.mode_label = QLabel('')
         layout.addWidget(self.mode_label)
         row = QHBoxLayout()
-        for label, slot in (('Find stories…', self.find), ('Add…', self.add), ('Edit…', self.edit), ('Remove', self.remove), ('Test selected', self.test_selected), ('Check selected now', self.check_selected),
+        for label, slot in (('Find stories…', self.find), ('Add…', self.add), ('Edit…', self.edit), ('Remove', self.remove), ('Queue manager…', self.open_queue_manager), ('Test selected', self.test_selected), ('Check selected now', self.check_selected),
                             ('Check all now', self.check_all), ('Settings…', self.settings)):
             button = QPushButton(label)
             button.clicked.connect(slot)
@@ -468,6 +475,10 @@ class ManageDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        self.refresh()
+
+    def open_queue_manager(self):
+        self.action.open_queue_manager()
         self.refresh()
 
     def follows(self):

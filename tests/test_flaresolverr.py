@@ -87,6 +87,19 @@ class IniTests(unittest.TestCase):
         self.assertIn('-p 127.0.0.1:8191:8191', fs.DOCKER_COMMAND)
         self.assertIn(fs.DOCKER_COMMAND, guide)
 
+    def test_is_cloudflare_domain(self):
+        self.assertTrue(fs.is_cloudflare_domain('royalroad.com'))
+        self.assertTrue(fs.is_cloudflare_domain('www.royalroad.com'))
+        self.assertTrue(fs.is_cloudflare_domain('scribblehub.com'))
+        self.assertFalse(fs.is_cloudflare_domain('archiveofourown.org'))
+
+    def test_is_403_error(self):
+        self.assertTrue(fs.is_403_error('HTTP Error 403: Forbidden'))
+        self.assertTrue(fs.is_403_error('Cloudflare bot challenge detected'))
+        self.assertFalse(fs.is_403_error('HTTP Error 404: Not Found'))
+        self.assertFalse(fs.is_403_error(None))
+
+
 
 class ServerTests(unittest.TestCase):
     @classmethod

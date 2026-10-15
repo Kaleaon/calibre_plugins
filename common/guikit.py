@@ -5,6 +5,13 @@ import time
 from qt.core import QApplication, QCheckBox, QLineEdit, QProgressDialog, Qt, QVBoxLayout, QWidget
 
 from .storykit import Cancelled
+try:
+    from .error_handler import format_exception
+except ImportError:
+    try:
+        from error_handler import format_exception
+    except ImportError:
+        from common.error_handler import format_exception
 
 
 class Task:
@@ -26,7 +33,7 @@ class Task:
         except Cancelled:
             pass
         except Exception as exc:  # reported to the user by the caller
-            self.error = exc
+            self.error = format_exception(exc)
 
 
 def run_task(parent, title, func):

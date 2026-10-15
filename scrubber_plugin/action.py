@@ -5,6 +5,14 @@ from calibre.utils.config import JSONConfig
 from qt.core import (QAction, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QLabel, QMenu,
                      QPlainTextEdit, QVBoxLayout)
 try:
+    from calibre_plugins.epub_promo_scrubber.error_handler import show_friendly_error_dialog
+except ImportError:
+    try:
+        from .error_handler import show_friendly_error_dialog
+    except ImportError:
+        from error_handler import show_friendly_error_dialog
+
+try:
     from calibre_plugins.epub_promo_scrubber.guikit import run_task
 except ImportError:
     try:
@@ -114,7 +122,7 @@ class ScrubAction(InterfaceAction):
             task = run_task(self.gui, 'Scanning EPUBs for promo content...', scan_worker)
             if task.cancelled() or task.error:
                 if task.error:
-                    error_dialog(self.gui, 'Scan failed', str(task.error), show=True)
+                    show_friendly_error_dialog(self.gui, 'Scan failed', task.error, show=True)
                 return
             scan_results = task.result or []
             if not scan_results:
@@ -298,7 +306,7 @@ class ScrubAction(InterfaceAction):
             task = run_task(self.gui, 'Scanning EPUB files for promo content...', scan_folder_worker)
             if task.cancelled() or task.error:
                 if task.error:
-                    error_dialog(self.gui, 'Scan failed', str(task.error), show=True)
+                    show_friendly_error_dialog(self.gui, 'Scan failed', task.error, show=True)
                 return
 
             scan_results = task.result or []
@@ -327,7 +335,7 @@ class ScrubAction(InterfaceAction):
                             f'{counts[done]} {done}, {counts["unchanged"]} unchanged, {counts["error"]} errors.\n' +
                             ('Original files were overwritten.' if in_place else 'Originals were not modified.') + f'\nReport: {report_path}', show=True)
             except Exception as exc:
-                error_dialog(self.gui, 'EPUB Promo Scrubber failed', str(exc), show=True)
+                show_friendly_error_dialog(self.gui, 'EPUB Promo Scrubber failed', exc, show=True)
 
         else:
             try:
@@ -338,7 +346,7 @@ class ScrubAction(InterfaceAction):
                             f'{counts[done]} {done}, {counts["unchanged"]} unchanged, {counts["error"]} errors.\n' +
                             ('Original files were overwritten.' if in_place else 'Originals were not modified.') + f'\nReport: {report_path}', show=True)
             except Exception as exc:
-                error_dialog(self.gui, 'EPUB Promo Scrubber failed', str(exc), show=True)
+                show_friendly_error_dialog(self.gui, 'EPUB Promo Scrubber failed', exc, show=True)
 
     def merge_selected(self):
         ids = list(self.gui.library_view.get_selected_ids())
@@ -357,7 +365,7 @@ class ScrubAction(InterfaceAction):
             info_dialog(self.gui, 'EPUB Merger', 'Successfully merged books into a new omnibus EPUB in your library.' +
                         (f'\nNotes: {"; ".join(errors)}' if errors else ''), show=True)
         else:
-            error_dialog(self.gui, 'EPUB Merger', 'Could not merge books:\n' + '\n'.join(errors), show=True)
+            show_friendly_error_dialog(self.gui, 'EPUB Merger', 'Could not merge books:\n' + '\n'.join(errors), show=True)
 
     def merge_folder(self):
         files, _ = QFileDialog.getOpenFileNames(self.gui, 'Select EPUB files to merge', '', 'EPUB (*.epub)')
@@ -380,4 +388,4 @@ class ScrubAction(InterfaceAction):
                 f.write(merged_bytes)
             info_dialog(self.gui, 'EPUB Merger', f'Merged {len(files)} EPUBs into:\n{out_path}', show=True)
         except Exception as exc:
-            error_dialog(self.gui, 'EPUB Merger failed', str(exc), show=True)
+            show_friendly_error_dialog(self.gui, 'EPUB Merger failed', exc, show=True)

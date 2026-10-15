@@ -10,6 +10,13 @@ from qt.core import QAction, QMenu, QTimer
 from calibre_plugins.reddit_follower import core, libkit
 from calibre_plugins.reddit_follower.config import prefs
 from calibre_plugins.reddit_follower.guikit import run_task
+try:
+    from calibre_plugins.reddit_follower.error_handler import show_friendly_error_dialog
+except ImportError:
+    try:
+        from .error_handler import show_friendly_error_dialog
+    except ImportError:
+        from error_handler import show_friendly_error_dialog
 from calibre_plugins.reddit_follower.ui import DiscoverDialog, ManageDialog, SettingsDialog
 
 IDENTIFIER = 'redditfollow'
@@ -25,7 +32,7 @@ class FollowerAction(InterfaceAction):
     def genesis(self):
         menu = QMenu(self.gui)
         self.qaction.setMenu(menu)
-        for title, slot in (('Followed stories…', self.manage), ('Find stories…', self.discover), ('Check for new chapters now', self.check_all_now), ('Settings…', self.settings)):
+        for title, slot in (('Followed stories…', self.manage), ('Find stories…', self.discover), ('Queue manager…', self.open_queue_manager), ('Check for new chapters now', self.check_all_now), ('Settings…', self.settings)):
             action = QAction(title, self.gui)
             action.triggered.connect(slot)
             menu.addAction(action)
@@ -36,6 +43,7 @@ class FollowerAction(InterfaceAction):
         self._thread = None
         self._job = {}
         self._cache_dir = None
+        self._queue_manager = None
         self.timer = QTimer(self.gui)
         self.timer.timeout.connect(self.auto_check)
         self.timer.start(TICK_MS)
@@ -53,6 +61,23 @@ class FollowerAction(InterfaceAction):
             from calibre.constants import config_dir
             self._cache_dir = os.path.join(config_dir, 'plugins', 'reddit_follower_cache')
         return self._cache_dir
+
+    def get_queue_manager(self):
+        if self._queue_manager is None:
+            try:
+                from calibre_plugins.reddit_follower.task_queue import QueueManager
+            except ImportError:
+                from task_queue import QueueManager
+            self._queue_manager = QueueManager(self.cache_dir())
+        return self._queue_manager
+
+    def open_queue_manager(self):
+        try:
+            from calibre_plugins.reddit_follower.queue_ui import QueueManagerDialog
+        except ImportError:
+            from queue_ui import QueueManagerDialog
+        qm = self.get_queue_manager()
+        QueueManagerDialog(self.gui, qm, run_now_callback=self.auto_check).exec()
 
     def chapter_count(self, follow):
         return len(core.ChapterCache(self.cache_dir(), follow['id']).posts)
@@ -92,9 +117,9 @@ class FollowerAction(InterfaceAction):
             task = run_task(self.gui, 'Checking Reddit…', lambda t: core.run_follows(
                 self.make_source(t.cancelled), copies, self.cache_dir(), t.cancelled, lambda msg: setattr(t, 'status', msg)))
         except core.SourceError as exc:
-            return error_dialog(self.gui, 'Reddit stories', str(exc), show=True)
+            return show_friendly_error_dialog(self.gui, 'Reddit stories', exc, show=True)
         if task.error:
-            return error_dialog(self.gui, 'Reddit stories', f'The check failed: {task.error}', show=True)
+            return show_friendly_error_dialog(self.gui, 'Reddit stories', task.error, show=True)
         if task.result is None:
             return
         self.finish(task.result, interactive=True)
@@ -103,7 +128,7 @@ class FollowerAction(InterfaceAction):
         """One request for the first page of this follow, reported to the user. Changes nothing."""
         task = run_task(self.gui, 'Testing…', lambda t: core.probe(self.make_source(t.cancelled), follow['source'], follow))
         if task.error:
-            return error_dialog(self.gui, 'Reddit stories', f'The test failed: {task.error}', show=True)
+            return show_friendly_error_dialog(self.gui, 'Reddit stories', task.error, show=True)
         if task.result is not None:
             info_dialog(self.gui, f"Test: {follow['name']}", task.result[1], show=True)
 
@@ -112,18 +137,45 @@ class FollowerAction(InterfaceAction):
         if self.stopping or self.busy or not prefs['auto_check'] or time.time() < self.backoff_until:
             return
         hours = float(prefs['check_hours'])
-        due = [f for f in prefs['follows'] if core.due(f, hours)]
-        if not due:
+        qm = self.get_queue_manager()
+
+        for f in prefs['follows']:
+            if core.due(f, hours):
+                qm.enqueue_task(f['id'], 'check_follow', f)
+
+        eligible_tasks = qm.get_eligible_tasks('check_follow')
+        if not eligible_tasks:
             return
-        copies = copy.deepcopy(due)
+
         self.busy = True
-        self._job = {'results': None, 'error': None}
+        self._job = {'results': [], 'error': None}
 
         def work():
-            try:
-                self._job['results'] = core.run_follows(self.make_source(lambda: self.stopping), copies, self.cache_dir(), lambda: self.stopping)
-            except Exception as exc:  # reported quietly in the status bar
-                self._job['error'] = exc
+            results = []
+            by_id = {f['id']: f for f in prefs['follows']}
+            for task in eligible_tasks:
+                if self.stopping:
+                    break
+                task_id = task['task_id']
+                follow = task['payload'] if isinstance(task['payload'], dict) else by_id.get(task_id)
+                if not follow:
+                    continue
+                qm.mark_processing(task_id)
+                try:
+                    res_list = core.run_follows(self.make_source(lambda: self.stopping), [copy.deepcopy(follow)], self.cache_dir(), lambda: self.stopping)
+                    for res in res_list:
+                        results.append(res)
+                        if res.get('rate_limited'):
+                            qm.mark_failed(task_id, "Rate limited by Reddit (HTTP 429)")
+                        elif res.get('error'):
+                            qm.mark_failed(task_id, res['error'])
+                        else:
+                            qm.mark_completed(task_id, "Check succeeded")
+                except Exception as exc:
+                    qm.mark_failed(task_id, exc)
+                    self._job['error'] = exc
+
+            self._job['results'] = results
 
         self._thread = threading.Thread(target=work, daemon=True)
         self._thread.start()

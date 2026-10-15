@@ -5,6 +5,73 @@ from pathlib import Path
 CHUNK_SIZE = 64 * 1024  # 64 KB
 
 
+def normalize_isbn(raw_isbn):
+    """Normalize ISBN string by removing hyphens/spaces and canonicalizing ISBN-10 to ISBN-13."""
+    if not isinstance(raw_isbn, str):
+        return None
+    cleaned = raw_isbn.replace('-', '').replace(' ', '').replace('.', '').strip()
+    if not cleaned:
+        return None
+
+    if len(cleaned) == 10:
+        first9 = cleaned[:9]
+        if first9.isdigit():
+            prefix = "978" + first9
+            s = 0
+            for i, char in enumerate(prefix):
+                digit = int(char)
+                weight = 1 if i % 2 == 0 else 3
+                s += digit * weight
+            check_digit = (10 - (s % 10)) % 10
+            return prefix + str(check_digit)
+
+    return cleaned.upper()
+
+
+def _extract_candidate_isbns(mi, sidecar):
+    raw_isbns = []
+    idents = getattr(mi, 'identifiers', None)
+    if isinstance(idents, dict):
+        for k, v in idents.items():
+            if str(k).lower() == 'isbn' and isinstance(v, str):
+                raw_isbns.append(v)
+    if isinstance(sidecar, dict):
+        if isinstance(sidecar.get('isbn'), str):
+            raw_isbns.append(sidecar['isbn'])
+        identifiers = sidecar.get('industryIdentifiers', [])
+        if isinstance(identifiers, list):
+            for identifier in identifiers:
+                if isinstance(identifier, dict) and str(identifier.get('type', '')).startswith('ISBN') and isinstance(identifier.get('identifier'), str):
+                    raw_isbns.append(identifier['identifier'])
+    normalized = set()
+    for raw in raw_isbns:
+        norm = normalize_isbn(raw)
+        if norm:
+            normalized.add(norm)
+    return normalized
+
+
+def _get_format_size_for_index(db, book_id, fmt_upper):
+    if hasattr(db, 'format_metadata'):
+        try:
+            meta = db.format_metadata(book_id, fmt_upper)
+            if isinstance(meta, dict) and meta.get('size') is not None:
+                return int(meta['size'])
+        except Exception:
+            pass
+    if hasattr(db, 'format_abspath'):
+        try:
+            abspath = db.format_abspath(book_id, fmt_upper)
+            if abspath:
+                p = Path(abspath)
+                if p.is_file():
+                    return p.stat().st_size
+        except Exception:
+            pass
+    size, _ = _get_existing_format_info(db, book_id, fmt_upper)
+    return size
+
+
 def _hash_source(source, chunk_size=CHUNK_SIZE):
     """Calculate SHA-256 digest in 64 KB chunks without loading whole files into RAM."""
     hasher = hashlib.sha256()
@@ -131,15 +198,19 @@ def import_books(gui, rows):
     imported, errors = [], []
     seen = set()
 
-    # Pre-build title index upfront to avoid repeated title queries
+    # Pre-build title, ISBN, and format file size lookup indexes upfront
     title_to_ids = {}
+    isbn_to_ids = {}
+    size_fmt_to_ids = {}
+
     try:
         all_ids = list(db.all_book_ids() or ())
     except Exception:
         all_ids = []
 
-    titles_map = None
     if all_ids:
+        # Title index
+        titles_map = None
         try:
             titles_map = db.all_field_for('title', all_ids)
         except Exception:
@@ -148,22 +219,90 @@ def import_books(gui, rows):
             except Exception:
                 titles_map = None
 
-    if isinstance(titles_map, dict):
-        for b_id, title in titles_map.items():
-            if title:
-                title_to_ids.setdefault(str(title).casefold(), []).append(b_id)
-    else:
-        for b_id in all_ids:
+        if isinstance(titles_map, dict):
+            for b_id, title in titles_map.items():
+                if title:
+                    title_to_ids.setdefault(str(title).casefold(), []).append(b_id)
+        else:
+            for b_id in all_ids:
+                try:
+                    title = db.field_for('title', b_id, '')
+                except Exception:
+                    title = ''
+                if title:
+                    title_to_ids.setdefault(str(title).casefold(), []).append(b_id)
+
+        # ISBN index
+        identifiers_map = None
+        try:
+            identifiers_map = db.all_field_for('identifiers', all_ids)
+        except Exception:
             try:
-                title = db.field_for('title', b_id, '')
+                identifiers_map = db.all_field_for('identifiers', all_ids, default={})
             except Exception:
-                title = ''
-            if title:
-                title_to_ids.setdefault(str(title).casefold(), []).append(b_id)
+                identifiers_map = None
+
+        if isinstance(identifiers_map, dict):
+            for b_id, idents in identifiers_map.items():
+                if isinstance(idents, dict):
+                    for k, v in idents.items():
+                        if str(k).lower() == 'isbn' and v and isinstance(v, str):
+                            norm = normalize_isbn(v)
+                            if norm:
+                                isbn_to_ids.setdefault(norm, []).append(b_id)
+        else:
+            for b_id in all_ids:
+                try:
+                    idents = db.field_for('identifiers', b_id, {})
+                    if isinstance(idents, dict):
+                        for k, v in idents.items():
+                            if str(k).lower() == 'isbn' and v and isinstance(v, str):
+                                norm = normalize_isbn(v)
+                                if norm:
+                                    isbn_to_ids.setdefault(norm, []).append(b_id)
+                except Exception:
+                    pass
+
+        # Format file size index
+        formats_map = None
+        try:
+            formats_map = db.all_field_for('formats', all_ids)
+        except Exception:
+            try:
+                formats_map = db.all_field_for('formats', all_ids, default=())
+            except Exception:
+                formats_map = None
+
+        if isinstance(formats_map, dict):
+            for b_id, fmts in formats_map.items():
+                if isinstance(fmts, (list, tuple, set)):
+                    fmt_list = [str(f).upper() for f in fmts if f]
+                elif isinstance(fmts, str) and fmts:
+                    fmt_list = [fmts.upper()]
+                else:
+                    fmt_list = []
+                for fmt_upper in fmt_list:
+                    size = _get_format_size_for_index(db, b_id, fmt_upper)
+                    if size is not None:
+                        size_fmt_to_ids.setdefault((size, fmt_upper), []).append(b_id)
+        else:
+            for b_id in all_ids:
+                try:
+                    fmts = db.formats(b_id) or ()
+                    for fmt_item in fmts:
+                        fmt_upper = str(fmt_item).upper()
+                        size = _get_format_size_for_index(db, b_id, fmt_upper)
+                        if size is not None:
+                            size_fmt_to_ids.setdefault((size, fmt_upper), []).append(b_id)
+                except Exception:
+                    pass
 
     for row in rows:
         filename = row.get('output')
-        if not filename or filename in seen:
+        if not filename:
+            continue
+        if filename in seen:
+            row['import_status'] = 'duplicate skipped'
             continue
         seen.add(filename)
         book_id = None
@@ -208,15 +347,42 @@ def import_books(gui, rows):
                     if isinstance(identifier, dict) and str(identifier.get('type', '')).startswith('ISBN') and isinstance(identifier.get('identifier'), str):
                         mi.set_identifier('isbn', identifier['identifier'])
 
-            # Multi-tiered duplicate checking: title index -> size check -> 64 KB chunked SHA-256
+            # Multi-stage duplicate checking:
+            # 1. Exact binary content hash match using pre-indexed format sizes and 64 KB chunked SHA-256
+            # 2. Normalized ISBN identifier match
+            # 3. Case-folded title match fallback with file size and SHA-256 verification
             duplicate = False
-            title_key = mi.title.casefold()
-            candidate_ids = title_to_ids.get(title_key, [])
-            if candidate_ids:
-                candidate_size = path.stat().st_size
-                candidate_sha256 = None
+            fmt_upper = fmt.upper()
+            candidate_size = path.stat().st_size
+            candidate_sha256 = None
+            candidate_isbns = _extract_candidate_isbns(mi, sidecar)
+
+            # Stage 1: Exact binary content hash match
+            possible_hash_ids = size_fmt_to_ids.get((candidate_size, fmt_upper), [])
+            for existing_id in possible_hash_ids:
+                existing_size, existing_source = _get_existing_format_info(db, existing_id, fmt_upper, candidate_size=candidate_size)
+                if existing_size is None or existing_size != candidate_size or existing_source is None:
+                    continue
+                if candidate_sha256 is None:
+                    candidate_sha256 = _hash_source(path)
+                existing_sha256 = _hash_source(existing_source)
+                if candidate_sha256 == existing_sha256:
+                    duplicate = True
+                    break
+
+            # Stage 2: Normalized ISBN identifier match
+            if not duplicate and candidate_isbns:
+                for norm_isbn in candidate_isbns:
+                    if norm_isbn in isbn_to_ids and isbn_to_ids[norm_isbn]:
+                        duplicate = True
+                        break
+
+            # Stage 3: Case-folded title match fallback
+            if not duplicate:
+                title_key = mi.title.casefold()
+                candidate_ids = title_to_ids.get(title_key, [])
                 for existing_id in candidate_ids:
-                    existing_size, existing_source = _get_existing_format_info(db, existing_id, fmt.upper(), candidate_size=candidate_size)
+                    existing_size, existing_source = _get_existing_format_info(db, existing_id, fmt_upper, candidate_size=candidate_size)
                     if existing_size is None or existing_size != candidate_size or existing_source is None:
                         continue
                     if candidate_sha256 is None:
@@ -233,14 +399,17 @@ def import_books(gui, rows):
             if book_id is None:
                 raise ValueError('Calibre did not create a library entry')
             with path.open('rb') as stream:
-                if not db.add_format(book_id, fmt.upper(), stream):
+                if not db.add_format(book_id, fmt_upper, stream):
                     raise ValueError('Calibre did not save the book format')
             cover = getattr(mi, 'cover_data', None)
             if cover and cover[1]:
                 db.set_cover({book_id: cover[1]})
             row.update(import_status='imported', calibre_id=book_id)
             imported.append(book_id)
-            title_to_ids.setdefault(title_key, []).append(book_id)
+            title_to_ids.setdefault(mi.title.casefold(), []).append(book_id)
+            for norm_isbn in candidate_isbns:
+                isbn_to_ids.setdefault(norm_isbn, []).append(book_id)
+            size_fmt_to_ids.setdefault((candidate_size, fmt_upper), []).append(book_id)
         except Exception as e:
             # Remove only the incomplete new record created by this import.
             if book_id is not None:
