@@ -2,6 +2,7 @@
 
 Everything here is additive: the plan only ever adds tags, never removes or renames existing ones.
 """
+import functools
 import re
 
 try:
@@ -157,6 +158,7 @@ def parse_rules(text):
     return rules, errors
 
 
+@functools.lru_cache(maxsize=None)
 def _host_pattern(host):
     return re.compile(r'(?<![\w-])' + re.escape(host) + r'(?![\w-])', re.I)
 

@@ -33,6 +33,27 @@ class DetectTests(unittest.TestCase):
         self.assertEqual(rules.detect_sites(text, s), [])
         self.assertEqual(rules.detect_sites(text, s, scan_comments=True), ['Royal Road'])
 
+    def test_host_pattern_memoization(self):
+        rules._host_pattern.cache_clear()
+        p1 = rules._host_pattern('example.com')
+        p2 = rules._host_pattern('example.com')
+        self.assertIs(p1, p2)
+        info = rules._host_pattern.cache_info()
+        self.assertEqual(info.hits, 1)
+        self.assertEqual(info.misses, 1)
+
+    def test_bulk_site_detection_uses_cache(self):
+        rules._host_pattern.cache_clear()
+        books = [
+            book(i, publisher=f'publisher-{i}.com', identifiers={'url': f'https://www.royalroad.com/fiction/{i}'})
+            for i in range(10)
+        ]
+        plan = rules.plan_changes(books)
+        self.assertEqual(len(plan), 10)
+        info = rules._host_pattern.cache_info()
+        self.assertGreater(info.hits, 0)
+        self.assertGreater(info.currsize, 0)
+
 
 class FanFicFareTests(unittest.TestCase):
     def test_fanficfare_identifier_form(self):
