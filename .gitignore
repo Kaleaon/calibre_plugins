@@ -4,3 +4,6 @@ takeout-validation/
 __pycache__/
 plugin/__pycache__/
 tests/__pycache__/
+*.zip
+dist/*.zip
+dist/**/*.zip
