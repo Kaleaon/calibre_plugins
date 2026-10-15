@@ -118,10 +118,16 @@ def score_recording(rec, want, acoustid_score=None):
     """Candidate dict for one MusicBrainz recording against what we know, or None if it is not a plausible match."""
     title, credit = rec.get('title', ''), rec.get('artist-credit')
     names = credit_names(credit)
-    title_sim = similarity(want['title'], title)
-    if title_sim < MIN_TITLE_SIM and acoustid_score is None:
-        return None  # same artist and album but a different song is not a match, however well the rest agrees
-    parts = [(0.1 if acoustid_score is not None else 0.4, title_sim)]  # a fingerprint outweighs a library title that may be junk
+    want_title = (want.get('title') or '').strip()
+    if want_title:
+        title_sim = similarity(want_title, title)
+        if title_sim < MIN_TITLE_SIM and acoustid_score is None:
+            return None  # same artist and album but a different song is not a match, however well the rest agrees
+        parts = [(0.1 if acoustid_score is not None else 0.4, title_sim)]  # a fingerprint outweighs a library title that may be junk
+    else:
+        if acoustid_score is None:
+            return None
+        parts = []
     if want.get('artist'):
         artist_sim = max([similarity(want['artist'], credit_text(credit))] + [similarity(want['artist'], n) for n in names])
         parts.append((0.3, artist_sim))
@@ -340,7 +346,8 @@ def plan_matches(books, http, options, cancelled=lambda: False, on_event=lambda 
             on_event('nomatch', name=name, best=cand['score'] if cand else None)
             continue
         changes = plan_changes(book, kind, cand, fields)
-        big = bool(changes.get('title')) and similarity(book.get('title', ''), cand['title']) < MIN_SIMILAR_TITLE
+        has_title = bool(book.get('title') and book['title'].strip())
+        big = bool(changes.get('title')) and has_title and similarity(book.get('title', ''), cand['title']) < MIN_SIMILAR_TITLE
         on_event('match', name=name, candidate=cand, changes=changes, media=kind)
         if changes:
             suggestions.append({'id': book['id'], 'title': book.get('title', ''), 'kind': kind, 'score': cand['score'],
@@ -370,13 +377,17 @@ def _match_music(want, book, http, options, on_event, name):
 
     for rid in list(dict.fromkeys(list(exact) + list(acoustid_scores)))[:4]:
         add(sources.mb_search_recordings(http, recording_id=rid, limit=1))
-    if want.get('title'):
-        on_event('searching', name=name, query=f"{want['title']} / {want.get('artist', '')} / {want.get('album', '')}")
-        add(sources.mb_search_recordings(http, want['title'], want.get('artist', ''), want.get('album', '')))
+    want_title = (want.get('title') or '').strip()
+    if want_title:
+        on_event('searching', name=name, query=f"{want_title} / {want.get('artist', '')} / {want.get('album', '')}")
+        add(sources.mb_search_recordings(http, want_title, want.get('artist', ''), want.get('album', '')))
         cand = best_music_candidate(recs.values(), want, acoustid_scores, exact)
         if want.get('album') and (cand is None or cand['score'] < TICK_SCORE):
             # the album name may be spelled differently on MusicBrainz, or the track may be on other releases only
-            add(sources.mb_search_recordings(http, want['title'], want.get('artist', '')))
+            add(sources.mb_search_recordings(http, want_title, want.get('artist', '')))
+    elif not (options.get('fingerprint') and key and fpcalc):
+        on_event('notice', text=f'{name}: text metadata missing and acoustic fingerprinting is unconfigured')
+
     return best_music_candidate(recs.values(), want, acoustid_scores, exact)
 
 
