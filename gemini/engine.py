@@ -328,13 +328,95 @@ def build_prompt(books):
     return 'Books to check:\n' + json.dumps(rows, ensure_ascii=False, indent=1)
 
 
-def build_parts(books):
+def _load_zip_entry(path, entry_name):
+    try:
+        with zipfile.ZipFile(path) as z:
+            return z.read(entry_name)
+    except Exception:
+        return None
+
+
+def _get_default_image_hydrator():
+    try:
+        from calibre_plugins.gemini_library_fixer.action import prepare_image
+        return prepare_image
+    except Exception:
+        try:
+            from gemini.action import prepare_image
+            return prepare_image
+        except Exception:
+            return None
+
+
+def hydrate_image(image, image_hydrator=None, db=None):
+    """Converts a lightweight image descriptor dict into a hydrated image dict with base64 'data', or returns None if hydration fails.
+    If 'data' is already in image, returns image as-is (backward compatibility)."""
+    if not isinstance(image, dict):
+        return None
+    if 'data' in image and image['data']:
+        return image
+
+    raw_data = None
+    if callable(image.get('loader')):
+        try:
+            raw_data = image['loader']()
+        except Exception:
+            raw_data = None
+    elif image.get('type') == 'front' and db is not None and image.get('book_id'):
+        try:
+            raw_data = db.cover(image['book_id'])
+        except Exception:
+            raw_data = None
+    elif image.get('type') == 'back' and image.get('path') and image.get('entry_name'):
+        try:
+            raw_data = _load_zip_entry(image['path'], image['entry_name'])
+        except Exception:
+            raw_data = None
+    elif image.get('raw_bytes'):
+        raw_data = image['raw_bytes']
+
+    if not raw_data:
+        return None
+
+    hydrator = image_hydrator or _get_default_image_hydrator()
+    b64 = None
+    if hydrator is not None:
+        try:
+            b64 = hydrator(raw_data)
+        except Exception:
+            b64 = None
+    else:
+        try:
+            if isinstance(raw_data, str):
+                b64 = raw_data
+            elif isinstance(raw_data, bytes):
+                import base64
+                b64 = base64.b64encode(raw_data).decode('ascii')
+        except Exception:
+            b64 = None
+
+    if not b64:
+        return None
+
+    return {
+        'label': image.get('label', 'cover'),
+        'mime': image.get('mime', 'image/jpeg'),
+        'data': b64
+    }
+
+
+def build_parts(books, image_hydrator=None, db=None, hydrate=True):
     """The request parts: the text prompt first, then each book's pictures, every one labelled with its book id."""
     parts = [{'text': build_prompt(books)}]
     for b in books:
         for image in b.get('images') or []:
-            parts.append({'text': f"Image for book id {b['id']} ({image['label']}):"})
-            parts.append({'inlineData': {'mimeType': image.get('mime', 'image/jpeg'), 'data': image['data']}})
+            if hydrate:
+                h_img = hydrate_image(image, image_hydrator=image_hydrator, db=db)
+                if h_img and h_img.get('data'):
+                    parts.append({'text': f"Image for book id {b['id']} ({h_img['label']}):"})
+                    parts.append({'inlineData': {'mimeType': h_img.get('mime', 'image/jpeg'), 'data': h_img['data']}})
+            else:
+                parts.append({'text': f"Image for book id {b['id']} ({image['label']}):"})
     return parts
 
 
@@ -369,7 +451,7 @@ def estimate_batch_usage(books, batch_size=15, covers=False, min_interval=0, mod
         batch_count += 1
 
         batch_text_chars = len(INSTRUCTIONS)
-        parts = build_parts(batch)
+        parts = build_parts(batch, hydrate=False)
         for part in parts:
             if 'text' in part and part['text']:
                 batch_text_chars += len(part['text'])
@@ -409,22 +491,48 @@ IMAGE_EXT = ('.jpg', '.jpeg', '.png', '.gif', '.webp')
 MIME = {'.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp'}
 
 
-def find_back_cover(path, fmt):
-    """(bytes, description) for the back cover of a book file, or None. Calibre stores only a front cover, so this looks inside
-    the file: an EPUB image whose name says back/rear (back-cover.jpg), or the last page of a CBZ comic. Never raises."""
+def find_back_cover_descriptor(path, fmt):
+    """Returns a lightweight descriptor dict for the back cover or last page, or None. Never raises."""
     try:
         with zipfile.ZipFile(path) as z:
             images = [i for i in z.infolist() if i.filename.lower().endswith(IMAGE_EXT) and 0 < i.file_size <= IMAGE_LIMIT]
             if fmt.upper() == 'CBZ' and images:
                 last = sorted(images, key=lambda i: i.filename.lower())[-1]
-                return z.read(last), f'last page ({last.filename.rsplit("/", 1)[-1]})'
+                name = last.filename.rsplit('/', 1)[-1]
+                return {
+                    'type': 'back',
+                    'label': f'last page ({name})',
+                    'mime': 'image/jpeg',
+                    'path': path,
+                    'entry_name': last.filename,
+                    'loader': lambda p=path, e=last.filename: _load_zip_entry(p, e)
+                }
             if fmt.upper() == 'EPUB':
                 for info in images:
                     name = info.filename.rsplit('/', 1)[-1]
                     if BACK_NAME.search(name):
-                        return z.read(info), f'back cover ({name})'
+                        return {
+                            'type': 'back',
+                            'label': f'back cover ({name})',
+                            'mime': 'image/jpeg',
+                            'path': path,
+                            'entry_name': info.filename,
+                            'loader': lambda p=path, e=info.filename: _load_zip_entry(p, e)
+                        }
     except Exception:
         pass
+    return None
+
+
+def find_back_cover(path, fmt):
+    """(bytes, description) for the back cover of a book file, or None. Calibre stores only a front cover, so this looks inside
+    the file: an EPUB image whose name says back/rear (back-cover.jpg), or the last page of a CBZ comic. Never raises."""
+    desc = find_back_cover_descriptor(path, fmt)
+    if not desc:
+        return None
+    data = desc['loader']() if callable(desc.get('loader')) else _load_zip_entry(desc['path'], desc['entry_name'])
+    if data:
+        return data, desc['label']
     return None
 
 
@@ -520,7 +628,7 @@ def is_big_change(changes):
 
 def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidence='medium', batch_size=15,
                tags_may_be_removed=False, progress=lambda text: None, cancelled=lambda: False, on_event=lambda kind, **info: None,
-               min_interval=0, sleep=time.sleep, clock=time.monotonic, **kw):
+               min_interval=0, sleep=time.sleep, clock=time.monotonic, image_hydrator=None, db=None, **kw):
     """Returns (suggestions, skipped). A suggestion is {'id', 'title', 'changes', 'confidence', 'reason', 'big'}; skipped is a
     list of 'title: why' strings for books that could not be checked. On cancel, returns what was finished so far.
 
@@ -553,7 +661,8 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
             return
         on_event('sending', books=batch)
         try:
-            answers = generate(api_key, model, build_parts(batch), cancelled=cancelled, sleep=sleep,
+            parts = build_parts(batch, image_hydrator=image_hydrator, db=db, hydrate=True)
+            answers = generate(api_key, model, parts, cancelled=cancelled, sleep=sleep,
                                notify=lambda t: on_event('notice', text=t), **kw)
         except Blocked as exc:
             if len(batch) == 1:
