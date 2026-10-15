@@ -199,3 +199,161 @@ class RateLimitTests(unittest.TestCase):
         self.assertEqual(caught.exception.retry_after, 120)
         self.assertEqual(len(calls), 1, 'a rate limit must not be hammered with retries')
         self.assertIsInstance(caught.exception, IOError, 'callers that catch IOError keep working')
+
+
+class PrefetchTests(unittest.TestCase):
+    def test_extract_directory_urls(self):
+        lines = [
+            'https://www.nifty.org/nifty/gay/college/saga-1',
+            'https://www.nifty.org/nifty/gay/college/saga-2',
+            'https://www.nifty.org/nifty/gay/sports/jock-1',
+            'https://www.nifty.org/nifty/gay/college/lone-story',
+            'https://www.nifty.org/nifty/lesbian/school/',
+            'https://www.nifty.org/nifty/gay/',
+            'not a valid url'
+        ]
+        urls = core.extract_directory_urls(lines)
+        expected = [
+            'https://www.nifty.org/nifty/gay/college/',
+            'https://www.nifty.org/nifty/gay/sports/',
+            'https://www.nifty.org/nifty/lesbian/school/'
+        ]
+        self.assertEqual(urls, expected)
+
+    def test_bounded_worker_pool_concurrency(self):
+        import time
+        import threading
+
+        lock = threading.Lock()
+        active = 0
+        peak_active = 0
+
+        pages = {}
+        for i in range(8):
+            pages[core.SITE + f'gay/folder{i}/'] = TABLE
+
+        class SlowFetcher:
+            def __init__(self, pages):
+                self.pages = pages
+                self.requested = []
+
+            def cancelled(self):
+                return False
+
+            def get(self, url):
+                nonlocal active, peak_active
+                with lock:
+                    active += 1
+                    if active > peak_active:
+                        peak_active = active
+                time.sleep(0.05)
+                with lock:
+                    active -= 1
+                    self.requested.append(url)
+                return self.pages.get(url, TABLE)
+
+        fetcher = SlowFetcher(pages)
+        lines = [f'https://www.nifty.org/nifty/gay/folder{i}/story-1' for i in range(8)]
+        found, errors = core.expand_targets(fetcher, lines)
+        self.assertEqual(len(found), 8)
+        self.assertEqual(len(errors), 0)
+        self.assertLessEqual(peak_active, 4, f"Peak active workers was {peak_active}, expected <= 4")
+
+    def test_prefetch_cancellation_speed(self):
+        import time
+
+        class CancellingFetcher:
+            def __init__(self):
+                self.cancel_flag = False
+
+            def cancelled(self):
+                return self.cancel_flag
+
+            def get(self, url):
+                time.sleep(0.5)
+                return TABLE
+
+        fetcher = CancellingFetcher()
+        fetcher.cancel_flag = True
+
+        start = time.monotonic()
+        lines = [f'https://www.nifty.org/nifty/gay/folder{i}/story-1' for i in range(5)]
+        with self.assertRaises(core.Cancelled):
+            core.expand_targets(fetcher, lines)
+        elapsed = time.monotonic() - start
+        self.assertLess(elapsed, 0.1, f"Cancellation took {elapsed:.3f}s, expected < 100ms")
+
+    def test_multi_folder_prefetch_performance(self):
+        import time
+
+        pages = {}
+        for i in range(5):
+            pages[core.SITE + f'gay/folder{i}/'] = TABLE
+
+        class NetworkFetcher:
+            def __init__(self, pages):
+                self.pages = pages
+
+            def cancelled(self):
+                return False
+
+            def get(self, url):
+                time.sleep(0.1)  # Simulate 100ms network latency per fetch
+                return self.pages[url]
+
+        fetcher = NetworkFetcher(pages)
+        lines = [f'https://www.nifty.org/nifty/gay/folder{i}/story-1' for i in range(5)]
+        start = time.monotonic()
+        found, errors = core.expand_targets(fetcher, lines)
+        elapsed = time.monotonic() - start
+
+        self.assertEqual(len(found), 5)
+        self.assertEqual(len(errors), 0)
+        self.assertLess(elapsed, 2.0, f"Target expansion took {elapsed:.3f}s, expected < 2.0s")
+
+    def test_target_expansion_equivalence(self):
+        pages = {
+            core.SITE + 'gay/college/': TABLE,
+            core.SITE + 'gay/highschool/': TABLE
+        }
+        f = FakeFetcher(pages)
+        lines = [
+            'https://www.nifty.org/nifty/gay/college/saga-2',
+            'https://www.nifty.org/nifty/gay/highschool/saga-1',
+            'https://www.nifty.org/nifty/gay/college/lone-story',
+            'https://www.nifty.org/nifty/gay/',
+            'invalid line'
+        ]
+        found, errors = core.expand_targets(f, lines)
+        self.assertEqual(len(found), 3)
+        titles = {r['title'] for r in found}
+        self.assertIn('Saga', titles)
+        self.assertIn('Lone Story', titles)
+        self.assertEqual(len(errors), 2)
+
+    def test_worker_exception_handling(self):
+        pages = {
+            core.SITE + 'gay/college/': TABLE
+        }
+
+        class ExceptionFetcher:
+            def __init__(self, pages):
+                self.pages = pages
+
+            def cancelled(self):
+                return False
+
+            def get(self, url):
+                if 'badfolder' in url:
+                    raise IOError('HTTP 404: Not Found')
+                return self.pages[url]
+
+        f = ExceptionFetcher(pages)
+        lines = [
+            'https://www.nifty.org/nifty/gay/college/saga-1',
+            'https://www.nifty.org/nifty/gay/badfolder/story-1'
+        ]
+        found, errors = core.expand_targets(f, lines)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(len(errors), 1)
+        self.assertIn('HTTP 404: Not Found', errors[0])
