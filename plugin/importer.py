@@ -1,5 +1,6 @@
 """Import recovered formats through Calibre's database and metadata readers."""
 import hashlib
+import io
 from pathlib import Path
 
 CHUNK_SIZE = 64 * 1024  # 64 KB
@@ -84,11 +85,26 @@ def _hash_source(source, chunk_size=CHUNK_SIZE):
         for i in range(0, len(view), chunk_size):
             hasher.update(view[i:i + chunk_size])
     elif hasattr(source, 'read'):
+        if hasattr(source, 'seek'):
+            try:
+                source.seek(0)
+            except Exception:
+                pass
         while chunk := source.read(chunk_size):
             hasher.update(chunk)
     else:
         raise ValueError(f"Unsupported source type for hashing: {type(source)}")
     return hasher.hexdigest()
+
+
+def _sha256_stream(stream, chunk_size=CHUNK_SIZE):
+    """Compute SHA-256 digest of a stream in 64 KiB chunks."""
+    return _hash_source(stream, chunk_size=chunk_size)
+
+
+def _sha256_path(file_path, chunk_size=CHUNK_SIZE):
+    """Compute SHA-256 digest of a file path in 64 KiB chunks."""
+    return _hash_source(file_path, chunk_size=chunk_size)
 
 
 def _get_existing_format_info(db, book_id, fmt_upper, candidate_size=None):
@@ -172,11 +188,10 @@ def repair_library_books(gui, book_ids, comics=False):
                         skipped.append(book_id)
                         continue
                     new_fmt = kind.upper()
-                    from io import BytesIO
-                    if not db.add_format(book_id, new_fmt, BytesIO(data), replace=False):
+                    if not db.add_format(book_id, new_fmt, io.BytesIO(data), replace=False):
                         raise ValueError('Calibre could not save corrected format')
                     try:
-                        mi = get_metadata(__import__('io').BytesIO(data), stream_type=kind)
+                        mi = get_metadata(io.BytesIO(data), stream_type=kind)
                         if mi.title:
                             db.set_metadata(book_id, mi)
                     except Exception:
@@ -189,6 +204,7 @@ def repair_library_books(gui, book_ids, comics=False):
         gui.library_view.model().refresh()
         gui.tags_view.recount()
     return repaired, skipped, errors
+
 
 def import_books(gui, rows):
     from calibre.ebooks.metadata.meta import get_metadata
