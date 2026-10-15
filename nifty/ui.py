@@ -1,5 +1,5 @@
 """Nifty dialogs. Network work never runs on the GUI thread (see guikit.run_task)."""
-from qt.core import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+from qt.core import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
                      QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, Qt, QTreeWidget, QTreeWidgetItem, QVBoxLayout)
 
 from calibre_plugins.nifty_downloader import core
@@ -405,3 +405,294 @@ class AuthorDialog(QDialog):
         prefs['skip_existing'] = self.skip.isChecked()
         how = {0: True, 1: 'series', 2: False}[self.how.currentIndex()]
         return core.build_selection(series_checked, singles, how, title)
+
+
+class NiftyPreviewDialog(QDialog):
+    """Preview story groups and chapter order before fetching content and creating EPUB books."""
+
+    def __init__(self, parent, groups):
+        super().__init__(parent)
+        self.setWindowTitle('Preview Series & Chapter Groupings')
+        self.resize(760, 560)
+        import copy
+        self.groups = copy.deepcopy(groups)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel('Review and customize chapter order, exclude unwanted chapters, or split/merge story groups before downloading.'))
+
+        body = QHBoxLayout()
+
+        self.tree = QTreeWidget()
+        self.tree.setColumnCount(2)
+        self.tree.setHeaderLabels(['Story / Chapter', 'File Path'])
+        self.tree.setColumnWidth(0, 420)
+        self.tree.itemChanged.connect(self.on_item_changed)
+        self.tree.itemSelectionChanged.connect(self.update_buttons)
+        body.addWidget(self.tree, 1)
+
+        controls = QVBoxLayout()
+        self.btn_move_up = QPushButton('▲ Move Up')
+        self.btn_move_up.clicked.connect(self.move_up)
+        controls.addWidget(self.btn_move_up)
+
+        self.btn_move_down = QPushButton('▼ Move Down')
+        self.btn_move_down.clicked.connect(self.move_down)
+        controls.addWidget(self.btn_move_down)
+
+        controls.addSpacing(15)
+
+        self.btn_split = QPushButton('Split into Separate Book')
+        self.btn_split.clicked.connect(self.split_group)
+        controls.addWidget(self.btn_split)
+
+        self.btn_merge = QPushButton('Merge into One Omnibus')
+        self.btn_merge.clicked.connect(self.merge_groups)
+        controls.addWidget(self.btn_merge)
+
+        controls.addStretch(1)
+        body.addLayout(controls)
+
+        layout.addLayout(body, 1)
+
+        self.summary = QLabel('')
+        layout.addWidget(self.summary)
+
+        self.chk_bypass_single = QCheckBox('Bypass preview for single-chapter story downloads')
+        self.chk_bypass_single.setChecked(bool(prefs.get('bypass_single_chapter_preview', True)))
+        layout.addWidget(self.chk_bypass_single)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText('Start Download')
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.rebuild_tree()
+
+    def rebuild_tree(self):
+        self.tree.blockSignals(True)
+        self.tree.clear()
+        total_ch = 0
+        enabled_ch = 0
+
+        for g_idx, group in enumerate(self.groups):
+            chs = group.get('chapters', [])
+            total_ch += len(chs)
+            grp_enabled = sum(1 for c in chs if c.get('enabled', True))
+            enabled_ch += grp_enabled
+
+            parent = QTreeWidgetItem([group['title'], f"{len(chs)} chapter(s)"])
+            parent.setFlags(parent.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
+            parent.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'group', 'g_idx': g_idx})
+
+            if len(chs) > 0:
+                if grp_enabled == len(chs):
+                    parent.setCheckState(0, Qt.CheckState.Checked)
+                elif grp_enabled == 0:
+                    parent.setCheckState(0, Qt.CheckState.Unchecked)
+                else:
+                    parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
+            else:
+                parent.setCheckState(0, Qt.CheckState.Checked)
+
+            for c_idx, chapter in enumerate(chs):
+                child = QTreeWidgetItem([chapter['title'], chapter['file']])
+                child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                child.setCheckState(0, Qt.CheckState.Checked if chapter.get('enabled', True) else Qt.CheckState.Unchecked)
+                child.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'chapter', 'g_idx': g_idx, 'c_idx': c_idx})
+                parent.addChild(child)
+
+            self.tree.addTopLevelItem(parent)
+            parent.setExpanded(True)
+
+        self.tree.blockSignals(False)
+        self.summary.setText(f"{len(self.groups)} story group(s), {enabled_ch} of {total_ch} chapter(s) included.")
+        self.update_buttons()
+
+    def on_item_changed(self, item, column):
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data:
+            return
+        self.tree.blockSignals(True)
+        if data['kind'] == 'chapter':
+            g_idx, c_idx = data['g_idx'], data['c_idx']
+            if 0 <= g_idx < len(self.groups) and 0 <= c_idx < len(self.groups[g_idx].get('chapters', [])):
+                chapter = self.groups[g_idx]['chapters'][c_idx]
+                chapter['enabled'] = (item.checkState(0) == Qt.CheckState.Checked)
+                parent_item = item.parent()
+                if parent_item:
+                    chs = self.groups[g_idx].get('chapters', [])
+                    grp_enabled = sum(1 for c in chs if c.get('enabled', True))
+                    if grp_enabled == len(chs):
+                        parent_item.setCheckState(0, Qt.CheckState.Checked)
+                    elif grp_enabled == 0:
+                        parent_item.setCheckState(0, Qt.CheckState.Unchecked)
+                    else:
+                        parent_item.setCheckState(0, Qt.CheckState.PartiallyChecked)
+        elif data['kind'] == 'group':
+            g_idx = data['g_idx']
+            if 0 <= g_idx < len(self.groups):
+                state = (item.checkState(0) == Qt.CheckState.Checked)
+                for ch in self.groups[g_idx].get('chapters', []):
+                    ch['enabled'] = state
+                for i in range(item.childCount()):
+                    item.child(i).setCheckState(0, Qt.CheckState.Checked if state else Qt.CheckState.Unchecked)
+
+        total_ch = sum(len(g.get('chapters', [])) for g in self.groups)
+        enabled_ch = sum(sum(1 for c in g.get('chapters', []) if c.get('enabled', True)) for g in self.groups)
+        self.summary.setText(f"{len(self.groups)} story group(s), {enabled_ch} of {total_ch} chapter(s) included.")
+        self.tree.blockSignals(False)
+
+    def update_buttons(self):
+        selected = self.tree.selectedItems()
+        if not selected and self.tree.currentItem():
+            selected = [self.tree.currentItem()]
+        if len(selected) == 1 and selected[0].parent() is not None:
+            child_item = selected[0]
+            parent_item = child_item.parent()
+            idx = parent_item.indexOfChild(child_item)
+            self.btn_move_up.setEnabled(idx > 0)
+            self.btn_move_down.setEnabled(idx < parent_item.childCount() - 1)
+        else:
+            self.btn_move_up.setEnabled(False)
+            self.btn_move_down.setEnabled(False)
+
+        can_split = False
+        groups_in_selection = set()
+        if len(selected) >= 1:
+            for item in selected:
+                data = item.data(0, Qt.ItemDataRole.UserRole)
+                if data and 'g_idx' in data:
+                    g_idx = data['g_idx']
+                    if 0 <= g_idx < len(self.groups):
+                        groups_in_selection.add(g_idx)
+                        if len(self.groups[g_idx].get('chapters', [])) > 1:
+                            can_split = True
+        self.btn_split.setEnabled(can_split)
+        self.btn_merge.setEnabled(len(groups_in_selection) >= 2)
+
+    def move_up(self):
+        selected = self.tree.selectedItems()
+        if not selected and self.tree.currentItem():
+            selected = [self.tree.currentItem()]
+        if not selected or selected[0].parent() is None:
+            return
+        item = selected[0]
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data or data.get('kind') != 'chapter':
+            return
+        g_idx = data['g_idx']
+        c_idx = data['c_idx']
+        chs = self.groups[g_idx]['chapters']
+        if c_idx > 0:
+            chs[c_idx], chs[c_idx - 1] = chs[c_idx - 1], chs[c_idx]
+            self.rebuild_tree()
+            self.select_chapter_by_index(g_idx, c_idx - 1)
+
+    def move_down(self):
+        selected = self.tree.selectedItems()
+        if not selected and self.tree.currentItem():
+            selected = [self.tree.currentItem()]
+        if not selected or selected[0].parent() is None:
+            return
+        item = selected[0]
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data or data.get('kind') != 'chapter':
+            return
+        g_idx = data['g_idx']
+        c_idx = data['c_idx']
+        chs = self.groups[g_idx]['chapters']
+        if c_idx < len(chs) - 1:
+            chs[c_idx], chs[c_idx + 1] = chs[c_idx + 1], chs[c_idx]
+            self.rebuild_tree()
+            self.select_chapter_by_index(g_idx, c_idx + 1)
+
+    def select_chapter_by_index(self, g_idx, c_idx):
+        if 0 <= g_idx < self.tree.topLevelItemCount():
+            parent = self.tree.topLevelItem(g_idx)
+            if 0 <= c_idx < parent.childCount():
+                child = parent.child(c_idx)
+                child.setSelected(True)
+                self.tree.setCurrentItem(child)
+
+    def split_group(self):
+        selected = self.tree.selectedItems()
+        if not selected and self.tree.currentItem():
+            selected = [self.tree.currentItem()]
+        if not selected:
+            return
+        groups_to_split = set()
+        for item in selected:
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if data and 'g_idx' in data:
+                groups_to_split.add(data['g_idx'])
+
+        for g_idx in sorted(groups_to_split, reverse=True):
+            if 0 <= g_idx < len(self.groups):
+                group = self.groups[g_idx]
+                chs = group.get('chapters', [])
+                if len(chs) <= 1:
+                    continue
+                self.groups.pop(g_idx)
+                for offset, ch in enumerate(chs):
+                    new_group = {
+                        'id': ch['file'],
+                        'title': ch['title'],
+                        'chapters': [ch]
+                    }
+                    self.groups.insert(g_idx + offset, new_group)
+
+        self.rebuild_tree()
+
+    def merge_groups(self):
+        selected = self.tree.selectedItems()
+        if not selected and self.tree.currentItem():
+            selected = [self.tree.currentItem()]
+        if not selected:
+            return
+        groups_to_merge_indices = sorted({
+            item.data(0, Qt.ItemDataRole.UserRole)['g_idx']
+            for item in selected if item.data(0, Qt.ItemDataRole.UserRole) and 'g_idx' in item.data(0, Qt.ItemDataRole.UserRole)
+        })
+
+        if len(groups_to_merge_indices) < 2:
+            return
+
+        groups_to_merge = [self.groups[i] for i in groups_to_merge_indices]
+        default_title = " & ".join(g['title'] for g in groups_to_merge[:2]) + " Omnibus"
+        title, ok = QInputDialog.getText(self, 'Merge Groups', 'Title for merged omnibus:', text=default_title)
+        if not ok or not title.strip():
+            title = default_title
+
+        merged_chapters = []
+        for g in groups_to_merge:
+            merged_chapters.extend(g.get('chapters', []))
+
+        first_idx = groups_to_merge_indices[0]
+        for g_idx in reversed(groups_to_merge_indices):
+            self.groups.pop(g_idx)
+
+        new_group = {
+            'id': groups_to_merge[0]['id'],
+            'title': title.strip(),
+            'chapters': merged_chapters
+        }
+        self.groups.insert(first_idx, new_group)
+        self.rebuild_tree()
+
+    def accept(self):
+        prefs['bypass_single_chapter_preview'] = self.chk_bypass_single.isChecked()
+        super().accept()
+
+    def get_groups(self):
+        """Return approved list of story groups with enabled chapters in order."""
+        out = []
+        for group in self.groups:
+            enabled = [ch for ch in group.get('chapters', []) if ch.get('enabled', True)]
+            if enabled:
+                out.append({
+                    'id': group['id'],
+                    'title': group['title'],
+                    'chapters': enabled
+                })
+        return out
