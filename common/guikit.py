@@ -4,6 +4,15 @@ import time
 
 from qt.core import QApplication, QCheckBox, QLineEdit, QProgressDialog, Qt, QVBoxLayout, QWidget
 
+try:
+    from calibre.gui2 import error_dialog, info_dialog
+except ImportError:
+    def info_dialog(gui, title, msg, show=True):
+        pass
+
+    def error_dialog(gui, title, msg, show=True):
+        pass
+
 from .storykit import Cancelled
 
 
@@ -76,3 +85,30 @@ class DownloadOptions(QWidget):
     def values(self):
         self.prefs['skip_existing'] = self.skip.isChecked()
         return self.skip.isChecked(), self.combine.isChecked(), self.title.text().strip(), self.chapter_range.text().strip()
+
+
+class MergeSelectedActionMixin:
+    """Action mixin providing a merge_selected handler for merging selected library books into an EPUB."""
+
+    def merge_selected(self):
+        ids = list(self.gui.library_view.get_selected_ids())
+        if not ids or len(ids) < 2:
+            info_dialog(self.gui, 'EPUB Merger', 'Select two or more books in Calibre first to merge.', show=True)
+            return
+        try:
+            try:
+                from .libkit import merge_library_books
+            except (ImportError, ValueError):
+                from libkit import merge_library_books
+        except ImportError:
+            try:
+                from common.libkit import merge_library_books
+            except ImportError:
+                from calibre_plugins.epub_promo_scrubber.libkit import merge_library_books
+        book_id, errors = merge_library_books(self.gui, ids)
+        if book_id:
+            info_dialog(self.gui, 'EPUB Merger', 'Successfully merged books into a new omnibus EPUB in your library.' +
+                        (f'\nNotes: {"; ".join(errors)}' if errors else ''), show=True)
+        else:
+            error_dialog(self.gui, 'EPUB Merger', 'Could not merge books:\n' + '\n'.join(errors), show=True)
+

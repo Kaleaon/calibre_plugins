@@ -5,12 +5,15 @@ from calibre.utils.config import JSONConfig
 from qt.core import (QAction, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QLabel, QMenu,
                      QPlainTextEdit, QVBoxLayout)
 try:
-    from calibre_plugins.epub_promo_scrubber.guikit import run_task
+    from calibre_plugins.epub_promo_scrubber.guikit import MergeSelectedActionMixin, run_task
 except ImportError:
     try:
-        from .guikit import run_task
+        from .guikit import MergeSelectedActionMixin, run_task
     except ImportError:
-        from guikit import run_task
+        try:
+            from guikit import MergeSelectedActionMixin, run_task
+        except ImportError:
+            from common.guikit import MergeSelectedActionMixin, run_task
 
 try:
     from calibre_plugins.epub_promo_scrubber.core import Matcher, _snippet, scrub_epub, scrub_files, tidy
@@ -24,7 +27,7 @@ prefs = JSONConfig('plugins/epub_promo_scrubber')
 prefs.defaults.update(extra_patterns='', heuristic=True, drop_empty_pages=True, backup=True, in_place=False, show_preview=True)
 
 
-class ScrubAction(InterfaceAction):
+class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
     name = 'EPUB Promo Scrubber'
     action_spec = ('EPUB Promo Scrubber', None, 'Remove site promotions from EPUB books', None)
 
@@ -339,25 +342,6 @@ class ScrubAction(InterfaceAction):
                             ('Original files were overwritten.' if in_place else 'Originals were not modified.') + f'\nReport: {report_path}', show=True)
             except Exception as exc:
                 error_dialog(self.gui, 'EPUB Promo Scrubber failed', str(exc), show=True)
-
-    def merge_selected(self):
-        ids = list(self.gui.library_view.get_selected_ids())
-        if not ids or len(ids) < 2:
-            info_dialog(self.gui, 'EPUB Merger', 'Select two or more books in Calibre first to merge.', show=True)
-            return
-        try:
-            try:
-                from .libkit import merge_library_books
-            except ImportError:
-                from calibre_plugins.epub_promo_scrubber.libkit import merge_library_books
-        except ImportError:
-            from libkit import merge_library_books
-        book_id, errors = merge_library_books(self.gui, ids)
-        if book_id:
-            info_dialog(self.gui, 'EPUB Merger', 'Successfully merged books into a new omnibus EPUB in your library.' +
-                        (f'\nNotes: {"; ".join(errors)}' if errors else ''), show=True)
-        else:
-            error_dialog(self.gui, 'EPUB Merger', 'Could not merge books:\n' + '\n'.join(errors), show=True)
 
     def merge_folder(self):
         files, _ = QFileDialog.getOpenFileNames(self.gui, 'Select EPUB files to merge', '', 'EPUB (*.epub)')

@@ -113,6 +113,28 @@ class PluginImportTests(unittest.TestCase):
             action.gui = mock_gui
             self.assertEqual(action.existing_ids(), {'id1', 'id2'})
 
+    def test_action_classes_inherit_merge_selected_mixin(self):
+        pkg_scrubber = self.load('epub_promo_scrubber')
+        act_scrubber = importlib.import_module(f'{pkg_scrubber}.action')
+
+        if 'calibre_plugins.takeout_book_fixer' not in sys.modules:
+            import plugin as takeout_mod
+            sys.modules['calibre_plugins.takeout_book_fixer'] = takeout_mod
+        act_takeout = importlib.import_module('plugin.action')
+
+        TakeoutAction = act_takeout.TakeoutAction
+        ScrubAction = act_scrubber.ScrubAction
+
+        self.assertTrue(issubclass(TakeoutAction, act_takeout.MergeSelectedActionMixin))
+        self.assertTrue(issubclass(ScrubAction, act_scrubber.MergeSelectedActionMixin))
+        self.assertNotIn('merge_selected', TakeoutAction.__dict__)
+        self.assertNotIn('merge_selected', ScrubAction.__dict__)
+        self.assertTrue(callable(getattr(TakeoutAction, 'merge_selected', None)))
+        self.assertTrue(callable(getattr(ScrubAction, 'merge_selected', None)))
+
+
+
+
     def test_epub_builder_and_core_build_epub(self):
         for plugin in ('metabods_downloader', 'nifty_downloader'):
             package = self.load(plugin)

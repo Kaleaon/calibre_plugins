@@ -4,7 +4,19 @@ from calibre.gui2 import error_dialog, info_dialog
 from qt.core import QAction, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QLabel, QVBoxLayout, QProgressDialog, Qt
 from calibre_plugins.takeout_book_fixer.core import recover
 
-class TakeoutAction(InterfaceAction):
+try:
+    from calibre_plugins.takeout_book_fixer.guikit import MergeSelectedActionMixin
+except ImportError:
+    try:
+        from .guikit import MergeSelectedActionMixin
+    except (ImportError, ValueError):
+        try:
+            from guikit import MergeSelectedActionMixin
+        except ImportError:
+            from common.guikit import MergeSelectedActionMixin
+
+
+class TakeoutAction(MergeSelectedActionMixin, InterfaceAction):
     name = 'Takeout Book Fixer'
     action_spec = ('Takeout Book Fixer', None, 'Recover books from Google Takeout', None)
 
@@ -106,23 +118,4 @@ class TakeoutAction(InterfaceAction):
                         (f'\nErrors: {"; ".join(errors)}' if errors else ''), show=True)
         except Exception as exc:
             error_dialog(self.gui, 'Calibre repair failed', str(exc), show=True)
-
-    def merge_selected(self):
-        ids = list(self.gui.library_view.get_selected_ids())
-        if not ids or len(ids) < 2:
-            info_dialog(self.gui, 'EPUB Merger', 'Select two or more books in Calibre first to merge.', show=True)
-            return
-        try:
-            try:
-                from .libkit import merge_library_books
-            except ImportError:
-                from calibre_plugins.takeout_book_fixer.libkit import merge_library_books
-        except ImportError:
-            from libkit import merge_library_books
-        book_id, errors = merge_library_books(self.gui, ids)
-        if book_id:
-            info_dialog(self.gui, 'EPUB Merger', 'Successfully merged books into a new omnibus EPUB in your library.' +
-                        (f'\nNotes: {"; ".join(errors)}' if errors else ''), show=True)
-        else:
-            error_dialog(self.gui, 'EPUB Merger', 'Could not merge books:\n' + '\n'.join(errors), show=True)
 
