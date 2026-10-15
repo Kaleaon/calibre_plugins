@@ -345,6 +345,30 @@ class ScrubAction(InterfaceAction):
         if not ids or len(ids) < 2:
             info_dialog(self.gui, 'EPUB Merger', 'Select two or more books in Calibre first to merge.', show=True)
             return
+
+        try:
+            try:
+                from .guikit import scan_library_books_for_merge, MergePreviewDialog
+            except ImportError:
+                from calibre_plugins.epub_promo_scrubber.guikit import scan_library_books_for_merge, MergePreviewDialog
+        except ImportError:
+            from guikit import scan_library_books_for_merge, MergePreviewDialog
+
+        scan_results = scan_library_books_for_merge(self.gui, ids)
+        if not scan_results:
+            info_dialog(self.gui, 'EPUB Merger', 'No books found to merge.', show=True)
+            return
+
+        dialog = MergePreviewDialog(self.gui, scan_results)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        active_stories = dialog.get_active_stories()
+        meta = dialog.get_metadata()
+        if not active_stories:
+            info_dialog(self.gui, 'EPUB Merger', 'No valid books or chapters selected to merge.', show=True)
+            return
+
         try:
             try:
                 from .libkit import merge_library_books
@@ -352,7 +376,18 @@ class ScrubAction(InterfaceAction):
                 from calibre_plugins.epub_promo_scrubber.libkit import merge_library_books
         except ImportError:
             from libkit import merge_library_books
-        book_id, errors = merge_library_books(self.gui, ids)
+
+        book_id, errors = merge_library_books(
+            self.gui,
+            ids,
+            title=meta['title'],
+            author=meta['author'],
+            publisher=meta['publisher'],
+            tags=meta['tags'],
+            description=meta['description'],
+            stories_override=active_stories,
+            preserve_story_order=True
+        )
         if book_id:
             info_dialog(self.gui, 'EPUB Merger', 'Successfully merged books into a new omnibus EPUB in your library.' +
                         (f'\nNotes: {"; ".join(errors)}' if errors else ''), show=True)
@@ -364,9 +399,34 @@ class ScrubAction(InterfaceAction):
         if not files or len(files) < 2:
             info_dialog(self.gui, 'EPUB Merger', 'Select at least two EPUB files.', show=True)
             return
-        out_path, _ = QFileDialog.getSaveFileName(self.gui, 'Save merged EPUB as', 'merged_omnibus.epub', 'EPUB (*.epub)')
+
+        try:
+            try:
+                from .guikit import scan_epub_files_for_merge, MergePreviewDialog
+            except ImportError:
+                from calibre_plugins.epub_promo_scrubber.guikit import scan_epub_files_for_merge, MergePreviewDialog
+        except ImportError:
+            from guikit import scan_epub_files_for_merge, MergePreviewDialog
+
+        scan_results = scan_epub_files_for_merge(files)
+        if not scan_results:
+            info_dialog(self.gui, 'EPUB Merger', 'No EPUB files found to merge.', show=True)
+            return
+
+        dialog = MergePreviewDialog(self.gui, scan_results)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        active_stories = dialog.get_active_stories()
+        meta = dialog.get_metadata()
+        if not active_stories:
+            info_dialog(self.gui, 'EPUB Merger', 'No valid EPUB files or chapters selected to merge.', show=True)
+            return
+
+        out_path, _ = QFileDialog.getSaveFileName(self.gui, 'Save merged EPUB as', f"{meta['title'] or 'merged_omnibus'}.epub", 'EPUB (*.epub)')
         if not out_path:
             return
+
         try:
             try:
                 from .storykit import merge_epubs
@@ -374,10 +434,20 @@ class ScrubAction(InterfaceAction):
                 from calibre_plugins.epub_promo_scrubber.storykit import merge_epubs
         except ImportError:
             from storykit import merge_epubs
+
         try:
-            merged_bytes = merge_epubs(files)
+            merged_bytes = merge_epubs(
+                files,
+                title=meta['title'],
+                author=meta['author'],
+                publisher=meta['publisher'],
+                tags=meta['tags'],
+                summary=meta['description'],
+                stories_override=active_stories,
+                preserve_story_order=True
+            )
             with open(out_path, 'wb') as f:
                 f.write(merged_bytes)
-            info_dialog(self.gui, 'EPUB Merger', f'Merged {len(files)} EPUBs into:\n{out_path}', show=True)
+            info_dialog(self.gui, 'EPUB Merger', f'Merged {len(active_stories)} EPUBs into:\n{out_path}', show=True)
         except Exception as exc:
             error_dialog(self.gui, 'EPUB Merger failed', str(exc), show=True)
