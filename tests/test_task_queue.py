@@ -198,6 +198,7 @@ class TaskQueueTests(unittest.TestCase):
         all_tasks = self.qm.get_tasks()
         self.assertEqual(len(all_tasks), 50)
 
+    @unittest.skipUnless(HAVE_QT, 'PyQt6 is required for UI tests')
     def test_ui_dialog_widgets_and_filters(self):
         # Seed tasks and activity logs
         self.qm.enqueue_task('ui_task_1', 'type_1', {'key': 'val'})
