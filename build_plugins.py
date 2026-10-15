@@ -14,7 +14,7 @@ PLUGINS = {
     'TakeoutBookFixer.zip': ('plugin', 'takeout_book_fixer', SHARED, False),
     'MetabodsDownloader.zip': ('metabods', 'metabods_downloader', SHARED, False),
     'NiftyDownloader.zip': ('nifty', 'nifty_downloader', SHARED, False),
-    'StoryCollectionTagger.zip': ('tagger', 'story_collection_tagger', [], False),
+    'StoryCollectionTagger.zip': ('tagger', 'story_collection_tagger', ['guikit.py'], False),
     'FanficDownloader.zip': ('fanfic', 'fanfic_downloader', SHARED, True),
     'RedditStoryFollower.zip': ('reddit', 'reddit_follower', SHARED, False),
     'GeminiLibraryFixer.zip': ('gemini', 'gemini_library_fixer', ['storykit.py', 'guikit.py'], False),

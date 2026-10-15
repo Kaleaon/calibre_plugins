@@ -121,10 +121,14 @@ class TaggerDialogTests(unittest.TestCase):
         tagger_pkg = types.ModuleType('calibre_plugins.story_collection_tagger')
         tagger_pkg.config = MagicMock(prefs={'add_source': True, 'source_prefix': 'Source.', 'series_prefix': 'Series.', 'scan_comments': False, 'rules': '', 'sites': ''})
         tagger_pkg.rules = rules
+        from common.guikit import DialogAction
+        tagger_pkg.guikit = MagicMock()
+        tagger_pkg.guikit.DialogAction = DialogAction
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins.story_collection_tagger'] = tagger_pkg
         sys.modules['calibre_plugins.story_collection_tagger.config'] = tagger_pkg.config
         sys.modules['calibre_plugins.story_collection_tagger.rules'] = tagger_pkg.rules
+        sys.modules['calibre_plugins.story_collection_tagger.guikit'] = tagger_pkg.guikit
 
     def tearDown(self):
         for k in list(sys.modules.keys()):

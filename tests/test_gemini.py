@@ -445,6 +445,8 @@ class BackgroundScanTests(unittest.TestCase):
             'min_confidence': 'medium', 'batch_size': 5, 'min_interval': 7, 'undo': {}
         })
         gemini_pkg.guikit = MagicMock()
+        from common.guikit import DialogAction
+        gemini_pkg.guikit.DialogAction = DialogAction
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
         sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine
@@ -763,6 +765,8 @@ class TemplateManagerDialogUiTests(unittest.TestCase):
             'custom_templates': {}
         })
         gemini_pkg.guikit = MagicMock()
+        from common.guikit import DialogAction
+        gemini_pkg.guikit.DialogAction = DialogAction
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
         sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine
