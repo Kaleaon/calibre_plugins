@@ -166,10 +166,11 @@ class TagSearchDialog(QDialog):
 
         def work(task):
             fetcher = core.Fetcher(cancelled=task.cancelled)
-            results = {}
-            for n, tid in enumerate(ids, 1):
-                task.status = f'Reading tag {n} of {len(ids)}…'
-                results[tid] = core.parse_story_rows(fetcher.get(core.tag_url(tid)))
+
+            def progress(completed, total):
+                task.status = f'Reading tag {completed} of {total}…'
+
+            results = core.search_tags(fetcher, ids, progress=progress)
             return core.combine_tag_results(results, match_all)
 
         task = run_task(self, 'Searching…', work)
