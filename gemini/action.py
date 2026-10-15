@@ -16,7 +16,11 @@ from qt.core import (QApplication, QBuffer, QCheckBox, QComboBox, QDialog, QDial
 
 from calibre_plugins.gemini_library_fixer import engine
 from calibre_plugins.gemini_library_fixer.config import prefs
-from calibre_plugins.gemini_library_fixer.guikit import run_task
+try:
+    from calibre_plugins.gemini_library_fixer.guikit import (ThemeTokenEngine, create_token_button,
+                                                             create_token_splitter, create_token_tree, run_task)
+except ImportError:
+    from common.guikit import ThemeTokenEngine, create_token_button, create_token_splitter, create_token_tree, run_task
 
 FIELD_LABELS = [('title', 'Titles'), ('authors', 'Authors'), ('series', 'Series and volume number'), ('tags', 'Tags'),
                 ('language', 'Language (only if empty)'), ('isbn', 'ISBN (read from the back cover or title page)')]
@@ -392,6 +396,7 @@ class GeminiFixerAction(InterfaceAction):
     def show_dialog(self):
         selected = list(self.gui.library_view.get_selected_ids())
         dialog = QDialog(self.gui)
+        ThemeTokenEngine.register_widget(dialog)
         dialog.setWindowTitle('Gemini Library Fixer')
         dialog.resize(1000, 700)
         main = QVBoxLayout(dialog)
@@ -428,8 +433,7 @@ class GeminiFixerAction(InterfaceAction):
         model.addItem(prefs['model'])
         model.setCurrentText(prefs['model'])
         row.addWidget(model, 1)
-        models_btn = QPushButton('List models')
-        models_btn.setToolTip('Ask Google which models your key can use')
+        models_btn = create_token_button('List models', tool_tip='Ask Google which models your key can use')
         row.addWidget(models_btn)
         layout.addLayout(row)
 
@@ -480,15 +484,14 @@ class GeminiFixerAction(InterfaceAction):
 
         layout = main
         row = QHBoxLayout()
-        settings_btn = QPushButton('Hide settings')
-        settings_btn.setToolTip('Hide the settings above to make room for the log and the suggested changes')
+        settings_btn = create_token_button('Hide settings', tool_tip='Hide the settings above to make room for the log and the suggested changes')
         row.addWidget(settings_btn)
         bar = QProgressBar()
         bar.setRange(0, 1)
         bar.setValue(0)
         bar.setFormat('%v of %m')
         row.addWidget(bar, 1)
-        stop_btn = QPushButton('Cancel')
+        stop_btn = create_token_button('Cancel')
         stop_btn.setEnabled(False)
         row.addWidget(stop_btn)
         layout.addLayout(row)
@@ -496,7 +499,7 @@ class GeminiFixerAction(InterfaceAction):
         layout.addWidget(phase)
 
         # The log and the list of suggested changes share a splitter, so either can be dragged larger.
-        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter = create_token_splitter(Qt.Orientation.Vertical)
         activity = QPlainTextEdit()
         activity.setReadOnly(True)
         activity.setMaximumBlockCount(5000)
@@ -507,19 +510,17 @@ class GeminiFixerAction(InterfaceAction):
         results_layout.setContentsMargins(0, 0, 0, 0)
         pick_row = QHBoxLayout()
         pick_row.addWidget(QLabel('Suggested changes:'))
-        all_btn = QPushButton('Check all')
-        none_btn = QPushButton('Check none')
-        safe_btn = QPushButton('Check all except big changes')
+        all_btn = create_token_button('Check all')
+        none_btn = create_token_button('Check none')
+        safe_btn = create_token_button('Check all except big changes')
         for w in (all_btn, none_btn, safe_btn):
             pick_row.addWidget(w)
         pick_row.addStretch(1)
         ticked = QLabel('')
         pick_row.addWidget(ticked)
         results_layout.addLayout(pick_row)
-        tree = QTreeWidget()
-        tree.setHeaderLabels(['Suggested change', 'Why'])
+        tree = create_token_tree(header_labels=['Suggested change', 'Why'])
         tree.setColumnWidth(0, 700)
-        tree.setAlternatingRowColors(True)
         results_layout.addWidget(tree, 1)
         splitter.addWidget(results)
         splitter.setStretchFactor(0, 1)
@@ -531,10 +532,10 @@ class GeminiFixerAction(InterfaceAction):
         layout.addWidget(status)
 
         buttons = QDialogButtonBox()
-        check_btn = QPushButton('Check books')
-        apply_btn = QPushButton('Apply ticked changes')
+        check_btn = create_token_button('Check books')
+        apply_btn = create_token_button('Apply ticked changes')
         apply_btn.setEnabled(False)
-        undo_btn = QPushButton('Undo last run')
+        undo_btn = create_token_button('Undo last run')
         undo_btn.setEnabled(bool(prefs['undo']))
         buttons.addButton(check_btn, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.addButton(apply_btn, QDialogButtonBox.ButtonRole.AcceptRole)
