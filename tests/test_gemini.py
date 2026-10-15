@@ -752,7 +752,7 @@ class TwoPhaseHydrationTests(BackgroundScanTests):
 
     def test_graceful_handling_of_corrupt_or_missing_covers(self):
         def bad_loader():
-            raise IOError("Cover file missing or corrupt")
+            raise OSError("Cover file missing or corrupt")
 
         b = book(1, images=[{
             'type': 'front', 'label': 'front cover', 'mime': 'image/jpeg',
