@@ -1,0 +1,3 @@
+# Set default binary behavior for zip files to prevent git merge conflict text markers
+*.zip binary
+dist/*.zip binary
