@@ -52,7 +52,7 @@ class FanficAction(InterfaceAction):
                 try:
                     results.append(engine.download_story(info, opts['ini'], opts['allow_adult']))
                 except Exception as exc:
-                    failures.append(f"{info['url']}: {engine.explain(exc, info['url'])}")
+                    failures.append(f"{info['url']}: {engine.explain(exc)}")
 
         task = run_task(self.gui, 'Downloading…', work)
         if task.error:

@@ -1,5 +1,6 @@
 """Nifty archive parsing and download logic. Pure standard library so it can be tested outside Calibre."""
 import concurrent.futures
+import functools
 import html
 import re
 import threading
@@ -7,16 +8,16 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
-    from .storykit import Cancelled, Fetcher, RateLimited, clean_fragment, escape, epub_builder, sort_by_posting_order, strip_tags  # noqa: F401
+    from .storykit import Cancelled, build_epub as _build_epub, clean_fragment, escape, sort_by_posting_order, strip_tags
 except ImportError:  # tests load this file directly with common/ on sys.path
-    from storykit import Cancelled, Fetcher, RateLimited, clean_fragment, escape, epub_builder, sort_by_posting_order, strip_tags  # noqa: F401
+    from storykit import Cancelled, build_epub as _build_epub, clean_fragment, escape, sort_by_posting_order, strip_tags
 
 SITE = 'https://www.nifty.org/nifty/'
 PUBLISHER = 'Nifty'
 SECTIONS = ['gay', 'lesbian', 'bisexual', 'transgender']
 MAX_DEPTH = 6
 
-build_epub = epub_builder(PUBLISHER)
+build_epub = functools.partial(_build_epub, publisher=PUBLISHER)
 
 
 # ---------------------------------------------------------------- addresses

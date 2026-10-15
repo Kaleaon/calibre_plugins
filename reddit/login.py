@@ -10,7 +10,6 @@ import base64
 import http.server
 import json
 import secrets
-import threading
 import time
 from urllib.parse import parse_qs, urlencode, urlparse
 
