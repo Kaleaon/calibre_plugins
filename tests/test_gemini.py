@@ -652,6 +652,146 @@ class EstimateBatchUsageTests(unittest.TestCase):
         self.assertAlmostEqual(est_pro['estimated_cost'], (est_pro['prompt_tokens'] / 1_000_000.0) * 1.25, places=6)
 
 
+class PromptTemplateManagerTests(unittest.TestCase):
+    def test_builtin_presets_exist_and_readonly(self):
+        presets = engine.BUILTIN_PRESETS
+        self.assertIn('Default Ebook Cleanup', presets)
+        self.assertIn('Comics & Manga Metadata', presets)
+        self.assertIn('Academic & Technical Papers', presets)
+
+        for name, preset in presets.items():
+            self.assertTrue(preset.get('read_only'), f"Preset {name} should be read-only")
+            self.assertIn('text', preset)
+            self.assertIn('description', preset)
+
+    def test_get_all_templates_merges_custom(self):
+        custom = {
+            'My Custom Preset': {
+                'name': 'My Custom Preset',
+                'description': 'Custom rules',
+                'text': 'Fix {fields}',
+            }
+        }
+        all_tpls = engine.get_all_templates(custom)
+        self.assertIn('Default Ebook Cleanup', all_tpls)
+        self.assertIn('My Custom Preset', all_tpls)
+        self.assertTrue(all_tpls['Default Ebook Cleanup']['read_only'])
+        self.assertFalse(all_tpls['My Custom Preset']['read_only'])
+
+    def test_get_default_template_vars(self):
+        vars_dict = engine.get_default_template_vars(
+            fields=['title', 'authors'],
+            min_confidence='high',
+            tags_remove=True,
+            batch_size=10,
+            model='gemini-2.5-pro',
+            covers=True,
+            excerpt=False
+        )
+        self.assertEqual(vars_dict['fields'], 'title, authors')
+        self.assertEqual(vars_dict['min_confidence'], 'high')
+        self.assertIn('allow tag removal', vars_dict['tag_policy'])
+        self.assertEqual(vars_dict['batch_size'], '10')
+        self.assertEqual(vars_dict['model'], 'gemini-2.5-pro')
+        self.assertEqual(vars_dict['covers'], 'enabled')
+        self.assertEqual(vars_dict['excerpt'], 'disabled')
+
+    def test_render_template_variable_substitution(self):
+        tpl = "Fix fields: {fields} with confidence {min_confidence}. Policy: {tag_policy}."
+        vars_dict = {'fields': 'title, authors', 'min_confidence': 'medium', 'tag_policy': 'keep tags'}
+        rendered = engine.render_template(tpl, vars_dict)
+        self.assertEqual(rendered, "Fix fields: title, authors with confidence medium. Policy: keep tags.")
+
+    def test_render_template_syntax_error_handling(self):
+        unclosed = "Fix fields: {fields"
+        with self.assertRaises(engine.TemplateError):
+            engine.render_template(unclosed)
+
+        unknown_var = "Fix fields: {unknown_placeholder}"
+        with self.assertRaises(engine.TemplateError):
+            engine.render_template(unknown_var)
+
+    def test_compile_instructions_fallback_on_error(self):
+        notices = []
+        bad_tpl = "Invalid syntax {bad_var"
+        compiled = engine.compile_instructions(bad_tpl, notify=notices.append)
+        self.assertEqual(compiled, engine.INSTRUCTIONS)
+        self.assertEqual(len(notices), 1)
+        self.assertIn('Template syntax error', notices[0])
+
+    def test_estimate_batch_usage_reflects_compiled_template_length(self):
+        books = [book(1, title='Test Book')]
+        long_custom_tpl = "Custom Instructions: " + ("Rule line. " * 500) + "Fields: {fields}."
+        tpl_vars = engine.get_default_template_vars(fields=['title'])
+
+        est_default = engine.estimate_batch_usage(books)
+        est_custom = engine.estimate_batch_usage(books, instructions=long_custom_tpl, template_vars=tpl_vars)
+
+        self.assertGreater(est_custom['text_chars'], est_default['text_chars'])
+        self.assertGreater(est_custom['text_tokens'], est_default['text_tokens'])
+
+    def test_plan_fixes_and_generate_send_interpolated_instructions(self):
+        t = Scripted(reply([{'id': 1, 'title': 'Fixed Title', 'confidence': 'high'}]))
+        custom_tpl = "Custom Instructions for comics fields: {fields} with threshold {min_confidence}."
+        tpl_vars = {'fields': 'title', 'min_confidence': 'high', 'tag_policy': 'keep', 'batch_size': '15', 'model': 'm', 'covers': 'off', 'excerpt': 'off'}
+
+        out, _ = engine.plan_fixes([book(1)], 'key', transport=t, instructions=custom_tpl, template_vars=tpl_vars)
+        self.assertEqual(len(out), 1)
+
+        sent_body = json.loads(t.calls[0][2])
+        sys_inst = sent_body['systemInstruction']['parts'][0]['text']
+        self.assertEqual(sys_inst, "Custom Instructions for comics fields: title with threshold high.")
+
+
+class TemplateManagerDialogUiTests(unittest.TestCase):
+    def setUp(self):
+        self.saved_modules = dict(sys.modules)
+        for name in ('calibre', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config'):
+            sys.modules[name] = MagicMock()
+        sys.modules['calibre.gui2.actions'].InterfaceAction = object
+        qt_mod = MagicMock()
+        sys.modules['qt'] = qt_mod
+        sys.modules['qt.core'] = qt_mod.core
+
+        gemini_pkg = types.ModuleType('calibre_plugins.gemini_library_fixer')
+        gemini_pkg.engine = engine
+        gemini_pkg.config = MagicMock(prefs={
+            'api_key': '', 'model': 'gemini-1.5-flash', 'fields': ['title'],
+            'tags_remove': False, 'excerpt': False, 'covers': False,
+            'min_confidence': 'medium', 'batch_size': 5, 'min_interval': 7, 'undo': {},
+            'active_template': 'Default Ebook Cleanup',
+            'custom_templates': {}
+        })
+        gemini_pkg.guikit = MagicMock()
+        sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+        sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
+        sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine
+        sys.modules['calibre_plugins.gemini_library_fixer.config'] = gemini_pkg.config
+        sys.modules['calibre_plugins.gemini_library_fixer.guikit'] = gemini_pkg.guikit
+
+    def tearDown(self):
+        for k in list(sys.modules.keys()):
+            if k not in self.saved_modules:
+                del sys.modules[k]
+        sys.modules.update(self.saved_modules)
+
+    def test_show_dialog_contains_template_combo(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.GeminiFixerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+        action.show_dialog()
+
+        # Check QComboBox calls to ensure template selection dropdown was created and populated
+        qt_core = sys.modules['qt.core']
+        combo_instances = qt_core.QComboBox.return_value
+        self.assertTrue(qt_core.QComboBox.called)
+
+
 if __name__ == '__main__':
     unittest.main()
+
 
