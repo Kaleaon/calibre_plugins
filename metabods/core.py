@@ -75,11 +75,6 @@ def parse_story_rows(page):
     return list(rows.values())
 
 
-def parse_page_heading(page):
-    m = re.search(r'<title>(.*?)</title>', page, re.S)
-    return re.sub(r'\s*-\s*Metabods.*$', '', strip_tags(m.group(1))) if m else ''
-
-
 def parse_tag_index(page):
     tags = {}
     for m in re.finditer(r'<a\s[^>]*href="[^"]*list=tag&(?:amp;)?id=(\d+)"[^>]*>(.*?)</a>', page, re.S):
@@ -87,11 +82,6 @@ def parse_tag_index(page):
         if name and name.lower() != 'all tags':
             tags.setdefault(int(m.group(1)), name)
     return sorted(tags.items(), key=lambda t: t[1].casefold())
-
-
-def search_tags(fetcher, tag_ids):
-    """Stories carrying each tag; returns {tag_id: [rows]}."""
-    return {tid: parse_story_rows(fetcher.get(tag_url(tid))) for tid in tag_ids}
 
 
 def combine_tag_results(results, match_all):
