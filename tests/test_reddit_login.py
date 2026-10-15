@@ -51,9 +51,14 @@ def browser_that(params_for):
     def open_browser(url):
         query = parse_qs(urlparse(url).query)
         params = params_for({k: v[0] for k, v in query.items()})
+        redirect_uri = query.get('redirect_uri', [''])[0]
+        if redirect_uri:
+            cb_url = f"{redirect_uri}?" + '&'.join(f'{k}={v}' for k, v in params.items())
+        else:
+            cb_url = f"http://127.0.0.1:{getattr(open_browser, 'port', 8844)}/callback?" + '&'.join(f'{k}={v}' for k, v in params.items())
         def visit():
             try:
-                urllib.request.urlopen(f"http://127.0.0.1:{open_browser.port}/callback?" + '&'.join(f'{k}={v}' for k, v in params.items())).read()
+                urllib.request.urlopen(cb_url).read()
             except OSError:
                 pass  # the server answers 400 to a forged request
         threading.Thread(target=visit).start()
@@ -74,12 +79,14 @@ class LoginTests(unittest.TestCase):
     def setUp(self):
         StandIn.log, StandIn.token_reply = [], None
 
-    def run_login(self, params_for, secret='', port=0, timeout=5):
+    def run_login(self, params_for, secret='', port=0, timeout=5, redirect_uri=None):
         with login.CallbackServer(port) as server:
             opener = browser_that(params_for)
-            opener.port = server.server.server_address[1]
-            return login.log_in(core.Fetcher(min_interval=0), FAKE_ID, secret, server, opener, timeout=timeout,
-                                redirect_uri=f'http://127.0.0.1:{opener.port}/callback', token_url=self.base + '/token', base=self.base)
+            opener.port = server.port
+            kwargs = {'token_url': self.base + '/token', 'base': self.base}
+            if redirect_uri is not None:
+                kwargs['redirect_uri'] = redirect_uri
+            return login.log_in(core.Fetcher(min_interval=0), FAKE_ID, secret, server, opener, timeout=timeout, **kwargs)
 
     def test_authorize_url_asks_for_a_permanent_read_only_login(self):
         query = {k: v[0] for k, v in parse_qs(urlparse(login.authorize_url('abc', 'st8')).query).items()}
@@ -125,11 +132,40 @@ class LoginTests(unittest.TestCase):
             with self.assertRaises(login.LoginError):
                 server.wait('s', timeout=5, cancelled=lambda: True)
 
-    def test_busy_port_is_explained(self):
+    def test_busy_port_falls_back_to_ephemeral_port(self):
         with login.CallbackServer(0) as first:
+            busy_port = first.port
+            with login.CallbackServer(busy_port) as fallback_server:
+                self.assertNotEqual(fallback_server.port, busy_port)
+                self.assertGreater(fallback_server.port, 0)
+                self.assertEqual(fallback_server.redirect_uri, f'http://127.0.0.1:{fallback_server.port}/callback')
+
+    def test_busy_port_completes_oauth_login(self):
+        with login.CallbackServer(0) as first:
+            busy_port = first.port
+            result = self.run_login(lambda q: {'code': 'fallback_code', 'state': q['state']}, secret=FAKE_SECRET, port=busy_port)
+            self.assertEqual(result, {'refresh_token': 'refresh1', 'username': 'Reader'})
+            path, headers, form = StandIn.log[0]
+            self.assertEqual(form['grant_type'], ['authorization_code'])
+            self.assertEqual(form['code'], ['fallback_code'])
+
+    def test_busy_port_fails_when_ephemeral_port_fails(self):
+        from unittest.mock import patch
+        with patch('http.server.HTTPServer', side_effect=OSError('bind failed')):
             with self.assertRaises(login.LoginError) as ctx:
-                login.CallbackServer(first.server.server_address[1]).__enter__()
-        self.assertIn('already in use', str(ctx.exception))
+                login.CallbackServer(8844).__enter__()
+            self.assertIn('already in use', str(ctx.exception))
+
+    def test_custom_redirect_uri_override_preserved(self):
+        with login.CallbackServer(0) as server:
+            custom_uri = f'http://localhost:{server.port}/callback'
+            opener = browser_that(lambda q: {'code': 'code_override', 'state': q['state']})
+            opener.port = server.port
+            result = login.log_in(core.Fetcher(min_interval=0), FAKE_ID, FAKE_SECRET, server, opener, timeout=5,
+                                  redirect_uri=custom_uri, token_url=self.base + '/token', base=self.base)
+            self.assertEqual(result, {'refresh_token': 'refresh1', 'username': 'Reader'})
+            path, headers, form = StandIn.log[0]
+            self.assertEqual(form['redirect_uri'], [custom_uri])
 
     def test_missing_client_id(self):
         with self.assertRaises(login.LoginError):
