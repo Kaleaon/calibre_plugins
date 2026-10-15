@@ -176,6 +176,44 @@ class ChapterRangeTests(unittest.TestCase):
         self.assertEqual(core.parse_chapter_range('1-2, 50', 10), {0, 1})
 
 
+class PreviewGroupTests(unittest.TestCase):
+    def test_build_preview_groups(self):
+        refs = [
+            {'id': 'gay/college/saga', 'title': 'Saga', 'files': ['gay/college/saga-1', 'gay/college/saga-2', 'gay/college/saga-10']},
+            {'id': 'gay/college/lone-story', 'title': 'Lone Story', 'files': ['gay/college/lone-story']}
+        ]
+        groups = core.build_preview_groups(refs, combine=False)
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(groups[0]['title'], 'Saga')
+        self.assertEqual(len(groups[0]['chapters']), 3)
+        self.assertEqual(groups[1]['title'], 'Lone Story')
+        self.assertEqual(len(groups[1]['chapters']), 1)
+
+        combined = core.build_preview_groups(refs, combine=True, title='College Stories Omnibus')
+        self.assertEqual(len(combined), 1)
+        self.assertEqual(combined[0]['title'], 'College Stories Omnibus')
+        self.assertEqual(len(combined[0]['chapters']), 4)
+
+    def test_fetch_group(self):
+        pages = {
+            core.SITE + 'gay/college/saga-1': CHAPTER.format(n=1),
+            core.SITE + 'gay/college/saga-2': CHAPTER.format(n=2)
+        }
+        f = FakeFetcher(pages)
+        group = {
+            'id': 'gay/college/saga',
+            'title': 'Saga Custom Title',
+            'chapters': [
+                {'file': 'gay/college/saga-1', 'title': 'Chapter 1', 'enabled': True},
+                {'file': 'gay/college/saga-2', 'title': 'Chapter 2', 'enabled': True}
+            ]
+        }
+        story = core.fetch_group(f, group)
+        self.assertIsNotNone(story)
+        self.assertEqual(story['title'], 'Saga Custom Title')
+        self.assertEqual(len(story['sections']), 2)
+
+
 if __name__ == '__main__':
     unittest.main()
 

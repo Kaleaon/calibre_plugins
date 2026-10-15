@@ -248,6 +248,57 @@ class OtherDialogTests(QtCase):
         dialog.text.setPlainText('https://www.nifty.org/nifty/gay/college/\n\n')
         self.assertEqual(dialog.lines(), ['https://www.nifty.org/nifty/gay/college/'])
 
+    def test_nifty_preview_dialog(self):
+        ui = importlib.import_module(self.load('nifty_downloader') + '.ui')
+        groups = [
+            {
+                'id': 'gay/college/saga',
+                'title': 'Saga',
+                'chapters': [
+                    {'file': 'gay/college/saga-1', 'title': 'Chapter 1', 'enabled': True},
+                    {'file': 'gay/college/saga-2', 'title': 'Chapter 2', 'enabled': True},
+                    {'file': 'gay/college/saga-10', 'title': 'Chapter 10', 'enabled': True}
+                ]
+            },
+            {
+                'id': 'gay/college/epic',
+                'title': 'Epic',
+                'chapters': [
+                    {'file': 'gay/college/epic-1', 'title': 'Epic 1', 'enabled': True}
+                ]
+            }
+        ]
+        dialog = ui.NiftyPreviewDialog(None, groups)
+        self.assertEqual(dialog.tree.topLevelItemCount(), 2)
+
+        saga_item = dialog.tree.topLevelItem(0)
+        ch2_item = saga_item.child(1)
+        dialog.tree.setCurrentItem(ch2_item)
+        dialog.move_up()
+
+        mod_groups = dialog.get_groups()
+        self.assertEqual(mod_groups[0]['chapters'][0]['file'], 'gay/college/saga-2')
+
+        saga_item = dialog.tree.topLevelItem(0)
+        dialog.tree.setCurrentItem(saga_item)
+        dialog.split_group()
+        self.assertEqual(len(dialog.groups), 4)
+
+        top0 = dialog.tree.topLevelItem(0)
+        top1 = dialog.tree.topLevelItem(1)
+        top0.setSelected(True)
+        top1.setSelected(True)
+
+        original_get_text = ui.QInputDialog.getText
+        ui.QInputDialog.getText = staticmethod(lambda *args, **kwargs: ('Merged Saga Part 1', True))
+        try:
+            dialog.merge_groups()
+        finally:
+            ui.QInputDialog.getText = original_get_text
+
+        final_groups = dialog.get_groups()
+        self.assertEqual(final_groups[0]['title'], 'Merged Saga Part 1')
+
 
 def _panel(anchor, name, *entries):
     lis = '\n'.join(f'<li><a href="{href}">{title}</a>' for href, title in entries)
