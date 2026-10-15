@@ -1,3 +1,4 @@
+import base64
 import os
 import queue
 import threading
@@ -22,7 +23,7 @@ SHOW = {'title': 'Title', 'authors': 'By', 'album': 'Album', 'date': 'Date', 'ta
 SOURCE_NAMES = {'musicbrainz': 'MusicBrainz', 'openlibrary': 'Open Library'}
 PRIVACY = ('Lookups send only the title, artist, album and length of a track (or an audiobook\'s title and author) to MusicBrainz and '
            'Open Library; with audio fingerprints on, a short fingerprint of the audio goes to AcoustID. No file is uploaded. '
-           'Nothing changes in your library until you press Apply, and "Undo last run" puts the old values back (but not covers).')
+           'Nothing changes in your library until you press Apply, and "Undo last run" puts the old values back.')
 ADD_NOTE = ('Each audio file becomes its own book, because Calibre keeps one file per format: the album is the series and the track '
             'number is the series number, so an album sorts and groups naturally. Files are copied into your library.')
 
@@ -103,6 +104,8 @@ class MediaMatcherAction(InterfaceAction):
                         db.set_field('identifiers', {book_id: dict(new)})
                     elif field == 'cover':
                         if book_id in covers:
+                            old_cover = db.cover(book_id) if hasattr(db, 'cover') else None
+                            saved['cover'] = base64.b64encode(old_cover).decode('ascii') if old_cover else None
                             db.set_cover({book_id: covers[book_id]})
                         continue
                     saved[field] = old
@@ -136,6 +139,15 @@ class MediaMatcherAction(InterfaceAction):
                         db.set_field('tags', {book_id: tuple(old)})
                     elif field == 'identifiers':
                         db.set_field('identifiers', {book_id: dict(old)})
+                    elif field == 'cover':
+                        if old is None:
+                            if hasattr(db, 'remove_cover'):
+                                db.remove_cover([book_id])
+                            else:
+                                db.set_cover({book_id: None})
+                        else:
+                            cover_bytes = base64.b64decode(old) if isinstance(old, str) else old
+                            db.set_cover({book_id: cover_bytes})
                 done.append(book_id)
             except Exception as exc:
                 errors.append(f'book {book_id}: {exc}')
@@ -629,7 +641,7 @@ class MediaMatcherAction(InterfaceAction):
                 undo_btn.setEnabled(True)
             self.refresh(done)
             missing = len(wanted) - len(covers)
-            text = f'Updated {len(done)} book(s)' + (f' and {len(covers)} cover(s)' if wanted else '') + '. "Undo last run" can put the old values back (not covers).'
+            text = f'Updated {len(done)} book(s)' + (f' and {len(covers)} cover(s)' if wanted else '') + '. "Undo last run" can put the old values back.'
             if missing:
                 text += f'\n\n{missing} ticked cover(s) could not be downloaded (the database has no front cover for them).'
             if errors:

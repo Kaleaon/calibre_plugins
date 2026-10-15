@@ -116,7 +116,7 @@ class TaggerAction(InterfaceAction):
                 return
             ids = selected if scope_selected.isChecked() else sorted(self.gui.current_db.new_api.all_book_ids())
             plan = rules_mod.plan_changes(self.books_for(ids), prefix.text(), add_source.isChecked(), series_prefix.text(), parsed,
-                                          rules_mod.DEFAULT_SITES + extra, scan.isChecked())
+                                          rules_mod.merge_sites(rules_mod.DEFAULT_SITES, extra), scan.isChecked())
             state['plan'] = plan
             shown = [f"{p['title']}  +  {', '.join(p['add'])}" for p in plan[:300]]
             more = f'\n… and {len(plan) - 300} more' if len(plan) > 300 else ''
