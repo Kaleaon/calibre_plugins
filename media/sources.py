@@ -136,12 +136,26 @@ def lucene_phrase(text):
     return '"' + re.sub(r'(["\\])', r'\\\1', text.replace('\n', ' ')).strip() + '"'
 
 
-def mb_search_recordings(http, title='', artist='', album='', recording_id='', limit=25):
+def mb_search_recordings(http, title='', artist='', album='', recording_id='', limit=25, recording_ids=None):
     """Recording search results (each with its releases and the track's place on them). Searches the more specific
     title+artist+album first; the caller decides whether to broaden."""
-    if recording_id:
-        query = f'rid:{recording_id}'
+    raw_ids = recording_ids if recording_ids is not None else recording_id
+    if raw_ids:
+        if isinstance(raw_ids, (list, tuple, set)):
+            ids = [r.strip() for r in raw_ids if isinstance(r, str) and r.strip()]
+        elif isinstance(raw_ids, str) and raw_ids.strip():
+            ids = [raw_ids.strip()]
+        else:
+            ids = []
+        ids = ids[:4]
+        if ids:
+            query = ' OR '.join(f'rid:{r}' for r in ids)
+        else:
+            query = ''
     else:
+        query = ''
+
+    if not query:
         parts = []
         if title:
             parts.append(f'recording:{lucene_phrase(title)}')
