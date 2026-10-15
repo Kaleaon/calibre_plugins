@@ -1,7 +1,9 @@
 """Calibre-library side of the downloaders: duplicate detection and importing built EPUBs."""
 import re
+import zipfile
 from html import escape
 from io import BytesIO
+from pathlib import PosixPath
 
 try:
     from .storykit import build_epub, extract_epub_story, sort_by_posting_order
@@ -10,6 +12,79 @@ except (ImportError, ValueError):
         from storykit import build_epub, extract_epub_story, sort_by_posting_order
     except ImportError:
         from common.storykit import build_epub, extract_epub_story, sort_by_posting_order
+
+
+def extract_epub_cover(epub_bytes):
+    """Extract cover image bytes (e.g. cover.svg or OPF cover item) from EPUB bytes."""
+    if not epub_bytes:
+        return None
+    try:
+        if isinstance(epub_bytes, bytes):
+            f = BytesIO(epub_bytes)
+        elif hasattr(epub_bytes, 'read'):
+            f = epub_bytes
+        else:
+            f = BytesIO(bytes(epub_bytes))
+
+        with zipfile.ZipFile(f, 'r') as z:
+            names = z.namelist()
+            for name in ('OEBPS/cover.svg', 'cover.svg'):
+                if name in names:
+                    return z.read(name)
+
+            opf_path = None
+            if 'META-INF/container.xml' in names:
+                try:
+                    c_xml = z.read('META-INF/container.xml').decode('utf-8', 'ignore')
+                    m = re.search(r'full-path=["\']([^"\']+)["\']', c_xml, re.I)
+                    if m:
+                        opf_path = m.group(1)
+                except Exception:
+                    pass
+            if not opf_path:
+                for n in names:
+                    if n.endswith('.opf'):
+                        opf_path = n
+                        break
+
+            if opf_path and opf_path in names:
+                opf_dir = PosixPath(opf_path).parent.as_posix()
+                if opf_dir == '.':
+                    opf_dir = ''
+                elif opf_dir and not opf_dir.endswith('/'):
+                    opf_dir += '/'
+
+                opf_text = z.read(opf_path).decode('utf-8', 'ignore')
+
+                cover_id = None
+                meta_m = re.search(r'<meta\b[^>]*name=["\']cover["\'][^>]*content=["\']([^"\']+)["\']', opf_text, re.I)
+                if not meta_m:
+                    meta_m = re.search(r'<meta\b[^>]*content=["\']([^"\']+)["\'][^>]*name=["\']cover["\']', opf_text, re.I)
+                if meta_m:
+                    cover_id = meta_m.group(1)
+
+                cover_href = None
+                for item_m in re.finditer(r'<item\b([^>]+)>', opf_text, re.I):
+                    attrs = dict(re.findall(r'(\w+)=["\']([^"\']*)["\']', item_m.group(1)))
+                    if cover_id and attrs.get('id') == cover_id:
+                        cover_href = attrs.get('href')
+                        break
+                    if attrs.get('properties') == 'cover-image':
+                        cover_href = attrs.get('href')
+                        break
+
+                if cover_href:
+                    full_cover_path = opf_dir + cover_href
+                    if full_cover_path in names:
+                        return z.read(full_cover_path)
+
+            for n in names:
+                lower = n.lower()
+                if 'cover' in lower and any(lower.endswith(ext) for ext in ('.svg', '.jpg', '.jpeg', '.png')):
+                    return z.read(n)
+    except Exception:
+        pass
+    return None
 
 
 def existing_ids(gui, identifier):
@@ -96,6 +171,13 @@ def import_stories(gui, stories, combine, title, build_epub, identifier, publish
             data = build_epub(group, title=book_title)
             ids, _ = db.add_books([(metadata_for(group, book_title, identifier, publisher), {'EPUB': BytesIO(data)})])
             added += len(ids)
+            if ids:
+                try:
+                    cover_bytes = extract_epub_cover(data)
+                    if cover_bytes:
+                        db.set_cover({ids[0]: cover_bytes})
+                except Exception:
+                    pass
         except Exception as exc:
             errors.append(f"{', '.join(s['id'] for s in group)}: {exc}")
     if added:
@@ -117,10 +199,17 @@ def add_prebuilt(gui, items):
             try:  # FanFicFare can embed a cover; Calibre does not pick it up from add_books
                 from calibre.ebooks.metadata.meta import get_metadata
                 cover = getattr(get_metadata(BytesIO(data), stream_type='epub'), 'cover_data', None)
-                if ids and cover and cover[1]:
-                    db.set_cover({ids[0]: cover[1]})
+                cover_bytes = cover[1] if (cover and cover[1]) else extract_epub_cover(data)
+                if ids and cover_bytes:
+                    db.set_cover({ids[0]: cover_bytes})
             except Exception:
-                pass
+                if ids:
+                    try:
+                        cover_bytes = extract_epub_cover(data)
+                        if cover_bytes:
+                            db.set_cover({ids[0]: cover_bytes})
+                    except Exception:
+                        pass
         except Exception as exc:
             errors.append(f'{mi.title}: {exc}')
     if added:
@@ -155,6 +244,12 @@ def upsert_epub(gui, mi, data, identifier, value):
         if mi.comments:
             db.set_field('comments', {book_id: mi.comments})
         created = False
+    try:
+        cover_bytes = extract_epub_cover(data)
+        if cover_bytes:
+            db.set_cover({book_id: cover_bytes})
+    except Exception:
+        pass
     gui.library_view.model().refresh_ids([book_id])
     gui.tags_view.recount()
     return book_id, created
@@ -225,6 +320,12 @@ def merge_library_books(gui, book_ids, title=None, author=None, publisher=None):
 
         ids, _ = db.add_books([(mi, {'EPUB': BytesIO(data)})])
         if ids:
+            try:
+                cover_bytes = extract_epub_cover(data)
+                if cover_bytes:
+                    db.set_cover({ids[0]: cover_bytes})
+            except Exception:
+                pass
             gui.library_view.model().refresh()
             gui.tags_view.recount()
             return ids[0], errors
