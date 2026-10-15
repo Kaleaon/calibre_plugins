@@ -21,13 +21,16 @@ except ImportError:
     HAVE_QT = False
     QtCore = QtGui = QtWidgets = None
 
-if HAVE_QT and 'qt.core' not in sys.modules:
+if HAVE_QT:
     qtcore = types.ModuleType('qt.core')
     for module in (QtWidgets, QtGui, QtCore):
         for name in dir(module):
             setattr(qtcore, name, getattr(module, name))
     sys.modules['qt'] = types.ModuleType('qt')
     sys.modules['qt.core'] = qtcore
+    if 'queue_ui' in sys.modules:
+        import importlib
+        importlib.reload(sys.modules['queue_ui'])
 
 from queue_ui import QueueManagerDialog
 from task_queue import FailureCategory, QueueManager, TaskState, categorize_error
@@ -198,6 +201,7 @@ class TaskQueueTests(unittest.TestCase):
         all_tasks = self.qm.get_tasks()
         self.assertEqual(len(all_tasks), 50)
 
+    @unittest.skipUnless(HAVE_QT, 'PyQt6 is not installed')
     def test_ui_dialog_widgets_and_filters(self):
         # Seed tasks and activity logs
         self.qm.enqueue_task('ui_task_1', 'type_1', {'key': 'val'})

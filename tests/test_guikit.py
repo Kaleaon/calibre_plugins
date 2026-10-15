@@ -8,7 +8,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 try:
-    from qt.core import Qt
+    from PyQt6 import QtCore, QtGui, QtWidgets
+    import types
+    qtcore = types.ModuleType('qt.core')
+    for module in (QtWidgets, QtGui, QtCore):
+        for name in dir(module):
+            setattr(qtcore, name, getattr(module, name))
+    qt_mod = types.ModuleType('qt')
+    qt_mod.core = qtcore
+    sys.modules['qt'] = qt_mod
+    sys.modules['qt.core'] = qtcore
 except ImportError:
     import types
     qt_mod = MagicMock()
