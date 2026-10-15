@@ -33,7 +33,7 @@ def detect(data):
                 images = [n for n in files if Path(n).suffix.lower() in {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}]
                 if images and all(n in images or Path(n).suffix.lower() in {'.xml', '.txt', '.nfo'} for n in files):
                     return 'cbz'
-        except (zipfile.BadZipFile, RuntimeError, OSError):
+        except (zipfile.BadZipFile, KeyError, OSError, RuntimeError):
             pass
     return None
 
@@ -98,26 +98,29 @@ def sources(source, output):
                 raise ValueError('Input book exceeds 512 MiB safety limit')
             yield source.name, source.read_bytes()
             return
-        with zipfile.ZipFile(source) as z:
-            names = z.namelist()
-            files = [n for n in names if not n.endswith('/') and not n.startswith('__MACOSX/')]
-            images = [n for n in files if Path(n).suffix.lower() in {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}]
-            is_epub = ('mimetype' in names and z.getinfo('mimetype').file_size < 100 and z.read('mimetype') == b'application/epub+zip' and 'META-INF/container.xml' in names)
-            is_comic = images and all(n in images or Path(n).suffix.lower() in {'.xml', '.txt', '.nfo'} for n in files)
-            if is_epub or is_comic:
-                if source.stat().st_size > MAX_MEMBER:
-                    raise ValueError('Input book exceeds 512 MiB safety limit')
-                yield source.name, source.read_bytes()
-                return
-            for member in z.infolist():
-                if member.is_dir():
-                    continue
-                total += member.file_size
-                if member.file_size > MAX_MEMBER or total > MAX_TOTAL:
-                    raise ValueError('Takeout exceeds safety limits: 512 MiB per file, 10 GiB total')
-                if member.flag_bits & 1:
-                    raise ValueError('Encrypted Takeout ZIP is unsupported')
-                yield member.filename, z.read(member)
+        try:
+            with zipfile.ZipFile(source) as z:
+                names = z.namelist()
+                files = [n for n in names if not n.endswith('/') and not n.startswith('__MACOSX/')]
+                images = [n for n in files if Path(n).suffix.lower() in {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}]
+                is_epub = ('mimetype' in names and z.getinfo('mimetype').file_size < 100 and z.read('mimetype') == b'application/epub+zip' and 'META-INF/container.xml' in names)
+                is_comic = images and all(n in images or Path(n).suffix.lower() in {'.xml', '.txt', '.nfo'} for n in files)
+                if is_epub or is_comic:
+                    if source.stat().st_size > MAX_MEMBER:
+                        raise ValueError('Input book exceeds 512 MiB safety limit')
+                    yield source.name, source.read_bytes()
+                    return
+                for member in z.infolist():
+                    if member.is_dir():
+                        continue
+                    total += member.file_size
+                    if member.file_size > MAX_MEMBER or total > MAX_TOTAL:
+                        raise ValueError('Takeout exceeds safety limits: 512 MiB per file, 10 GiB total')
+                    if member.flag_bits & 1:
+                        raise ValueError('Encrypted Takeout ZIP is unsupported')
+                    yield member.filename, z.read(member)
+        except (zipfile.BadZipFile, KeyError, OSError, RuntimeError) as exc:
+            raise ValueError(f'Corrupted or invalid ZIP file: {exc}') from exc
     else:
         for path in sorted(source.rglob('*')):
             if not path.is_file() or path.is_symlink() or output == path or output in path.parents:
