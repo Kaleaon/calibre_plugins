@@ -219,3 +219,75 @@ def plan_changes(books, source_prefix='Source.', add_source=True, series_prefix=
         if add:
             plan.append({'id': book['id'], 'title': book.get('title', ''), 'add': add, 'tags': have + add})
     return plan
+
+
+class TagSelectionState:
+    """Manages active selection states for dual-pane preview with global tag toggles and per-book overrides."""
+
+    def __init__(self, plan):
+        self.plan = plan
+        self.tag_counts = {}
+        for p in plan:
+            for tag in p.get('add', []):
+                self.tag_counts[tag] = self.tag_counts.get(tag, 0) + 1
+
+        self.global_tags = {tag: True for tag in self.tag_counts}
+        self.book_overrides = {}
+
+    def get_distinct_tags(self):
+        return list(self.tag_counts.items())
+
+    def set_global_tag(self, tag, checked):
+        checked = bool(checked)
+        self.global_tags[tag] = checked
+        for p in self.plan:
+            book_id = p['id']
+            if tag in p.get('add', []):
+                self.book_overrides[(book_id, tag)] = checked
+
+    def set_book_tag(self, book_id, tag, checked):
+        self.book_overrides[(book_id, tag)] = bool(checked)
+
+    def is_tag_active(self, book_id, tag):
+        if (book_id, tag) in self.book_overrides:
+            return self.book_overrides[(book_id, tag)]
+        return self.global_tags.get(tag, True)
+
+    def get_active_plan(self):
+        active_plan = []
+        for p in self.plan:
+            book_id = p['id']
+            add_tags = p.get('add', [])
+            existing_count = len(p.get('tags', [])) - len(add_tags)
+            existing_tags = p.get('tags', [])[:existing_count] if existing_count >= 0 else []
+
+            active_add = [t for t in add_tags if self.is_tag_active(book_id, t)]
+            if active_add:
+                known = {t.casefold() for t in existing_tags}
+                final_tags = list(existing_tags)
+                final_add = []
+                for t in active_add:
+                    if t.casefold() not in known:
+                        known.add(t.casefold())
+                        final_add.append(t)
+                        final_tags.append(t)
+                if final_add:
+                    active_plan.append({
+                        'id': book_id,
+                        'title': p.get('title', ''),
+                        'add': final_add,
+                        'tags': final_tags
+                    })
+        return active_plan
+
+    def get_summary_counts(self):
+        active_assignments = 0
+        affected_books = 0
+        for p in self.plan:
+            book_id = p['id']
+            book_active = [t for t in p.get('add', []) if self.is_tag_active(book_id, t)]
+            if book_active:
+                affected_books += 1
+                active_assignments += len(book_active)
+        return active_assignments, affected_books
+
