@@ -13,7 +13,7 @@ from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonB
 
 from calibre_plugins.media_matcher import matching, sources, tags as audio
 from calibre_plugins.media_matcher.config import prefs
-from calibre_plugins.media_matcher.guikit import run_task
+from calibre_plugins.media_matcher.guikit import EmptyStateOverlay, run_task
 
 KIND_CHOICES = [('auto', 'Detect from each file'), ('music', 'Music'), ('audiobook', 'Audiobook'), ('book', 'Book')]
 FIELD_LABELS = [('title', 'Titles'), ('authors', 'Artists / authors'), ('album', 'Album (as series) and track number'),
@@ -290,6 +290,7 @@ class MediaMatcherAction(InterfaceAction):
                 item.setData(0, Qt.ItemDataRole.UserRole, key)
             add_btn.setEnabled(tree.topLevelItemCount() > 0)
             status.setText(f'{tree.topLevelItemCount()} file(s) ready. Untick any you do not want, then press Add.')
+            add_overlay.update_visibility(tree.topLevelItemCount())
 
         def choose_files():
             exts = ' '.join(f'*.{e}' for e in sorted(audio.AUDIO_EXTENSIONS))
@@ -343,6 +344,7 @@ class MediaMatcherAction(InterfaceAction):
             info_dialog(self.gui, 'Media Matcher', text, show=True)
             tree.clear()
             entries.clear()
+            add_overlay.update_visibility(0)
             add_btn.setEnabled(False)
             status.setText(text.split('\n')[0])
             if added and lookup.isChecked():
@@ -352,6 +354,16 @@ class MediaMatcherAction(InterfaceAction):
         files_btn.clicked.connect(choose_files)
         folder_btn.clicked.connect(choose_folder)
         add_btn.clicked.connect(do_add)
+
+        add_overlay = EmptyStateOverlay(
+            tree,
+            icon='📁',
+            title='No audio files added',
+            message='Choose audio files or a folder to add music and audiobooks to your library.',
+            actions=[('Choose files…', choose_files), ('Choose folder…', choose_folder)]
+        )
+        add_overlay.show_empty()
+
         dialog.exec()
 
     # -- matching -----------------------------------------------------------------------------------------------------
@@ -447,6 +459,16 @@ class MediaMatcherAction(InterfaceAction):
         buttons.addButton(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
+
+        match_overlay = EmptyStateOverlay(
+            tree,
+            icon='🔍',
+            title='No matches looked up yet',
+            message='Click "Look up" to search MusicBrainz and Open Library for metadata and cover art.',
+            action_text='Look up',
+            on_action=check_btn.click
+        )
+        match_overlay.show_empty()
 
         cancel_flag = threading.Event()
         suggestions = {}
@@ -593,6 +615,16 @@ class MediaMatcherAction(InterfaceAction):
             if skipped:
                 text += f' {len(skipped)} problem(s): ' + '; '.join(skipped[:3]) + (' …' if len(skipped) > 3 else '')
             status.setText(text)
+            if found:
+                match_overlay.hide_empty()
+            else:
+                match_overlay.show_empty(
+                    title='No metadata matches found',
+                    message='No matches were found for the selected books. Try adjusting search criteria or enabling audio fingerprints.',
+                    icon='🔍',
+                    action_text='Look up',
+                    on_action=check_btn.click
+                )
             apply_btn.setEnabled(bool(found))
 
         def collect():
@@ -648,6 +680,13 @@ class MediaMatcherAction(InterfaceAction):
                 text += '\n\nProblems:\n' + '\n'.join(errors[:10])
             info_dialog(self.gui, 'Media Matcher', text, show=True)
             tree.clear()
+            match_overlay.show_empty(
+                title='No matches looked up yet',
+                message='Click "Look up" to search MusicBrainz and Open Library for metadata and cover art.',
+                icon='🔍',
+                action_text='Look up',
+                on_action=check_btn.click
+            )
             apply_btn.setEnabled(False)
 
         def do_undo():
