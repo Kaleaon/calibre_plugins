@@ -651,19 +651,44 @@ def probe(source, src, follow=None, limit=25):
 
 # ---------------------------------------------------------------- follows, filters, and the chapter cache
 
-def new_follow(name, source_text, title_filter='', author_filter='', author_note=False, layout='series', flair_filter='', index_url='', title_from_body=False):
-    src = parse_source(source_text)
-    return {'id': uuid.uuid4().hex[:10], 'name': name.strip() or describe_source(src), 'source': src,
-            'title_filter': title_filter.strip(), 'author_filter': author_filter.strip().lstrip('/').replace('u/', '', 1),
-            'author_note': bool(author_note), 'layout': 'each' if layout == 'each' else 'series', 'flair_filter': flair_filter.strip(), 'index_url': index_url.strip(), 'title_from_body': bool(title_from_body),
-            'last_checked': 0.0, 'last_status': ''}
+def new_follow(name, source_input='', title_filter='', author_filter='', author_note=False, layout='series', flair_filter='', index_url='', title_from_body=False, sources=None):
+    if sources is None:
+        src = parse_source(source_input) if source_input else {'kind': 'subreddit', 'subreddit': '', 'user': '', 'query': ''}
+        sources = [{
+            'kind': src['kind'],
+            'subreddit': src.get('subreddit', ''),
+            'user': src.get('user', ''),
+            'query': src.get('query', ''),
+            'title_filter': title_filter.strip(),
+            'author_filter': author_filter.strip().lstrip('/').replace('u/', '', 1),
+            'flair_filter': flair_filter.strip()
+        }]
+    else:
+        src = sources[0] if sources else {'kind': 'subreddit', 'subreddit': '', 'user': '', 'query': ''}
+
+    first_src_text = source_input or (source_text(src) if src.get('kind') else '')
+    return {
+        'id': uuid.uuid4().hex[:10],
+        'name': name.strip() or describe_source(src),
+        'source': src,
+        'sources': sources,
+        'title_filter': title_filter.strip() if title_filter else sources[0].get('title_filter', ''),
+        'author_filter': author_filter.strip().lstrip('/').replace('u/', '', 1) if author_filter else sources[0].get('author_filter', ''),
+        'author_note': bool(author_note),
+        'layout': 'each' if layout == 'each' else 'series',
+        'flair_filter': flair_filter.strip() if flair_filter else sources[0].get('flair_filter', ''),
+        'index_url': index_url.strip(),
+        'title_from_body': bool(title_from_body),
+        'last_checked': 0.0,
+        'last_status': ''
+    }
 
 
-def matches(entry, follow):
-    """Whether a post belongs to the followed series. Text posts only; filters are case-insensitive."""
+def matches_source(entry, src, layout='series'):
+    """Whether a post matches a specific feed source rule."""
     if not entry.get('html') or not entry.get('title'):
         return False  # link, image and empty posts have no story text
-    flt = follow.get('title_filter', '')
+    flt = src.get('title_filter', '')
     if flt:
         if flt.lower().startswith('re:'):
             try:
@@ -673,12 +698,39 @@ def matches(entry, follow):
                 return False
         elif flt.casefold() not in entry['title'].casefold():
             return False
-    if not _text_matches(follow.get('flair_filter', ''), entry.get('flair', '')):
+    if not _text_matches(src.get('flair_filter', ''), entry.get('flair', '')):
         return False
-    if follow.get('layout') == 'each' and stated_minor_age(entry['title']):
+    if layout == 'each' and stated_minor_age(entry['title']):
         return False
-    author = follow.get('author_filter', '')
+    author = src.get('author_filter', '')
     return not author or entry.get('author', '').casefold() == author.casefold()
+
+
+def matches(entry, follow):
+    """Whether a post belongs to the followed series across any of its feed sources."""
+    sources = follow.get('sources')
+    layout = follow.get('layout', 'series')
+    if sources:
+        return any(matches_source(entry, {
+            'kind': s.get('kind', ''),
+            'subreddit': s.get('subreddit', ''),
+            'user': s.get('user', ''),
+            'query': s.get('query', ''),
+            'title_filter': s.get('title_filter') or follow.get('title_filter', ''),
+            'author_filter': s.get('author_filter') or follow.get('author_filter', ''),
+            'flair_filter': s.get('flair_filter') or follow.get('flair_filter', '')
+        }, layout) for s in sources)
+    src = follow.get('source', {})
+    rule = {
+        'kind': src.get('kind', ''),
+        'subreddit': src.get('subreddit', ''),
+        'user': src.get('user', ''),
+        'query': src.get('query', ''),
+        'title_filter': follow.get('title_filter', ''),
+        'author_filter': follow.get('author_filter', ''),
+        'flair_filter': follow.get('flair_filter', '')
+    }
+    return matches_source(entry, rule, layout)
 
 
 def _text_matches(flt, text):
@@ -698,9 +750,7 @@ _AGE_LETTER = re.compile(r'(?i)\b(\d{1,2})\s?[mf]\b')
 
 
 def stated_minor_age(title):
-    """True if the title states an age under 18 (such as [16M], (17), 15 yo). A title-only check: it cannot know about ages
-    that are not in the title, and a bracketed number that is not an age (a part number) counts too, so it errs on the side
-    of skipping. Applied to 'each post is a book' follows, which take posts from many authors."""
+    """True if the title states an age under 18 (such as [16M], (17), 15 yo)."""
     for pattern in (_AGE_TAGS, _AGE_WORDS, _AGE_LETTER):
         for m in pattern.finditer(title):
             if 1 <= int(m.group(1)) < 18:
@@ -709,23 +759,78 @@ def stated_minor_age(title):
 
 
 class ChapterCache:
-    """Posts already fetched for one followed series, kept as a JSON file so the whole book can be rebuilt offline."""
+    """Posts already fetched for one followed series, backed by SQLite SeriesRegistry."""
 
-    def __init__(self, folder, follow_id):
+    def __init__(self, folder, follow_id, registry=None):
+        self.folder = folder
+        self.follow_id = follow_id
         self.path = os.path.join(folder, f'{follow_id}.json')
-        self.data = {'posts': {}, 'newest_created': 0.0, 'newest_id': ''}
-        if os.path.exists(self.path):
+        db_path = os.path.join(folder, 'series_registry.db')
+        if registry:
+            self.registry = registry
+        else:
             try:
-                with open(self.path, encoding='utf-8') as stream:
-                    self.data.update(json.load(stream))
-            except (OSError, ValueError):
-                pass  # a damaged cache is rebuilt by the next check
+                from .registry import SeriesRegistry
+            except ImportError:
+                try:
+                    from registry import SeriesRegistry
+                except ImportError:
+                    import sys as _sys, os as _os
+                    _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
+                    if _pkg_dir not in _sys.path:
+                        _sys.path.insert(0, _pkg_dir)
+                    from registry import SeriesRegistry
+            self.registry = SeriesRegistry(db_path)
+
+        self._series = self.registry.get_series(self.follow_id) or {}
+        idx_data = {}
+        if self._series.get('index_data'):
+            try:
+                idx_data = json.loads(self._series['index_data'])
+            except Exception:
+                pass
+
+        sig = self._series.get('signature')
+        if isinstance(sig, str) and sig:
+            try:
+                sig = json.loads(sig)
+            except Exception:
+                pass
+
+        cached_chapters = {c['id']: c for c in self.registry.get_chapters(self.follow_id)}
+        self.data = {
+            'posts': cached_chapters,
+            'newest_created': float(self._series.get('newest_created') or 0.0),
+            'newest_id': self._series.get('newest_id') or '',
+            'complete': bool(self._series.get('complete', False)),
+            'signature': sig,
+            'index': idx_data,
+            'added': list(self.registry.get_added_post_ids(self.follow_id))
+        }
 
     @property
     def posts(self):
         return self.data['posts']
 
     def save(self):
+        s_dict = self.registry.get_series(self.follow_id) or {'id': self.follow_id, 'name': self.follow_id}
+        s_dict['complete'] = self.data.get('complete', False)
+        s_dict['newest_created'] = self.data.get('newest_created', 0.0)
+        s_dict['newest_id'] = self.data.get('newest_id', '')
+        if 'signature' in self.data:
+            s_dict['signature'] = self.data['signature']
+        if 'index' in self.data:
+            s_dict['index_data'] = json.dumps(self.data['index'])
+        self.registry.save_series(s_dict)
+
+        added_ids = set(self.data.get('added', []))
+        for pid, post in self.posts.items():
+            p_copy = dict(post)
+            if pid in added_ids:
+                p_copy['added'] = True
+            self.registry.save_chapter_and_manifest(self.follow_id, p_copy)
+
+        # Mirror JSON for legacy tool compatibility if path is used
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         tmp = self.path + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as stream:
@@ -733,9 +838,20 @@ class ChapterCache:
         os.replace(tmp, self.path)
 
     def ordered(self):
+        manifest = self.registry.get_manifest(self.follow_id)
+        if manifest:
+            p_map = self.posts
+            out = []
+            for m in manifest:
+                pid = m['post_id']
+                if pid in p_map:
+                    out.append(p_map[pid])
+            if out:
+                return out
         return sorted(self.posts.values(), key=lambda p: (p['created'], p['title']))
 
     def delete(self):
+        self.registry.delete_series(self.follow_id)
         try:
             os.remove(self.path)
         except OSError:
@@ -743,58 +859,79 @@ class ChapterCache:
 
 
 def check_follow(source, follow, cache, max_pages=None, cancelled=lambda: False, progress=lambda msg: None):
-    """Fetch new posts for one follow into the cache. Returns {'new': [titles], 'changed': [titles], 'pages': n}.
+    """Fetch new posts for one follow across all its configured feed sources into the cache."""
+    if hasattr(cache, 'registry') and cache.registry and follow.get('id'):
+        cache.registry.save_series(follow)
+    sources = follow.get('sources')
+    if not sources:
+        src = follow.get('source', {})
+        sources = [{
+            'kind': src.get('kind', 'subreddit'),
+            'subreddit': src.get('subreddit', ''),
+            'user': src.get('user', ''),
+            'query': src.get('query', ''),
+            'title_filter': follow.get('title_filter', ''),
+            'author_filter': follow.get('author_filter', ''),
+            'flair_filter': follow.get('flair_filter', '')
+        }]
 
-    The first check pages back through the feed; later checks read only until they reach posts seen before. A
-    RateLimited error propagates after the cache has been saved with whatever was read."""
-    src = follow['source']
-    # a history is "complete" once a pass has read all the way back; until then each check keeps backfilling (older caches
-    # from before this was tracked count as incomplete, so they are topped up once)
-    signature = [follow.get('title_filter', ''), follow.get('author_filter', ''), source_text(src), follow.get('flair_filter', ''),
-                 follow.get('layout', 'series')]
+    signature = [
+        follow.get('title_filter', ''), follow.get('author_filter', ''),
+        source_text(follow.get('source', {})), follow.get('flair_filter', ''),
+        follow.get('layout', 'series'), str(sources)
+    ]
     if cache.data.get('signature') != signature:
-        cache.data['complete'] = False  # the filters changed, so older posts may now belong
+        cache.data['complete'] = False
         cache.data['signature'] = signature
+
     first_run = not cache.data.get('complete')
     each = follow.get('layout') == 'each'
     max_pages = max_pages or ((EACH_FIRST_PAGES if each else FIRST_RUN_PAGES) if first_run else 3)
     known_newest, known_id = cache.data['newest_created'], cache.data['newest_id']
-    new, changed, after, pages, newest = [], [], None, 0, (0.0, '')
+    new, changed, newest = [], [], (0.0, '')
+    total_pages = 0
+
     try:
-        while pages < max_pages:
+        for src_rule in sources:
             if cancelled():
                 raise Cancelled()
-            progress(f"{follow['name']}: reading page {pages + 1}")
-            entries, after = source.page(src, after)
-            pages += 1
-            reached_known = False
-            for e in entries:
-                if (e['created'], e['id']) > newest:
-                    newest = (e['created'], e['id'])
-                if not first_run and (e['id'] == known_id or (known_newest and e['created'] < known_newest - 1)):
-                    reached_known = True
-                if not first_run and known_newest and e['created'] < known_newest - 1 and e['id'] not in cache.posts:
-                    continue  # older than anything collected and never kept: not part of this check ('each' follows skip their backlog on purpose)
-                if not matches(e, follow):
-                    continue
-                old = cache.posts.get(e['id'])
-                if old is None:
-                    new.append(e['title'])
-                elif old['html'] != e['html'] or old['title'] != e['title']:
-                    changed.append(e['title'])
-                    if e['id'] in cache.data.get('added', []):
-                        cache.data['added'].remove(e['id'])  # an edited post becomes a fresh book
-                else:
-                    continue
-                cache.posts[e['id']] = {k: e.get(k, '') for k in ('id', 'title', 'author', 'created', 'link', 'html', 'flair')}
-                if old is not None and 'note' in old:
-                    cache.posts[e['id']]['note'] = old['note']
-            if not entries or not after or reached_known:
-                if first_run and (not entries or not after):
-                    cache.data['complete'] = True
-                break
+            after, pages = None, 0
+            while pages < max_pages:
+                if cancelled():
+                    raise Cancelled()
+                progress(f"{follow['name']}: reading {describe_source(src_rule)} page {pages + 1}")
+                entries, after = source.page(src_rule, after)
+                pages += 1
+                total_pages += 1
+                reached_known = False
+                for e in entries:
+                    if (e['created'], e['id']) > newest:
+                        newest = (e['created'], e['id'])
+                    if not first_run and (e['id'] == known_id or (known_newest and e['created'] < known_newest - 1)):
+                        reached_known = True
+                    if not first_run and known_newest and e['created'] < known_newest - 1 and e['id'] not in cache.posts:
+                        continue
+                    if not matches_source(e, src_rule, follow.get('layout', 'series')):
+                        continue
+                    old = cache.posts.get(e['id'])
+                    if old is None:
+                        new.append(e['title'])
+                    elif old['html'] != e['html'] or old['title'] != e['title']:
+                        changed.append(e['title'])
+                        if e['id'] in cache.data.get('added', []):
+                            cache.data['added'].remove(e['id'])
+                    else:
+                        continue
+                    cache.posts[e['id']] = {k: e.get(k, '') for k in ('id', 'title', 'author', 'created', 'link', 'html', 'flair')}
+                    if old is not None and 'note' in old:
+                        cache.posts[e['id']]['note'] = old['note']
+                if not entries or not after or reached_known:
+                    if first_run and (not entries or not after):
+                        cache.data['complete'] = True
+                    break
+
         if each and first_run:
-            cache.data['complete'] = True  # never backfills; only the newest few are taken
+            cache.data['complete'] = True
             keep = {p['id'] for p in sorted(cache.posts.values(), key=lambda p: p['created'], reverse=True)[:EACH_FIRST_RUN]}
             for post_id in [i for i in cache.posts if i not in keep]:
                 del cache.posts[post_id]
@@ -803,14 +940,14 @@ def check_follow(source, follow, cache, max_pages=None, cancelled=lambda: False,
         if newest[0]:
             cache.data['newest_created'], cache.data['newest_id'] = max(known_newest, newest[0]), newest[1] if newest[0] >= known_newest else known_id
         cache.save()
+
     pending = fetch_notes(source, follow, cache, cancelled, progress)
     refresh_index(source, follow, cache)
-    return {'new': new, 'changed': changed, 'pages': pages, 'notes_pending': pending}
+    return {'new': new, 'changed': changed, 'pages': total_pages, 'notes_pending': pending}
 
 
 def fetch_notes(source, follow, cache, cancelled=lambda: False, progress=lambda msg: None, batch=None):
-    """Fetch the author's own comment for cached chapters that lack one (only when the follow asks for it and the reader is
-    the API). Returns how many chapters still wait. A rate limit propagates after the cache is saved."""
+    """Fetch the author's own comment for cached chapters that lack one."""
     if not follow.get('author_note') or not hasattr(source, 'author_comment'):
         return 0
     todo = [p for p in sorted(cache.posts.values(), key=lambda p: p['created'], reverse=True) if 'note' not in p]
@@ -841,17 +978,14 @@ def _plain(fragment):
 def _looks_like_title(text):
     if len(text) > 80 or '(' in text or text.startswith(('"', '\u201c', '\u2018')):
         return False
-    if text.endswith('!'):  # "Danger Zone!" is a title, "Run!" is not: every longer word must be capitalised
+    if text.endswith('!'):
         words = [w for w in re.findall(r"[A-Za-z][A-Za-z'\u2019]+", text) if len(w) > 3]
         return bool(words) and all(w[0].isupper() for w in words)
     return not text.endswith(('.', '?', ',', ';', ':', '"', '\u201d', '\u2026'))
 
 
 def split_opening(body_html):
-    """Look at how a post opens. Returns (title, notes, body). Some authors open every post with its chapter title (a short line
-    without sentence punctuation), maybe with a comment-race marker like ~First~ and a parenthesised note to readers, in any
-    order. The title and the markers are taken out, the notes (text in brackets, shown without them) are returned separately
-    as HTML, and empty paragraphs are dropped. A post that does not open that way comes back unchanged apart from blank paragraphs."""
+    """Look at how a post opens. Returns (title, notes, body)."""
     body_html = _BLANK_PARA.sub('', body_html)
     title, notes, cut, end = '', [], [], 0
     for number, match in enumerate(_PARA.finditer(body_html)):
@@ -902,7 +1036,7 @@ def chapter_html(post, title_from_body=False):
 
 
 def build_story(follow, cache):
-    """A story dict for storykit.build_epub from everything cached: one chapter per post, oldest first."""
+    """A story dict for storykit.build_epub from everything cached: multi-author attribution and sequence ordering."""
     posts = cache.ordered()
     if not posts:
         raise ValueError('Nothing has been collected for this series yet.')
@@ -910,19 +1044,48 @@ def build_story(follow, cache):
     if (cache.data.get('index') or {}).get('rows'):
         matched, _, _ = match_index(posts, cache.data['index']['rows'])
         titles = {pid: index_title(row, None, with_note=not from_body) for pid, row in matched.items()}
+
+    # Collect distinct contributing authors
+    authors_list = []
+    for p in posts:
+        a = (p.get('author') or 'Unknown').strip()
+        if a and a not in authors_list:
+            authors_list.append(a)
+
+    is_multi_author = len(authors_list) > 1
+
     def section(p):
         name = titles.get(p['id']) or p['title']
         chapter = split_body_title(p['html'] or '')[0] if from_body else ''
-        return (f'{name} \u2013 {chapter}' if chapter else name), chapter_html(p, from_body)
-    author = Counter(p['author'] for p in posts).most_common(1)[0][0] or 'Unknown'
+        sec_title = (f'{name} \u2013 {chapter}' if chapter else name)
+        if is_multi_author and p.get('author'):
+            sec_title += f" (by {p['author']})"
+        return sec_title, chapter_html(p, from_body)
+
+    main_author = ", ".join(authors_list) if authors_list else 'Unknown'
     last = datetime.fromtimestamp(posts[-1]['created'], timezone.utc).date().isoformat()
     first = datetime.fromtimestamp(posts[0]['created'], timezone.utc).date().isoformat()
-    src = follow['source']
-    tags = ['Reddit'] + ([f"r/{src['subreddit']}"] if src.get('subreddit') else [])
-    return {'id': 'reddit-' + follow['id'], 'url': posts[-1]['link'] or WWW, 'title': follow['name'], 'author': author,
-            'sections': [section(p) for p in posts], 'tags': tags, 'categories': [],
-            'summary': f"{len(posts)} chapters collected from Reddit ({describe_source(src)}), {first} to {last}.",
-            'publisher': PUBLISHER, 'pubdate': first}
+
+    subreddits = set()
+    for src in follow.get('sources', [follow.get('source', {})]):
+        if src.get('subreddit'):
+            subreddits.add(f"r/{src['subreddit']}")
+    tags = ['Reddit'] + sorted(list(subreddits))
+
+    source_desc = f"{len(authors_list)} author(s) ({', '.join(authors_list)})" if is_multi_author else describe_source(follow.get('source', {}))
+    return {
+        'id': 'reddit-' + follow['id'],
+        'url': posts[-1]['link'] or WWW,
+        'title': follow['name'],
+        'author': main_author,
+        'sections': [section(p) for p in posts],
+        'tags': tags,
+        'categories': [],
+        'summary': f"{len(posts)} chapters collected from Reddit ({source_desc}), {first} to {last}.",
+        'publisher': PUBLISHER,
+        'pubdate': first
+    }
+
 
 
 _PART = re.compile(r"(?i)^(?P<stem>.*?)[\s,:;\-\u2013\u2014(\[]*\b(?:part|pt\.?|chapter|ch\.?)\s*(?P<n>\d+)\b")

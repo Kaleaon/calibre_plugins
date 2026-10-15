@@ -77,6 +77,7 @@ class QueueManager:
 
     def _get_connection(self):
         """Returns a sqlite3 connection with timeout for locking handling."""
+        os.makedirs(self.cache_dir, exist_ok=True)
         conn = sqlite3.connect(self.db_path, timeout=10.0, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         try:
@@ -84,13 +85,30 @@ class QueueManager:
         except sqlite3.OperationalError:
             # WAL mode might fail on some network shares; fallback to default
             pass
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='task_queue';")
+        if not cursor.fetchone():
+            conn.close()
+            self._init_db()
+            conn = sqlite3.connect(self.db_path, timeout=10.0, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            try:
+                conn.execute("PRAGMA journal_mode=WAL;")
+            except sqlite3.OperationalError:
+                pass
         return conn
 
     def _init_db(self):
         """Initialize SQLite database schema and handle startup recovery."""
         with self._lock:
             try:
-                conn = self._get_connection()
+                os.makedirs(self.cache_dir, exist_ok=True)
+                conn = sqlite3.connect(self.db_path, timeout=10.0, check_same_thread=False)
+                conn.row_factory = sqlite3.Row
+                try:
+                    conn.execute("PRAGMA journal_mode=WAL;")
+                except sqlite3.OperationalError:
+                    pass
                 try:
                     with conn:
                         conn.execute("""

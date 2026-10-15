@@ -1,9 +1,9 @@
 from calibre.gui2 import error_dialog, info_dialog, question_dialog
 from calibre.gui2.actions import InterfaceAction
 
-from calibre_plugins.fanfic_downloader import engine, libkit
+from calibre_plugins.fanfic_downloader import engine, flaresolverr, libkit
 from calibre_plugins.fanfic_downloader.guikit import run_task
-from calibre_plugins.fanfic_downloader.ui import DownloadDialog
+from calibre_plugins.fanfic_downloader.ui import DownloadDialog, FlareSolverrSetupWizard
 
 
 class FanficAction(InterfaceAction):
@@ -42,21 +42,77 @@ class FanficAction(InterfaceAction):
                                                'cancelling takes effect between stories.'):
             return
 
+        # Pre-flight connectivity verification for Cloudflare protected domains
+        cf_stories = [info for info in accepted if flaresolverr.is_cloudflare_domain(info['domain'])]
+        if cf_stories:
+            if not flaresolverr.is_enabled(opts['ini']):
+                wizard = FlareSolverrSetupWizard(self.gui, advanced_edit=opts['ini'])
+                if wizard.exec() == wizard.DialogCode.Accepted:
+                    opts['ini'] = wizard.updated_ini()
+                else:
+                    if not question_dialog(self.gui, 'FlareSolverr Setup',
+                                           'FlareSolverr proxy is not enabled. Cloudflare-protected sites may fail with HTTP 403.\n\nDo you want to continue downloading anyway?'):
+                        return
+
+            if flaresolverr.is_enabled(opts['ini']):
+                settings = flaresolverr.settings_from_ini(opts['ini'])
+
+                def preflight_work(task):
+                    task.status = 'Checking FlareSolverr proxy connectivity…'
+                    ok_srv, msg_srv = flaresolverr.check_server(settings, timeout=5)
+                    if not ok_srv:
+                        return False, msg_srv
+                    task.status = 'Verifying site loading through FlareSolverr…'
+                    ok_site, msg_site = flaresolverr.fetch_through(settings, url=cf_stories[0]['url'], max_timeout=10000)
+                    if not ok_site:
+                        return False, msg_site
+                    return True, msg_site
+
+                pf_task = run_task(self.gui, 'Verifying FlareSolverr proxy connectivity…', preflight_work)
+                if pf_task.error or (pf_task.result and not pf_task.result[0]):
+                    err = str(pf_task.error) if pf_task.error else (pf_task.result[1] if pf_task.result else 'Connectivity test failed')
+                    if question_dialog(self.gui, 'FlareSolverr Connectivity Warning',
+                                       f'Pre-flight verification check failed:\n{err}\n\nWould you like to open the FlareSolverr Setup Wizard to fix this?'):
+                        wizard = FlareSolverrSetupWizard(self.gui, advanced_edit=opts['ini'], recovery_mode=True)
+                        if wizard.exec() == wizard.DialogCode.Accepted:
+                            opts['ini'] = wizard.updated_ini()
+                        else:
+                            if not question_dialog(self.gui, 'Continue Download?', 'Pre-flight check failed. Attempt downloads anyway?'):
+                                return
+
         results, failures = [], []
+        user_cancelled = False
 
-        def work(task):
-            for n, info in enumerate(accepted, 1):
-                if task.cancelled():
-                    return
+        for n, info in enumerate(accepted, 1):
+            if user_cancelled:
+                break
+
+            def download_item(task):
                 task.status = f"[{n}/{len(accepted)}] {info['domain']}: {info['url']}"
-                try:
-                    results.append(engine.download_story(info, opts['ini'], opts['allow_adult']))
-                except Exception as exc:
-                    failures.append(f"{info['url']}: {engine.explain(exc, info['url'])}")
+                return engine.download_story(info, opts['ini'], opts['allow_adult'])
 
-        task = run_task(self.gui, 'Downloading…', work)
-        if task.error:
-            failures.append(str(task.error))
+            dl_task = run_task(self.gui, 'Downloading…', download_item)
+            if dl_task.cancelled():
+                user_cancelled = True
+                break
+
+            if dl_task.error:
+                exc = dl_task.error
+                if flaresolverr.is_403_error(exc):
+                    if question_dialog(self.gui, 'Cloudflare 403 Challenge',
+                                       f"Download failed with HTTP 403 bot challenge for {info['url']}.\n\nWould you like to open the FlareSolverr Setup Wizard to resolve this and retry?"):
+                        wizard = FlareSolverrSetupWizard(self.gui, advanced_edit=opts['ini'], recovery_mode=True, recovery_url=info['url'])
+                        if wizard.exec() == wizard.DialogCode.Accepted:
+                            opts['ini'] = wizard.updated_ini()
+                            retry_task = run_task(self.gui, f"Retrying {info['domain']}…", download_item)
+                            if not retry_task.error and retry_task.result:
+                                results.append(retry_task.result)
+                                continue
+                            elif retry_task.error:
+                                exc = retry_task.error
+                failures.append(f"{info['url']}: {engine.explain(exc, info['url'])}")
+            elif dl_task.result:
+                results.append(dl_task.result)
         if opts.get('combine') and len(results) > 1:
             try:
                 from .storykit import merge_epubs
@@ -78,7 +134,7 @@ class FanficAction(InterfaceAction):
         lines = [f'{added} book(s) added.']
         if skipped:
             lines.append(f'{skipped} already in the library, skipped.')
-        if task.cancelled():
+        if user_cancelled:
             lines.append('Cancelled; stories finished before that were kept.')
         partial = [r['title'] for r in results if r['chapter_errors']]
         if partial:

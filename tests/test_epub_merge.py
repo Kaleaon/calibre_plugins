@@ -55,6 +55,8 @@ class EpubMergeTests(unittest.TestCase):
             names = z.namelist()
             self.assertIn('OEBPS/content.opf', names)
             self.assertIn('OEBPS/nav.xhtml', names)
+            self.assertIn('OEBPS/cover.svg', names)
+            self.assertIn('OEBPS/cover.xhtml', names)
 
             nav_text = z.read('OEBPS/nav.xhtml').decode('utf-8')
             self.assertIn('The First Adventure', nav_text)
@@ -63,6 +65,9 @@ class EpubMergeTests(unittest.TestCase):
             opf_text = z.read('OEBPS/content.opf').decode('utf-8')
             self.assertIn('The First Adventure and 1 more', opf_text)
             self.assertIn('Alice Smith &amp; Bob Jones', opf_text)
+            self.assertIn('<meta name="cover" content="cover-image"/>', opf_text)
+            self.assertIn('properties="cover-image"', opf_text)
+            self.assertIn('<guide><reference type="cover" title="Cover" href="cover.xhtml"/></guide>', opf_text)
 
         extracted_omnibus = extract_epub_story(merged_bytes)
         self.assertEqual(len(extracted_omnibus['sections']), 4)
@@ -99,6 +104,10 @@ class EpubMergeTests(unittest.TestCase):
                     added_ids.append(new_id)
                 return added_ids, []
 
+            def set_cover(db_self, mapping):
+                db_self.covers_set = getattr(db_self, 'covers_set', {})
+                db_self.covers_set.update(mapping)
+
         class DummyModel:
             def refresh(self):
                 pass
@@ -126,6 +135,8 @@ class EpubMergeTests(unittest.TestCase):
         self.assertEqual(len(errors), 0)
         self.assertIn(new_id, gui.db.books)
         self.assertEqual(gui.db.books[new_id]['title'], 'Combined Anthology')
+        self.assertIn(new_id, gui.db.covers_set)
+        self.assertIn(b'<svg', gui.db.covers_set[new_id].lower())
 
 
 if __name__ == '__main__':

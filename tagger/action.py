@@ -2,6 +2,13 @@ from calibre.gui2 import error_dialog, info_dialog
 from calibre.gui2.actions import InterfaceAction
 from qt.core import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
                      QPushButton, QRadioButton, QVBoxLayout)
+try:
+    from calibre_plugins.story_collection_tagger.error_handler import show_friendly_error_dialog
+except ImportError:
+    try:
+        from .error_handler import show_friendly_error_dialog
+    except ImportError:
+        from error_handler import show_friendly_error_dialog
 
 from calibre_plugins.story_collection_tagger import rules as rules_mod
 from calibre_plugins.story_collection_tagger.config import prefs
@@ -133,7 +140,7 @@ class TaggerAction(InterfaceAction):
                 self.gui.library_view.model().refresh_ids([p['id'] for p in plan])
                 self.gui.tags_view.recount()
             except Exception as exc:
-                return error_dialog(self.gui, 'Auto-tag', f'Could not apply the tags: {exc}', show=True)
+                return show_friendly_error_dialog(self.gui, 'Auto-tag', exc, det_msg=f'Could not apply the tags to {len(plan)} book(s)', show=True)
             info_dialog(self.gui, 'Auto-tag', f'Tags added to {len(plan)} book(s).', show=True)
             dialog.accept()
 

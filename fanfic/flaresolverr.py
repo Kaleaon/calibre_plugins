@@ -21,6 +21,28 @@ TEST_URL = 'https://www.royalroad.com/'
 DOCKER_COMMAND = ('docker run -d --name=flaresolverr -p 127.0.0.1:8191:8191 -e LOG_LEVEL=info '
                   '--restart unless-stopped ghcr.io/flaresolverr/flaresolverr:latest')
 CHALLENGE_MARKERS = ('just a moment', 'cf-mitigated', 'challenge-platform', 'checking your browser')
+CLOUDFLARE_DOMAINS = (
+    'royalroad.com',
+    'fimfiction.net',
+    'scribblehub.com',
+    'sufficientvelocity.com',
+)
+
+
+def is_cloudflare_domain(domain):
+    """Check if domain is known to be Cloudflare protected."""
+    domain = (domain or '').lower().strip()
+    return any(domain == d or domain.endswith('.' + d) for d in CLOUDFLARE_DOMAINS)
+
+
+def is_403_error(exc):
+    """Return True if exception indicates HTTP 403 / Cloudflare bot challenge."""
+    if exc is None:
+        return False
+    text = str(exc)
+    low = text.lower()
+    return ('403' in text or 'forbidden' in low or 'cloudflare' in low or 'bot challenge' in low or 'cf-mitigated' in low)
+
 
 
 def settings_from_ini(text, section=SECTION):

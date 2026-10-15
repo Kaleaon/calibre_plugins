@@ -10,37 +10,41 @@ from calibre.gui2.actions import InterfaceAction
 from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
                      QMenu, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, Qt, QToolButton, QTreeWidget,
                      QTreeWidgetItem, QVBoxLayout)
+try:
+    from qt.core import _
+except ImportError:
+    _ = lambda s: s
 
 from calibre_plugins.media_matcher import matching, sources, tags as audio
 from calibre_plugins.media_matcher.config import prefs
 from calibre_plugins.media_matcher.guikit import run_task
 
-KIND_CHOICES = [('auto', 'Detect from each file'), ('music', 'Music'), ('audiobook', 'Audiobook'), ('book', 'Book')]
-FIELD_LABELS = [('title', 'Titles'), ('authors', 'Artists / authors'), ('album', 'Album (as series) and track number'),
-                ('date', 'Release date'), ('tags', 'Music / Audiobook tag'), ('subjects', 'Open Library subjects as tags (can be noisy)'),
-                ('identifiers', 'MusicBrainz / Open Library ids'), ('cover', 'Cover (only for books without one)')]
-SHOW = {'title': 'Title', 'authors': 'By', 'album': 'Album', 'date': 'Date', 'tags': 'Tags', 'identifiers': 'Ids', 'cover': 'Cover'}
+KIND_CHOICES = [('auto', _('Detect from each file')), ('music', _('Music')), ('audiobook', _('Audiobook')), ('book', _('Book'))]
+FIELD_LABELS = [('title', _('Titles')), ('authors', _('Artists / authors')), ('album', _('Album (as series) and track number')),
+                ('date', _('Release date')), ('tags', _('Music / Audiobook tag')), ('subjects', _('Open Library subjects as tags (can be noisy)')),
+                ('identifiers', _('MusicBrainz / Open Library ids')), ('cover', _('Cover (only for books without one)'))]
+SHOW = {'title': _('Title'), 'authors': _('By'), 'album': _('Album'), 'date': _('Date'), 'tags': _('Tags'), 'identifiers': _('Ids'), 'cover': _('Cover')}
 SOURCE_NAMES = {'musicbrainz': 'MusicBrainz', 'openlibrary': 'Open Library'}
-PRIVACY = ('Lookups send only the title, artist, album and length of a track (or an audiobook\'s title and author) to MusicBrainz and '
+PRIVACY = _('Lookups send only the title, artist, album and length of a track (or an audiobook\'s title and author) to MusicBrainz and '
            'Open Library; with audio fingerprints on, a short fingerprint of the audio goes to AcoustID. No file is uploaded. '
            'Nothing changes in your library until you press Apply, and "Undo last run" puts the old values back.')
-ADD_NOTE = ('Each audio file becomes its own book, because Calibre keeps one file per format: the album is the series and the track '
+ADD_NOTE = _('Each audio file becomes its own book, because Calibre keeps one file per format: the album is the series and the track '
             'number is the series number, so an album sorts and groups naturally. Files are copied into your library.')
 
 
 def show_value(field, value):
     if field == 'album':
         name, index = value
-        return (f'{name} #{index:g}' if name and index is not None else name) or '(none)'
+        return (f'{name} #{index:g}' if name and index is not None else name) or _('(none)')
     if field == 'date':
-        return value[:10] if value else '(none)'
+        return value[:10] if value else _('(none)')
     if field == 'authors' or field == 'tags':
-        return ', '.join(value) if value else '(none)'
+        return ', '.join(value) if value else _('(none)')
     if field == 'identifiers':
-        return ', '.join(f'{k}:{v}' for k, v in sorted(value.items())) or '(none)'
+        return ', '.join(f'{k}:{v}' for k, v in sorted(value.items())) or _('(none)')
     if field == 'cover':
-        return 'none' if value is None else ('front cover from ' + ('Cover Art Archive' if 'coverartarchive' in value[0] else 'Open Library'))
-    return value or '(none)'
+        return _('none') if value is None else (_('front cover from ') + (_('Cover Art Archive') if 'coverartarchive' in value[0] else 'Open Library'))
+    return value or _('(none)')
 
 
 def split_artists(text):
@@ -49,14 +53,14 @@ def split_artists(text):
 
 class MediaMatcherAction(InterfaceAction):
     name = 'Media Matcher'
-    action_spec = ('Music & audiobooks', None, 'Add music files and audiobooks, and match music, audiobooks and books against free databases', None)
+    action_spec = (_('Music & audiobooks'), None, _('Add music files and audiobooks, and match music, audiobooks and books against free databases'), None)
     popup_type = QToolButton.ToolButtonPopupMode.InstantPopup
 
     def genesis(self):
         menu = QMenu(self.gui)
         self.qaction.setMenu(menu)
-        self.create_menu_action(menu, 'media-matcher-add', 'Add music and audiobooks…', triggered=self.add_dialog)
-        self.create_menu_action(menu, 'media-matcher-match', 'Match with MusicBrainz / Open Library…', triggered=self.match_dialog)
+        self.create_menu_action(menu, 'media-matcher-add', _('Add music and audiobooks…'), triggered=self.add_dialog)
+        self.create_menu_action(menu, 'media-matcher-match', _('Match with MusicBrainz / Open Library…'), triggered=self.match_dialog)
 
     # -- reading and writing the library ------------------------------------------------------------------------------
     def books_for(self, ids):
@@ -220,18 +224,18 @@ class MediaMatcherAction(InterfaceAction):
 
     def add_dialog(self):
         dialog = QDialog(self.gui)
-        dialog.setWindowTitle('Add music and audiobooks')
+        dialog.setWindowTitle(_('Add music and audiobooks'))
         dialog.resize(900, 620)
         layout = QVBoxLayout(dialog)
         note = QLabel(ADD_NOTE)
         note.setWordWrap(True)
         layout.addWidget(note)
         row = QHBoxLayout()
-        files_btn = QPushButton('Choose files…')
-        folder_btn = QPushButton('Choose a folder (includes subfolders)…')
+        files_btn = QPushButton(_('Choose files…'))
+        folder_btn = QPushButton(_('Choose a folder (includes subfolders)…'))
         row.addWidget(files_btn)
         row.addWidget(folder_btn)
-        row.addWidget(QLabel('Treat as:'))
+        row.addWidget(QLabel(_('Treat as:')))
         treat = QComboBox()
         for value, label in KIND_CHOICES[:3]:
             treat.addItem(label, value)
@@ -241,24 +245,24 @@ class MediaMatcherAction(InterfaceAction):
         layout.addLayout(row)
         tree = QTreeWidget()
         tree.setRootIsDecorated(False)
-        tree.setHeaderLabels(['File', 'Title', 'Artist', 'Album', '#', 'Kind'])
+        tree.setHeaderLabels([_('File'), _('Title'), _('Artist'), _('Album'), '#', _('Kind')])
         tree.setColumnWidth(0, 220)
         tree.setColumnWidth(1, 220)
         tree.setColumnWidth(2, 160)
         tree.setColumnWidth(3, 160)
         tree.setColumnWidth(4, 40)
         layout.addWidget(tree, 1)
-        skip = QCheckBox('Skip files already in the library (same title, artist, album and format)')
+        skip = QCheckBox(_('Skip files already in the library (same title, artist, album and format)'))
         skip.setChecked(bool(prefs['skip_existing']))
         layout.addWidget(skip)
-        lookup = QCheckBox('When added, look the new books up on MusicBrainz / Open Library')
+        lookup = QCheckBox(_('When added, look the new books up on MusicBrainz / Open Library'))
         lookup.setChecked(bool(prefs['lookup_after_add']))
         layout.addWidget(lookup)
-        status = QLabel('Choose audio files (MP3, FLAC, Ogg, Opus, M4A, M4B) or a folder of them.')
+        status = QLabel(_('Choose audio files (MP3, FLAC, Ogg, Opus, M4A, M4B) or a folder of them.'))
         status.setWordWrap(True)
         layout.addWidget(status)
         buttons = QDialogButtonBox()
-        add_btn = QPushButton('Add ticked files')
+        add_btn = QPushButton(_('Add ticked files'))
         add_btn.setEnabled(False)
         buttons.addButton(add_btn, QDialogButtonBox.ButtonRole.AcceptRole)
         buttons.addButton(QDialogButtonBox.StandardButton.Close)
@@ -273,14 +277,14 @@ class MediaMatcherAction(InterfaceAction):
             if not paths:
                 return
             forced = treat.currentData()
-            task = run_task(dialog, 'Reading tags…', lambda t: [self.entry_for(p, forced) if not t.cancelled() else None for p in paths])
+            task = run_task(dialog, _('Reading tags…'), lambda t: [self.entry_for(p, forced) if not t.cancelled() else None for p in paths])
             if task.error:
                 return error_dialog(dialog, 'Media Matcher', str(task.error), show=True)
             for e in task.result or []:
                 if e is None:
                     continue
                 t = e['tags']
-                note_from_path = ' (from file name)' if t['from_path'] else ''
+                note_from_path = _(' (from file name)') if t['from_path'] else ''
                 item = QTreeWidgetItem(tree, [os.path.basename(e['path']), t['title'], ', '.join(e['authors']), t['album'],
                                               str(t['track'] or ''), e['kind'] + note_from_path])
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
@@ -289,22 +293,22 @@ class MediaMatcherAction(InterfaceAction):
                 entries[key] = e
                 item.setData(0, Qt.ItemDataRole.UserRole, key)
             add_btn.setEnabled(tree.topLevelItemCount() > 0)
-            status.setText(f'{tree.topLevelItemCount()} file(s) ready. Untick any you do not want, then press Add.')
+            status.setText(_('{count} file(s) ready. Untick any you do not want, then press Add.').format(count=tree.topLevelItemCount()))
 
         def choose_files():
             exts = ' '.join(f'*.{e}' for e in sorted(audio.AUDIO_EXTENSIONS))
-            paths, _ = QFileDialog.getOpenFileNames(dialog, 'Choose audio files', '', f'Audio files ({exts});;All files (*)')
+            paths, _ = QFileDialog.getOpenFileNames(dialog, _('Choose audio files'), '', f'Audio files ({exts});;All files (*)')
             load(list(paths))
 
         def choose_folder():
-            folder = QFileDialog.getExistingDirectory(dialog, 'Choose a folder of audio files')
+            folder = QFileDialog.getExistingDirectory(dialog, _('Choose a folder of audio files'))
             if not folder:
                 return
-            task = run_task(dialog, 'Looking for audio files…', lambda t: audio.scan_folder(folder, t.cancelled))
+            task = run_task(dialog, _('Looking for audio files…'), lambda t: audio.scan_folder(folder, t.cancelled))
             if task.error:
                 return error_dialog(dialog, 'Media Matcher', str(task.error), show=True)
             if not task.result:
-                return info_dialog(dialog, 'Media Matcher', 'No audio files were found in that folder.', show=True)
+                return info_dialog(dialog, 'Media Matcher', _('No audio files were found in that folder.'), show=True)
             load(task.result)
 
         def do_add():
@@ -317,18 +321,18 @@ class MediaMatcherAction(InterfaceAction):
                         e['kind'] = treat.currentData()
                     chosen.append(e)
             if not chosen:
-                return error_dialog(dialog, 'Media Matcher', 'Nothing is ticked.', show=True)
+                return error_dialog(dialog, 'Media Matcher', _('Nothing is ticked.'), show=True)
             prefs['add_kind'] = treat.currentData()
             prefs['skip_existing'] = skip.isChecked()
             prefs['lookup_after_add'] = lookup.isChecked()
-            progress = QProgressDialog(f'Adding {len(chosen)} file(s) to your library…', 'Cancel', 0, len(chosen), dialog)
+            progress = QProgressDialog(_('Adding {count} file(s) to your library…').format(count=len(chosen)), _('Cancel'), 0, len(chosen), dialog)
             progress.setWindowTitle('Media Matcher')
             progress.setWindowModality(Qt.WindowModality.WindowModal)
             progress.setMinimumDuration(0)
 
             def on_progress(done, total):
                 progress.setValue(done)
-                progress.setLabelText(f'Adding file {done + 1} of {total}…')
+                progress.setLabelText(_('Adding file {done} of {total}…').format(done=done + 1, total=total))
                 QApplication.processEvents()
                 return progress.wasCanceled()
 
@@ -337,9 +341,9 @@ class MediaMatcherAction(InterfaceAction):
             progress.close()
             if added:
                 self.refresh(added, new=True)
-            text = f'Added {len(added)} book(s).' + (f' Skipped {skipped} already in the library.' if skipped else '')
+            text = _('Added {count} book(s).').format(count=len(added)) + (_(' Skipped {count} already in the library.').format(count=skipped) if skipped else '')
             if errors:
-                text += '\n\nProblems:\n' + '\n'.join(errors[:10])
+                text += '\n\n' + _('Problems:') + '\n' + '\n'.join(errors[:10])
             info_dialog(self.gui, 'Media Matcher', text, show=True)
             tree.clear()
             entries.clear()
@@ -358,31 +362,31 @@ class MediaMatcherAction(InterfaceAction):
     def match_dialog(self, ids=None):
         selected = list(ids) if ids else list(self.gui.library_view.get_selected_ids())
         dialog = QDialog(self.gui)
-        dialog.setWindowTitle('Match with MusicBrainz / Open Library')
+        dialog.setWindowTitle(_('Match with MusicBrainz / Open Library'))
         dialog.resize(860, 820)
         layout = QVBoxLayout(dialog)
         note = QLabel(PRIVACY)
         note.setWordWrap(True)
         layout.addWidget(note)
-        scope_selected = QRadioButton(f'Selected books ({len(selected)})')
-        scope_all = QRadioButton('Entire library (one lookup a second; start with a few books)')
+        scope_selected = QRadioButton(_('Selected books ({count})').format(count=len(selected)))
+        scope_all = QRadioButton(_('Entire library (one lookup a second; start with a few books)'))
         (scope_selected if selected else scope_all).setChecked(True)
         scope_selected.setEnabled(bool(selected))
         layout.addWidget(scope_selected)
         layout.addWidget(scope_all)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel('These are:'))
+        row.addWidget(QLabel(_('These are:')))
         kind = QComboBox()
         for value, label in KIND_CHOICES:
             kind.addItem(label, value)
         kind.setCurrentIndex(max(0, kind.findData(prefs['kind'])))
-        kind.setToolTip('Music is matched on MusicBrainz; audiobooks and books on Open Library')
+        kind.setToolTip(_('Music is matched on MusicBrainz; audiobooks and books on Open Library'))
         row.addWidget(kind)
         row.addStretch(1)
         layout.addLayout(row)
 
-        layout.addWidget(QLabel('Fix:'))
+        layout.addWidget(QLabel(_('Fix:')))
         boxes = {}
         for field, label in FIELD_LABELS:
             boxes[field] = QCheckBox(label)
@@ -390,23 +394,23 @@ class MediaMatcherAction(InterfaceAction):
             layout.addWidget(boxes[field])
 
         row = QHBoxLayout()
-        row.addWidget(QLabel('Contact for MusicBrainz (optional email or web page):'))
+        row.addWidget(QLabel(_('Contact for MusicBrainz (optional email or web page):')))
         contact = QLineEdit(prefs['contact'])
-        contact.setPlaceholderText('MusicBrainz asks apps to say who is calling; this is sent in the User-Agent')
+        contact.setPlaceholderText(_('MusicBrainz asks apps to say who is calling; this is sent in the User-Agent'))
         row.addWidget(contact, 1)
         layout.addLayout(row)
-        fingerprint = QCheckBox('Identify music by audio fingerprint (AcoustID; needs the free key below and Chromaprint\'s fpcalc)')
+        fingerprint = QCheckBox(_('Identify music by audio fingerprint (AcoustID; needs the free key below and Chromaprint\'s fpcalc)'))
         fingerprint.setChecked(bool(prefs['fingerprint']))
         layout.addWidget(fingerprint)
         row = QHBoxLayout()
-        row.addWidget(QLabel('AcoustID key:'))
+        row.addWidget(QLabel(_('AcoustID key:')))
         acoustid = QLineEdit(prefs['acoustid_key'])
         acoustid.setEchoMode(QLineEdit.EchoMode.Password)
-        acoustid.setPlaceholderText('Free application key from https://acoustid.org/new-application')
+        acoustid.setPlaceholderText(_('Free application key from https://acoustid.org/new-application'))
         row.addWidget(acoustid, 1)
-        row.addWidget(QLabel('fpcalc:'))
+        row.addWidget(QLabel(_('fpcalc:')))
         fpcalc = QLineEdit(prefs['fpcalc'])
-        fpcalc.setPlaceholderText('Leave empty to search your PATH')
+        fpcalc.setPlaceholderText(_('Leave empty to search your PATH'))
         row.addWidget(fpcalc, 1)
         layout.addLayout(row)
 
@@ -416,30 +420,30 @@ class MediaMatcherAction(InterfaceAction):
         bar.setValue(0)
         bar.setFormat('%v of %m')
         row.addWidget(bar, 1)
-        stop_btn = QPushButton('Cancel')
+        stop_btn = QPushButton(_('Cancel'))
         stop_btn.setEnabled(False)
         row.addWidget(stop_btn)
         layout.addLayout(row)
-        phase = QLabel('Idle.')
+        phase = QLabel(_('Idle.'))
         layout.addWidget(phase)
         activity = QPlainTextEdit()
         activity.setReadOnly(True)
         activity.setMaximumBlockCount(5000)
-        activity.setPlaceholderText('Each book as it is looked up, what was searched for, and what came back.')
+        activity.setPlaceholderText(_('Each book as it is looked up, what was searched for, and what came back.'))
         layout.addWidget(activity, 2)
         tree = QTreeWidget()
-        tree.setHeaderLabels(['Suggested change', 'Match'])
+        tree.setHeaderLabels([_('Suggested change'), _('Match')])
         tree.setColumnWidth(0, 440)
         layout.addWidget(tree, 3)
-        status = QLabel('Press Look up. Weak matches are not offered; uncertain ones are left unticked.')
+        status = QLabel(_('Press Look up. Weak matches are not offered; uncertain ones are left unticked.'))
         status.setWordWrap(True)
         layout.addWidget(status)
 
         buttons = QDialogButtonBox()
-        check_btn = QPushButton('Look up')
-        apply_btn = QPushButton('Apply ticked changes')
+        check_btn = QPushButton(_('Look up'))
+        apply_btn = QPushButton(_('Apply ticked changes'))
         apply_btn.setEnabled(False)
-        undo_btn = QPushButton('Undo last run')
+        undo_btn = QPushButton(_('Undo last run'))
         undo_btn.setEnabled(bool(prefs['undo']))
         buttons.addButton(check_btn, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.addButton(apply_btn, QDialogButtonBox.ButtonRole.AcceptRole)
@@ -473,7 +477,7 @@ class MediaMatcherAction(InterfaceAction):
             stop_btn.setEnabled(busy)
             buttons.button(QDialogButtonBox.StandardButton.Close).setEnabled(not busy)
 
-        stop_btn.clicked.connect(lambda: (cancel_flag.set(), log('Cancel pressed; stopping after the current lookup.')))
+        stop_btn.clicked.connect(lambda: (cancel_flag.set(), log(_('Cancel pressed; stopping after the current lookup.'))))
         dialog.finished.connect(lambda _result: cancel_flag.set())
 
         def options():
@@ -484,15 +488,15 @@ class MediaMatcherAction(InterfaceAction):
         def do_check():
             save_prefs()
             if not chosen_fields():
-                return error_dialog(dialog, 'Media Matcher', 'Tick at least one thing to fix.', show=True)
+                return error_dialog(dialog, 'Media Matcher', _('Tick at least one thing to fix.'), show=True)
             opts = options()
             if fingerprint.isChecked() and not (opts['acoustid_key'] and opts['fpcalc']):
-                return error_dialog(dialog, 'Media Matcher', 'Audio fingerprints need an AcoustID key and the fpcalc program '
-                                    '(Chromaprint). Enter the key and, if fpcalc is not on your PATH, its location, or untick the option.', show=True)
+                return error_dialog(dialog, 'Media Matcher', _('Audio fingerprints need an AcoustID key and the fpcalc program '
+                                    '(Chromaprint). Enter the key and, if fpcalc is not on your PATH, its location, or untick the option.'), show=True)
             book_ids = selected if scope_selected.isChecked() else sorted(self.gui.current_db.new_api.all_book_ids())
             if len(book_ids) > 50 and not question_dialog(
-                    dialog, 'Media Matcher', f'{len(book_ids)} books will be looked up at about one a second '
-                    f'(roughly {len(book_ids) // 60 + 1} minutes). You can cancel at any time and keep what was found. Continue?'):
+                    dialog, 'Media Matcher', _('{count} books will be looked up at about one a second '
+                    '(roughly {mins} minutes). You can cancel at any time and keep what was found. Continue?').format(count=len(book_ids), mins=len(book_ids) // 60 + 1)):
                 return
             tree.clear()
             suggestions.clear()
@@ -500,7 +504,7 @@ class MediaMatcherAction(InterfaceAction):
             cancel_flag.clear()
             set_busy(True)
             try:
-                log(f'Reading {len(book_ids)} book(s) from your library…')
+                log(_('Reading {count} book(s) from your library…').format(count=len(book_ids)))
                 books = self.books_for(book_ids)
                 result = run_lookups(books, opts)
             finally:
@@ -528,12 +532,12 @@ class MediaMatcherAction(InterfaceAction):
             def handle(event, info):
                 if event == 'book':
                     bar.setValue(info['done'] - 1)
-                    phase.setText(f"Looking up {info['done']} of {info['total']}: {info['name']}")
+                    phase.setText(_('Looking up {done} of {total}: {name}').format(done=info['done'], total=info['total'], name=info['name']))
                     log(f"{info['done']}/{info['total']}  {info['name']}")
                 elif event == 'searching':
                     log(f"   searching: {info['query']}")
                 elif event == 'fingerprint':
-                    log('   fingerprinting the audio…')
+                    log(_('   fingerprinting the audio…'))
                 elif event == 'match':
                     c = info['candidate']
                     who = SOURCE_NAMES[c['source']]
@@ -545,8 +549,8 @@ class MediaMatcherAction(InterfaceAction):
                 elif event in ('error', 'stopped', 'notice'):
                     log(f"   ⚠ {info.get('text')}")
                 elif event == 'wait':
-                    log(f"   waiting {info['seconds']:.0f}s: {info['why']}")
-                    phase.setText(f"Waiting {info['seconds']:.0f}s: {info['why']}")
+                    log(_('   waiting {seconds:.0f}s: {why}').format(seconds=info['seconds'], why=info['why']))
+                    phase.setText(_('Waiting {seconds:.0f}s: {why}').format(seconds=info['seconds'], why=info['why']))
 
             while worker.is_alive() or not messages.empty():
                 while not messages.empty():
@@ -558,22 +562,23 @@ class MediaMatcherAction(InterfaceAction):
 
         def finish_run(result, count):
             result, error = result
-            phase.setText('Idle.')
+            phase.setText(_('Idle.'))
             if error:
                 log(f'✖ Stopped: {error}')
                 return error_dialog(dialog, 'Media Matcher', str(error), show=True)
             found, skipped = result
-            note_cancel = ' (cancelled early)' if cancel_flag.is_set() else ''
-            log(f'Done: {len(found)} of {count} book(s) have suggested changes{note_cancel}. Tick what you want, then press Apply.')
+            note_cancel = _(' (cancelled early)') if cancel_flag.is_set() else ''
+            log(_('Done: {found} of {count} book(s) have suggested changes{cancel}. Tick what you want, then press Apply.').format(found=len(found), count=count, cancel=note_cancel))
             for s in found:
                 suggestions[s['id']] = s
                 c = s['candidate']
                 flags = ''
                 if s['ambiguous']:
-                    flags += f"; {c['rivals']} similar recording(s), check this one"
+                    flags += _('; {rivals} similar recording(s), check this one').format(rivals=c['rivals'])
                 if s['big']:
-                    flags += '; BIG TITLE CHANGE'
-                top = QTreeWidgetItem(tree, [s['title'] or f"book {s['id']}", f"{c['score']:.0%} {SOURCE_NAMES[c['source']]}: "
+                    flags += _('; BIG TITLE CHANGE')
+                book_str = s['title'] or _('book {id}').format(id=s['id'])
+                top = QTreeWidgetItem(tree, [book_str, f"{c['score']:.0%} {SOURCE_NAMES[c['source']]}: "
                                              f"{c['title']} — {', '.join(c['authors'])}" + (f" / {c['album']}" if c.get('album') else '') + flags])
                 top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
                 sure = c['score'] >= matching.TICK_SCORE and not s['ambiguous'] and not s['big']
@@ -581,7 +586,7 @@ class MediaMatcherAction(InterfaceAction):
                 top.setData(0, Qt.ItemDataRole.UserRole, s['id'])
                 for field, (old, new) in s['changes'].items():
                     shown = f'{SHOW[field]}:  {show_value(field, old)}  →  {show_value(field, new)}' if field != 'cover' else \
-                        f'Cover:  {show_value(field, new)}'
+                        f'{_("Cover")}:  {show_value(field, new)}'
                     child = QTreeWidgetItem(top, [shown, ''])
                     child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                     child.setCheckState(0, want)
@@ -589,7 +594,7 @@ class MediaMatcherAction(InterfaceAction):
                     child.setData(0, Qt.ItemDataRole.UserRole + 1, (old, new))
                 top.setCheckState(0, want)
                 top.setExpanded(True)
-            text = f'{len(found)} of {count} book(s) have suggested changes{note_cancel}.'
+            text = _('{found} of {count} book(s) have suggested changes{cancel}.').format(found=len(found), count=count, cancel=note_cancel)
             if skipped:
                 text += f' {len(skipped)} problem(s): ' + '; '.join(skipped[:3]) + (' …' if len(skipped) > 3 else '')
             status.setText(text)
@@ -611,7 +616,7 @@ class MediaMatcherAction(InterfaceAction):
         def do_apply():
             items = collect()
             if not items:
-                return error_dialog(dialog, 'Media Matcher', 'Nothing is ticked.', show=True)
+                return error_dialog(dialog, 'Media Matcher', _('Nothing is ticked.'), show=True)
             covers = {}
             wanted = {book_id: changes['cover'][1] for book_id, changes in items if 'cover' in changes}
             if wanted:
@@ -622,7 +627,7 @@ class MediaMatcherAction(InterfaceAction):
                     for book_id, urls in wanted.items():
                         if task.cancelled():
                             break
-                        task.status = f'Downloading cover art ({len(covers) + 1} of {len(wanted)})…'
+                        task.status = _('Downloading cover art ({done} of {total})…').format(done=len(covers) + 1, total=len(wanted))
                         key = tuple(urls)
                         if key not in cache:
                             try:
@@ -632,7 +637,7 @@ class MediaMatcherAction(InterfaceAction):
                         if cache[key]:
                             covers[book_id] = cache[key]
 
-                task = run_task(dialog, 'Downloading cover art…', download)
+                task = run_task(dialog, _('Downloading cover art…'), download)
                 if task.error:
                     return error_dialog(dialog, 'Media Matcher', str(task.error), show=True)
             done, errors, undo = self.write_changes(items, covers)
@@ -641,25 +646,25 @@ class MediaMatcherAction(InterfaceAction):
                 undo_btn.setEnabled(True)
             self.refresh(done)
             missing = len(wanted) - len(covers)
-            text = f'Updated {len(done)} book(s)' + (f' and {len(covers)} cover(s)' if wanted else '') + '. "Undo last run" can put the old values back.'
+            text = _('Updated {done} book(s)').format(done=len(done)) + (_(' and {covers} cover(s)').format(covers=len(covers)) if wanted else '') + _('. "Undo last run" can put the old values back.')
             if missing:
-                text += f'\n\n{missing} ticked cover(s) could not be downloaded (the database has no front cover for them).'
+                text += '\n\n' + _('{missing} ticked cover(s) could not be downloaded (the database has no front cover for them).').format(missing=missing)
             if errors:
-                text += '\n\nProblems:\n' + '\n'.join(errors[:10])
+                text += '\n\n' + _('Problems:') + '\n' + '\n'.join(errors[:10])
             info_dialog(self.gui, 'Media Matcher', text, show=True)
             tree.clear()
             apply_btn.setEnabled(False)
 
         def do_undo():
             undo = dict(prefs['undo'])
-            if not undo or not question_dialog(dialog, 'Media Matcher', f'Put back the old values for {len(undo)} book(s) changed in the last run?'):
+            if not undo or not question_dialog(dialog, 'Media Matcher', _('Put back the old values for {count} book(s) changed in the last run?').format(count=len(undo))):
                 return
             done, errors = self.restore(undo)
             self.refresh(done)
             if not errors:
                 prefs['undo'] = {}
                 undo_btn.setEnabled(False)
-            text = f'Restored {len(done)} book(s).' + ('\n\nProblems:\n' + '\n'.join(errors[:10]) if errors else '')
+            text = _('Restored {count} book(s).').format(count=len(done)) + ('\n\n' + _('Problems:') + '\n' + '\n'.join(errors[:10]) if errors else '')
             info_dialog(self.gui, 'Media Matcher', text, show=True)
 
         for edit in (contact, acoustid, fpcalc):
