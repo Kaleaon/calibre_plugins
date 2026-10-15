@@ -1,0 +1,27 @@
+{
+  "name": "Story & Character Tropes",
+  "category": "Tropes",
+  "description": "Auto-tag common story tropes such as Isekai, Time Loop, and Harem.",
+  "version": "1.0.0",
+  "rules": [
+    {
+      "field": "any",
+      "match_mode": "regex",
+      "pattern": "\\b(isekai|reincarnated|transmigration)\\b",
+      "tags": ["Trope.Isekai"]
+    },
+    {
+      "field": "comments",
+      "match_mode": "regex",
+      "pattern": "\\b(time loop|groundhog day)\\b",
+      "tags": ["Trope.Time Loop"]
+    },
+    {
+      "field": "tags",
+      "match_mode": "exact",
+      "pattern": "Harem",
+      "tags": ["Trope.Harem"]
+    }
+  ],
+  "sites": []
+}

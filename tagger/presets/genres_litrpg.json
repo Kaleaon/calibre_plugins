@@ -1,0 +1,39 @@
+{
+  "name": "LitRPG & Progression Fantasy",
+  "category": "Genres",
+  "description": "Auto-tag LitRPG, GameLit, System Apocalypse, and Progression Fantasy titles.",
+  "version": "1.0.0",
+  "rules": [
+    {
+      "field": "any",
+      "match_mode": "regex",
+      "pattern": "\\b(litrpg|gamelit|system apocalypse)\\b",
+      "tags": ["Genre.LitRPG"]
+    },
+    {
+      "field": "any",
+      "match_mode": "regex",
+      "pattern": "\\b(progression fantasy|cultivation|xianxia|wuxia)\\b",
+      "tags": ["Genre.Progression Fantasy"]
+    },
+    {
+      "field": "tags",
+      "match_mode": "exact",
+      "pattern": "LitRPG",
+      "tags": ["Genre.LitRPG"]
+    },
+    {
+      "field": "tags",
+      "match_mode": "exact",
+      "pattern": "GameLit",
+      "tags": ["Genre.LitRPG"]
+    }
+  ],
+  "sites": [
+    {
+      "name": "Royal Road",
+      "hosts": ["royalroad.com", "royalroadl.com"],
+      "keys": ["royalroad"]
+    }
+  ]
+}
