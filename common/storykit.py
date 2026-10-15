@@ -246,6 +246,137 @@ XHTML = ('<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n'
          '<body>{body}</body></html>')
 
 
+def wrap_text(text, max_chars):
+    """Split text into lines where no line exceeds max_chars, breaking on whitespace when possible."""
+    words = text.split()
+    if not words:
+        return []
+    lines = []
+    current_line = []
+    current_len = 0
+    for word in words:
+        if current_len + (1 if current_line else 0) + len(word) <= max_chars:
+            current_line.append(word)
+            current_len += (1 if current_len > 0 else 0) + len(word)
+        else:
+            if current_line:
+                lines.append(' '.join(current_line))
+            if len(word) > max_chars:
+                for chunk_start in range(0, len(word), max_chars):
+                    chunk = word[chunk_start:chunk_start + max_chars]
+                    if len(chunk) == max_chars:
+                        lines.append(chunk)
+                    else:
+                        current_line = [chunk]
+                        current_len = len(chunk)
+            else:
+                current_line = [word]
+                current_len = len(word)
+    if current_line:
+        lines.append(' '.join(current_line))
+    return lines
+
+
+def _xml_escape(s):
+    return escape(s, {'"': '&quot;', "'": '&apos;'}) if s else ''
+
+
+def generate_cover_svg(title, author, publisher=None, site_meta=None):
+    """Dynamically generate valid SVG cover text string (600x800) with dynamic text sizing and line wrapping."""
+    title_str = (title or 'Untitled').strip()
+    author_str = (author or 'Unknown Author').strip()
+    pub_str = (publisher or 'EBOOK').strip()
+    meta_str = (site_meta or '').strip()
+
+    usable_width = 500.0
+    title_len = len(title_str)
+
+    if title_len <= 20:
+        font_size = 40
+    elif title_len <= 50:
+        font_size = 32
+    elif title_len <= 90:
+        font_size = 26
+    elif title_len <= 140:
+        font_size = 22
+    else:
+        font_size = 18
+
+    while font_size >= 14:
+        max_chars = max(8, int(usable_width / (font_size * 0.58)))
+        lines = wrap_text(title_str, max_chars)
+        line_height = int(font_size * 1.3)
+        total_title_height = len(lines) * line_height
+        if total_title_height <= 280 and len(lines) <= 7:
+            break
+        font_size -= 2
+
+    title_start_y = max(160, int(330 - (total_title_height / 2)))
+    title_end_y = title_start_y + total_title_height
+
+    title_tspans = []
+    for idx, line in enumerate(lines):
+        escaped_line = _xml_escape(line)
+        if idx == 0:
+            title_tspans.append(f'<tspan x="300" y="{title_start_y + font_size}">{escaped_line}</tspan>')
+        else:
+            title_tspans.append(f'<tspan x="300" dy="{line_height}">{escaped_line}</tspan>')
+    title_svg_content = ''.join(title_tspans)
+
+    bottom_line_y = min(600, max(460, title_end_y + 35))
+
+    author_max_chars = max(12, int(usable_width / (24 * 0.58)))
+    author_lines = wrap_text(author_str, author_max_chars)
+    author_tspans = []
+    author_start_y = bottom_line_y + 65
+    for idx, line in enumerate(author_lines):
+        escaped_line = _xml_escape(line)
+        if idx == 0:
+            author_tspans.append(f'<tspan x="300" y="{author_start_y}">{escaped_line}</tspan>')
+        else:
+            author_tspans.append(f'<tspan x="300" dy="30">{escaped_line}</tspan>')
+    author_svg_content = ''.join(author_tspans)
+
+    footer_text = _xml_escape(meta_str) if meta_str else _xml_escape(pub_str.upper())
+
+    svg = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="600" height="800" viewBox="0 0 600 800">\n'
+        '  <defs>\n'
+        '    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="0%" y2="100%">\n'
+        '      <stop offset="0%" stop-color="#0f172a"/>\n'
+        '      <stop offset="100%" stop-color="#1e293b"/>\n'
+        '    </linearGradient>\n'
+        '  </defs>\n'
+        '  <!-- Background -->\n'
+        '  <rect width="600" height="800" fill="url(#bg-grad)"/>\n'
+        '  <rect x="25" y="25" width="550" height="750" fill="none" stroke="#38bdf8" stroke-width="2" stroke-opacity="0.5" rx="10"/>\n'
+        '  \n'
+        '  <!-- Top Publisher Banner -->\n'
+        f'  <text x="300" y="85" font-family="DejaVu Sans, Arial, sans-serif" font-size="18px" font-weight="bold" fill="#38bdf8" text-anchor="middle" letter-spacing="3">{_xml_escape(pub_str.upper())}</text>\n'
+        '  <line x1="120" y1="115" x2="480" y2="115" stroke="#38bdf8" stroke-width="1.5" stroke-opacity="0.6"/>\n'
+        '  \n'
+        '  <!-- Title Section -->\n'
+        f'  <text font-family="DejaVu Sans, Arial, sans-serif" font-size="{font_size}px" font-weight="bold" fill="#f8fafc" text-anchor="middle">\n'
+        f'    {title_svg_content}\n'
+        '  </text>\n'
+        '  \n'
+        '  <!-- Divider Line -->\n'
+        f'  <line x1="160" y1="{bottom_line_y}" x2="440" y2="{bottom_line_y}" stroke="#38bdf8" stroke-width="1.5" stroke-opacity="0.6"/>\n'
+        '  \n'
+        '  <!-- Author Section -->\n'
+        f'  <text x="300" y="{bottom_line_y + 35}" font-family="DejaVu Sans, Arial, sans-serif" font-size="13px" font-weight="normal" fill="#94a3b8" text-anchor="middle" letter-spacing="2">BY</text>\n'
+        '  <text font-family="DejaVu Sans, Arial, sans-serif" font-size="24px" font-weight="bold" fill="#e2e8f0" text-anchor="middle">\n'
+        f'    {author_svg_content}\n'
+        '  </text>\n'
+        '  \n'
+        '  <!-- Footer -->\n'
+        f'  <text x="300" y="735" font-family="DejaVu Sans, Arial, sans-serif" font-size="13px" fill="#64748b" text-anchor="middle">{footer_text}</text>\n'
+        '</svg>'
+    )
+    return svg
+
+
 def _page(title, body):
     return XHTML.format(title=escape(title), body=body)
 
@@ -317,6 +448,29 @@ def build_epub(stories, title=None, author=None, publisher=None):
     summary = stories[0].get('summary', '') if not combined else ''
     book_id = 'urn:uuid:' + str(uuid.uuid5(uuid.NAMESPACE_URL, '|'.join(s.get('id', s['title']) for s in stories)))
 
+    cover_svg = generate_cover_svg(title, author, publisher=publisher, site_meta=stories[0].get('url') if (stories and stories[0].get('url')) else None)
+    cover_xhtml = (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<!DOCTYPE html>\n'
+        '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="en" xml:lang="en">\n'
+        '<head>\n'
+        '  <meta charset="utf-8"/>\n'
+        f'  <title>Cover: {escape(title)}</title>\n'
+        '  <style type="text/css">\n'
+        '    @page { padding: 0; margin: 0; }\n'
+        '    body { text-align: center; padding: 0; margin: 0; background-color: #1e293b; }\n'
+        '    div.cover { margin: 0; padding: 0; height: 100vh; text-align: center; }\n'
+        '    img.cover { max-width: 100%; max-height: 100%; height: auto; }\n'
+        '  </style>\n'
+        '</head>\n'
+        '<body>\n'
+        '  <div class="cover">\n'
+        '    <img class="cover" src="cover.svg" alt="Cover"/>\n'
+        '  </div>\n'
+        '</body>\n'
+        '</html>'
+    )
+
     files = []  # (filename, xhtml)
     toc = []    # (label, href, [children])
     title_body = f'<h1>{escape(title)}</h1><p class="byline">by {escape(author)}</p>'
@@ -360,11 +514,15 @@ def build_epub(stories, title=None, author=None, publisher=None):
            f'<dc:identifier id="bookid">{book_id}</dc:identifier><dc:title>{escape(title)}</dc:title>'
            f'<dc:creator>{escape(author)}</dc:creator><dc:language>en</dc:language>{publisher_xml}'
            f'{description}{subjects}{source}'
+           '<meta name="cover" content="cover-image"/>'
            f'<meta property="dcterms:modified">{time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}</meta></metadata>'
            '<manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
            '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'
+           '<item id="cover-xhtml" href="cover.xhtml" media-type="application/xhtml+xml"/>'
+           '<item id="cover-image" href="cover.svg" media-type="image/svg+xml" properties="cover-image"/>'
            f'<item id="css" href="style.css" media-type="text/css"/>{manifest}</manifest>'
-           f'<spine toc="ncx">{spine}</spine></package>')
+           f'<spine toc="ncx"><itemref idref="cover-xhtml"/>{spine}</spine>'
+           '<guide><reference type="cover" title="Cover" href="cover.xhtml"/></guide></package>')
 
     def nav_list(entries):
         return '<ol>' + ''.join(
@@ -393,6 +551,8 @@ def build_epub(stories, title=None, author=None, publisher=None):
         z.writestr(zipfile.ZipInfo('mimetype'), 'application/epub+zip', compress_type=zipfile.ZIP_STORED)
         z.writestr('META-INF/container.xml', container, zipfile.ZIP_DEFLATED)
         z.writestr('OEBPS/content.opf', opf, zipfile.ZIP_DEFLATED)
+        z.writestr('OEBPS/cover.svg', cover_svg, zipfile.ZIP_DEFLATED)
+        z.writestr('OEBPS/cover.xhtml', cover_xhtml, zipfile.ZIP_DEFLATED)
         z.writestr('OEBPS/nav.xhtml', nav, zipfile.ZIP_DEFLATED)
         z.writestr('OEBPS/toc.ncx', ncx, zipfile.ZIP_DEFLATED)
         z.writestr('OEBPS/style.css', CSS, zipfile.ZIP_DEFLATED)
@@ -495,8 +655,8 @@ def extract_epub_story(epub_source):
         sections = []
         for idx, item in enumerate(spine, 1):
             href = item['href']
-            # Ignore title page and nav pages if they exist
-            if href in ('title.xhtml', 'nav.xhtml', 'toc.xhtml'):
+            # Ignore title page, cover page and nav pages if they exist
+            if href in ('title.xhtml', 'nav.xhtml', 'toc.xhtml', 'cover.xhtml'):
                 continue
             full_path = opf_dir + href
             if full_path not in names:

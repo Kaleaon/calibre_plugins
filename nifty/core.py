@@ -493,6 +493,120 @@ def download_ref(fetcher, ref, skip_ids=frozenset(), progress=lambda msg: None, 
     return stories, skipped
 
 
+def build_preview_groups(refs, combine=False, title=None, chapter_range=None):
+    """Convert resolved story references into structured story groups for the preview dialog.
+
+    Returns a list of group dicts:
+    [{'id': str, 'title': str, 'chapters': [{'file': path, 'title': label, 'enabled': bool}]}]
+    """
+    if not refs:
+        return []
+
+    groups = []
+    if combine and len(refs) > 0:
+        combined_chapters = []
+        for ref in refs:
+            files = ref.get('files') or []
+            if chapter_range is not None and files:
+                if isinstance(chapter_range, str):
+                    indices = parse_chapter_range(chapter_range, len(files))
+                else:
+                    indices = set(chapter_range)
+            else:
+                indices = set(range(len(files)))
+            for idx, path in enumerate(files):
+                number = split_chapter(path.rsplit('/', 1)[-1])[1]
+                label = f"{ref['title']}: " + (f"Chapter {number if number is not None else idx + 1}" if len(files) > 1 else path.rsplit('/', 1)[-1])
+                combined_chapters.append({
+                    'file': path,
+                    'title': label,
+                    'enabled': idx in indices
+                })
+        omnibus_title = title.strip() if title and title.strip() else (refs[0]['title'] + ' Omnibus' if len(refs) > 1 else refs[0]['title'])
+        groups.append({
+            'id': refs[0]['id'],
+            'title': omnibus_title,
+            'chapters': combined_chapters
+        })
+    else:
+        for ref in refs:
+            files = ref.get('files') or []
+            if chapter_range is not None and files:
+                if isinstance(chapter_range, str):
+                    indices = parse_chapter_range(chapter_range, len(files))
+                else:
+                    indices = set(chapter_range)
+            else:
+                indices = set(range(len(files)))
+            chapters = []
+            for idx, path in enumerate(files):
+                number = split_chapter(path.rsplit('/', 1)[-1])[1]
+                if len(files) > 1:
+                    label = f"Chapter {number if number is not None else idx + 1} ({path.rsplit('/', 1)[-1]})"
+                else:
+                    label = ref['title']
+                chapters.append({
+                    'file': path,
+                    'title': label,
+                    'enabled': idx in indices
+                })
+            groups.append({
+                'id': ref['id'],
+                'title': ref['title'],
+                'chapters': chapters
+            })
+    return groups
+
+
+def fetch_group(fetcher, group, progress=lambda msg: None):
+    """Fetch chapters for a preview group and return one story dict."""
+    paths = [ch['file'] for ch in group.get('chapters', []) if ch.get('enabled', True)]
+    total_chapters = len(paths)
+    if total_chapters == 0:
+        return None
+
+    chapters, first_headers = [], {}
+    for n, path in enumerate(paths, 1):
+        progress(f"{group['title']}: chapter {n} of {len(paths)}")
+        raw = fetcher.get(url_for(path))
+        if looks_like_html(raw):
+            headers, converted = {'subject': html_title(raw)}, html_body(raw)
+        else:
+            headers, body = split_headers(raw)
+            converted = text_to_html(body)
+        if n == 1:
+            first_headers = headers
+        number = split_chapter(path.rsplit('/', 1)[-1])[1]
+        label = '' if total_chapters == 1 else f'Chapter {number if number is not None else n}'
+        chapters.append((label, converted or '<p>(empty)</p>'))
+
+    folder_parts = group['id'].split('/')
+    tags = [humanize(p) for p in folder_parts[:-1]][:2]
+    pubdate = ''
+    try:
+        pubdate = parsedate_to_datetime(first_headers.get('date', '')).date().isoformat()
+    except (TypeError, ValueError, IndexError):
+        pass
+
+    first_url = url_for(paths[0]) if len(paths) == 1 else url_for(paths[0].rsplit('/', 1)[0] + '/')
+    story_title = clean_title(first_headers.get('subject', ''), group['title'])
+    if group.get('title') and group['title'] != story_title and group['title'] != 'Combined Omnibus':
+        story_title = group['title']
+
+    return {
+        'id': group['id'],
+        'url': first_url,
+        'title': story_title,
+        'author': author_name(first_headers.get('from', '')),
+        'sections': chapters,
+        'tags': tags,
+        'categories': [],
+        'summary': '',
+        'publisher': PUBLISHER,
+        'pubdate': pubdate
+    }
+
+
 # ---------------------------------------------------------------- authors directory: stories spread over many folders
 
 AUTHOR_PAGES = ('authors.html', 'prolific.html')  # the regular and the "prolific authors" directories

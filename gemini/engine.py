@@ -7,6 +7,7 @@ The model is told to leave anything it is unsure about alone, and every answer i
 import difflib
 import json
 import re
+import string
 import time
 import urllib.error
 import urllib.request
@@ -46,6 +47,132 @@ Rules:
 - confidence says how sure you are about your suggestions for that book: high only when the correction is obvious from the data given.
 - reason is one short sentence.
 - Return one object for every book id you were given, in the same order.'''
+
+BUILTIN_PRESETS = {
+    'Default Ebook Cleanup': {
+        'name': 'Default Ebook Cleanup',
+        'description': 'Standard metadata cleanup instructions for Calibre ebook collections.',
+        'text': INSTRUCTIONS,
+        'read_only': True,
+    },
+    'Comics & Manga Metadata': {
+        'name': 'Comics & Manga Metadata',
+        'description': 'Tailored rules for comics and manga: volume/chapter numbers, publisher logos, and genre demographics.',
+        'text': '''You clean up the metadata of comic books and manga in a personal Calibre library. You get a JSON list of books; for each you may suggest corrections for these fields: {fields}.
+
+Rules:
+- Identify series name, volume number, and chapter numbers from issue titles or file names (e.g. "Spider-Man v2 #10" or "One Piece Vol. 101"). Extract volume and issue numbers into series_index.
+- Normalize publisher and imprint names (e.g. Marvel Comics, DC Comics, Image Comics, Shueisha, Kodansha).
+- Fix creator names to "First Last" format and list primary creators clearly.
+- Tags: keep relevant genre tags ({tag_policy}), including comic tropes, manga demographics (Shonen, Seinen, Shojo), or publisher tags.
+- Cover pictures: inspect covers for volume, issue numbers, subtitle, and publisher logos.
+- Never invent facts. Set confidence to at least {min_confidence} when sure.
+- Return one object for every book id you were given, in the same order.''',
+        'read_only': True,
+    },
+    'Academic & Technical Papers': {
+        'name': 'Academic & Technical Papers',
+        'description': 'Formal title, author list, and subject tag normalization for technical papers and textbooks.',
+        'text': '''You clean up metadata for academic papers, technical ebooks, and textbooks in a personal Calibre library. Fields to fix: {fields}.
+
+Rules:
+- Normalize academic authors as "First Last" and list all co-authors accurately.
+- Retain full formal titles without truncation or informal abbreviations.
+- Extract publication year or journal/conference series information into series if appropriate.
+- Tags: clean domain-specific tags and subject keywords ({tag_policy}).
+- Confidence threshold: set confidence to at least {min_confidence} when sure.
+- Return one object for every book id in order.''',
+        'read_only': True,
+    },
+}
+
+
+class TemplateError(Exception):
+    """Raised when template variable interpolation fails or syntax is malformed."""
+
+
+class _StrictTemplateFormatter(string.Formatter):
+    """Custom Formatter that ensures unknown keys or malformed syntax raise KeyError/ValueError."""
+    def get_value(self, key, args, kwargs):
+        if isinstance(key, str):
+            if key in kwargs:
+                return kwargs[key]
+            raise KeyError(f"Unknown template variable {{{key}}}")
+        return super().get_value(key, args, kwargs)
+
+
+def get_all_templates(custom_templates=None):
+    """Returns a dict combining BUILTIN_PRESETS and custom_templates."""
+    templates = dict(BUILTIN_PRESETS)
+    if custom_templates and isinstance(custom_templates, dict):
+        for name, data in custom_templates.items():
+            if isinstance(data, dict):
+                entry = dict(data)
+                entry['read_only'] = False
+                templates[name] = entry
+    return templates
+
+
+def get_default_template_vars(fields=None, min_confidence='medium', tags_remove=False,
+                              batch_size=15, model=DEFAULT_MODEL, covers=False,
+                              excerpt=False, **extra):
+    f_list = fields if fields is not None else FIELDS
+    if isinstance(f_list, (list, tuple)):
+        fields_str = ', '.join(f_list)
+    else:
+        fields_str = str(f_list)
+
+    if tags_remove:
+        tag_policy_str = "allow tag removal and renaming"
+    else:
+        tag_policy_str = "keep existing tags, merge duplicates, add at most 5 genre tags"
+
+    vars_dict = {
+        'fields': fields_str,
+        'min_confidence': str(min_confidence or 'medium'),
+        'tag_policy': tag_policy_str,
+        'batch_size': str(batch_size),
+        'model': str(model or DEFAULT_MODEL),
+        'covers': 'enabled' if covers else 'disabled',
+        'excerpt': 'enabled' if excerpt else 'disabled',
+    }
+    vars_dict.update({k: str(v) for k, v in extra.items()})
+    return vars_dict
+
+
+def render_template(template_text, template_vars=None):
+    """
+    Renders template_text using template_vars dict.
+    Raises TemplateError if syntax is malformed or an unknown variable is referenced.
+    """
+    if not template_text:
+        return INSTRUCTIONS
+    if template_vars is None:
+        template_vars = get_default_template_vars()
+    formatter = _StrictTemplateFormatter()
+    try:
+        return formatter.format(template_text, **template_vars)
+    except (KeyError, ValueError, IndexError) as exc:
+        raise TemplateError(f"Malformed template syntax or unknown variable: {exc}") from exc
+    except Exception as exc:
+        raise TemplateError(f"Error rendering template: {exc}") from exc
+
+
+def compile_instructions(template_text=None, template_vars=None, notify=None):
+    """
+    Compiles system instructions from template_text and template_vars.
+    If template_text is None or empty, or if rendering fails due to syntax errors,
+    falls back to default INSTRUCTIONS and invokes notify if provided.
+    """
+    if not template_text:
+        template_text = INSTRUCTIONS
+    try:
+        return render_template(template_text, template_vars)
+    except TemplateError as exc:
+        if notify:
+            notify(f"⚠ Template syntax error ({exc}); falling back to default instructions.")
+        return INSTRUCTIONS
+
 
 RESPONSE_SCHEMA = {
     'type': 'ARRAY',
@@ -225,9 +352,12 @@ def _request(method, url, api_key, body=None, retries=4, timeout=120, transport=
 
 def generate(api_key, model, prompt, **kw):
     """Asks the model for JSON that matches RESPONSE_SCHEMA and returns the parsed list. prompt is text, or a list of API parts."""
+    instructions = kw.pop('instructions', None)
+    template_vars = kw.pop('template_vars', None)
+    sys_inst = compile_instructions(instructions, template_vars, notify=kw.get('notify'))
     parts = [{'text': prompt}] if isinstance(prompt, str) else prompt
     body = json.dumps({
-        'systemInstruction': {'parts': [{'text': INSTRUCTIONS}]},
+        'systemInstruction': {'parts': [{'text': sys_inst}]},
         'contents': [{'role': 'user', 'parts': parts}],
         'generationConfig': {'temperature': 0.1, 'responseMimeType': 'application/json', 'responseSchema': RESPONSE_SCHEMA},
     }).encode('utf-8')
@@ -338,7 +468,7 @@ def build_parts(books):
     return parts
 
 
-def estimate_batch_usage(books, batch_size=15, covers=False, min_interval=0, model=DEFAULT_MODEL):
+def estimate_batch_usage(books, batch_size=15, covers=False, min_interval=0, model=DEFAULT_MODEL, instructions=None, template_vars=None):
     """Calculates text characters, text tokens, image tokens, batch counts, estimated duration, and costs
     before dispatching API requests. Returns a dict with estimation details."""
     if not books:
@@ -355,6 +485,11 @@ def estimate_batch_usage(books, batch_size=15, covers=False, min_interval=0, mod
             'estimated_cost': 0.0,
         }
 
+    if template_vars is None:
+        template_vars = get_default_template_vars(covers=covers, model=model, batch_size=batch_size)
+    compiled_inst = compile_instructions(instructions, template_vars)
+    sys_inst_len = len(compiled_inst)
+
     bsize = max(1, int(batch_size))
     per_request = min(bsize, 8) if covers else bsize
 
@@ -368,7 +503,7 @@ def estimate_batch_usage(books, batch_size=15, covers=False, min_interval=0, mod
         batch = sorted_books[start:start + per_request]
         batch_count += 1
 
-        batch_text_chars = len(INSTRUCTIONS)
+        batch_text_chars = sys_inst_len
         parts = build_parts(batch)
         for part in parts:
             if 'text' in part and part['text']:
@@ -531,6 +666,20 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
     threshold = CONFIDENCE.get(min_confidence, 1)
     by_id = {b['id']: b for b in books}
     total = len(books)
+
+    instructions = kw.pop('instructions', None)
+    template_vars = kw.pop('template_vars', None)
+    if template_vars is None:
+        template_vars = get_default_template_vars(
+            fields=fields,
+            min_confidence=min_confidence,
+            tags_remove=tags_may_be_removed,
+            batch_size=batch_size,
+            model=model,
+        )
+
+    compiled_inst = compile_instructions(instructions, template_vars, notify=lambda msg: on_event('notice', text=msg))
+    kw['instructions'] = compiled_inst
 
     def finish(count):
         state['done'] += count
