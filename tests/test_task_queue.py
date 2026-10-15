@@ -29,7 +29,10 @@ if HAVE_QT and 'qt.core' not in sys.modules:
     sys.modules['qt'] = types.ModuleType('qt')
     sys.modules['qt.core'] = qtcore
 
-from queue_ui import QueueManagerDialog
+if HAVE_QT:
+    from queue_ui import QueueManagerDialog
+else:
+    QueueManagerDialog = None
 from task_queue import FailureCategory, QueueManager, TaskState, categorize_error
 
 # Ensure QApplication instance for Qt GUI tests
@@ -198,6 +201,7 @@ class TaskQueueTests(unittest.TestCase):
         all_tasks = self.qm.get_tasks()
         self.assertEqual(len(all_tasks), 50)
 
+    @unittest.skipUnless(HAVE_QT, "PyQt6 not installed")
     def test_ui_dialog_widgets_and_filters(self):
         # Seed tasks and activity logs
         self.qm.enqueue_task('ui_task_1', 'type_1', {'key': 'val'})
