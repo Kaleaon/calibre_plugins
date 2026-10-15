@@ -9,6 +9,14 @@ class TakeoutAction(InterfaceAction):
     action_spec = ('Takeout Book Fixer', None, 'Recover books from Google Takeout', None)
 
     def genesis(self):
+        self.daemon = None
+        try:
+            from calibre_plugins.takeout_book_fixer.daemon import ImportQueueDaemon
+            self.daemon = ImportQueueDaemon(gui=self.gui)
+            self.daemon.start()
+        except Exception:
+            pass
+
         menu = self.qaction.menu()
         from qt.core import QMenu
         menu = QMenu(self.gui)
@@ -17,6 +25,15 @@ class TakeoutAction(InterfaceAction):
             action = QAction(title, self.gui)
             action.triggered.connect(lambda checked=False, archive=archive: self.run_recovery(archive))
             menu.addAction(action)
+
+        queue_action = QAction('Import Queue Manager…', self.gui)
+        queue_action.triggered.connect(self.show_queue_manager)
+        menu.addAction(queue_action)
+
+        settings_action = QAction('Configure Drop Folder…', self.gui)
+        settings_action.triggered.connect(self.show_drop_settings)
+        menu.addAction(settings_action)
+
         repair = QAction('Repair selected books already in Calibre', self.gui)
         repair.triggered.connect(self.repair_selected)
         menu.addAction(repair)
@@ -24,6 +41,24 @@ class TakeoutAction(InterfaceAction):
         merge.triggered.connect(self.merge_selected)
         menu.addAction(merge)
         self.qaction.triggered.connect(lambda: self.run_recovery(False))
+
+    def show_queue_manager(self):
+        try:
+            from calibre_plugins.takeout_book_fixer.ui import QueueManagerDialog
+            dlg = QueueManagerDialog(daemon=self.daemon, parent=self.gui)
+            dlg.exec()
+        except Exception as e:
+            error_dialog(self.gui, 'Queue Manager Error', str(e), show=True)
+
+    def show_drop_settings(self):
+        try:
+            from calibre_plugins.takeout_book_fixer.ui import DropFolderConfigDialog
+            dlg = DropFolderConfigDialog(parent=self.gui)
+            if dlg.exec():
+                if self.daemon:
+                    self.daemon.scan_drop_folder()
+        except Exception as e:
+            error_dialog(self.gui, 'Drop Folder Error', str(e), show=True)
 
     def run_recovery(self, archive=False):
         if archive:
