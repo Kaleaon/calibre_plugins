@@ -365,8 +365,7 @@ class GeminiFixerAction(InterfaceAction):
                         db.set_field('authors', {book_id: tuple(old)})
                     elif field == 'series':
                         db.set_field('series', {book_id: old[0] or None})
-                        if old[0] and old[1] is not None:
-                            db.set_field('series_index', {book_id: old[1]})
+                        db.set_field('series_index', {book_id: old[1] if old[1] is not None else 1.0})
                     elif field == 'tags':
                         db.set_field('tags', {book_id: tuple(old)})
                     elif field == 'language':
