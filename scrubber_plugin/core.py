@@ -14,6 +14,48 @@ from urllib.parse import unquote, urldefrag
 
 from lxml import etree
 
+try:
+    from calibre_plugins.epub_promo_scrubber.profiles import (
+        extract_domains_from_metadata,
+        extract_domains_from_opf,
+        extract_domains_from_text,
+        resolve_profile,
+    )
+except ImportError:
+    try:
+        from calibre_plugins.scrubber_plugin.profiles import (
+            extract_domains_from_metadata,
+            extract_domains_from_opf,
+            extract_domains_from_text,
+            resolve_profile,
+        )
+    except ImportError:
+        try:
+            from .profiles import (
+                extract_domains_from_metadata,
+                extract_domains_from_opf,
+                extract_domains_from_text,
+                resolve_profile,
+            )
+        except ImportError:
+            import importlib.util
+            from pathlib import Path
+
+            prof_path = Path(__file__).parent / 'profiles.py'
+            if prof_path.exists():
+                spec = importlib.util.spec_from_file_location('profiles', prof_path)
+                prof_mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(prof_mod)
+                extract_domains_from_metadata = prof_mod.extract_domains_from_metadata
+                extract_domains_from_opf = prof_mod.extract_domains_from_opf
+                extract_domains_from_text = prof_mod.extract_domains_from_text
+                resolve_profile = prof_mod.resolve_profile
+            else:
+                from profiles import (
+                    extract_domains_from_opf,
+                    resolve_profile,
+                )
+
 DEFAULT_PATTERNS = [r'oceanofpdf', r'pdfdrive', r'z-?library', r'1lib', r'libgen', r'library\s+genesis']
 MAX_BLOCK_CHARS = 250
 MAX_TOTAL_BYTES = 1 << 30
@@ -405,9 +447,8 @@ def _drop_references(zf_items, dropped, opf_name, opf_root, extra_docs, changes)
             changes.append(('toc entry removed', _resolve(name, target)))
 
 
-def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, allowed_change_ids=None, dry_run=False):
+def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, allowed_change_ids=None, dry_run=False, profiles=None, profile=None):
     """Return (new_bytes_or_None, report). None means nothing needed changing."""
-    matcher = Matcher(extra_patterns, heuristic)
     try:
         zf = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile as exc:
@@ -419,6 +460,29 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, a
             raise ValueError('EPUB is too large to process safely')
         opf_name = _opf_path(zf)
         opf_root = _parse(zf.read(opf_name)) if opf_name else None
+
+        domains = extract_domains_from_opf(opf_root)
+        if profile is not None:
+            active_profile = profile
+        elif profiles is not None:
+            active_profile = resolve_profile(domains, profiles)
+        else:
+            active_profile = {
+                'name': 'Global Default',
+                'extra_patterns': extra_patterns,
+                'heuristic': heuristic,
+                'drop_empty_pages': drop_empty_pages
+            }
+
+        p_extra = active_profile.get('extra_patterns', extra_patterns)
+        if isinstance(p_extra, str):
+            p_extra = [line.strip() for line in p_extra.splitlines() if line.strip()]
+
+        p_heuristic = active_profile.get('heuristic', heuristic)
+        p_drop = active_profile.get('drop_empty_pages', drop_empty_pages)
+
+        matcher = Matcher(p_extra, p_heuristic)
+
         manifest, nav_names, ncx_names = {}, set(), set()
         if opf_root is not None:
             for item in opf_root.iter():
@@ -429,7 +493,13 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, a
                         nav_names.add(path)
                     if item.get('media-type') == NCX_TYPE:
                         ncx_names.add(path)
-        report = {'changes': [], 'skipped': [], 'dropped_pages': []}
+        report = {
+            'changes': [],
+            'skipped': [],
+            'dropped_pages': [],
+            'active_profile': active_profile.get('name', 'Global Default'),
+            'detected_domains': sorted(domains)
+        }
         replacements, trees, empties = {}, {}, []
         for info in zf.infolist():
             name = info.filename
@@ -449,7 +519,7 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, a
             report['changes'] += found
             trees[name] = (root, raw)
             body = next((e for e in root.iter() if _local(e) == 'body'), None)
-            if drop_empty_pages and body is not None and name not in nav_names and _is_empty(body):
+            if p_drop and body is not None and name not in nav_names and _is_empty(body):
                 change_id = f"{name}:page dropped:0"
                 cand_item = {
                     'file': name,
@@ -526,7 +596,7 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, a
         return out.getvalue(), report
 
 
-def scrub_files(source, output=None, extra_patterns=(), heuristic=True, drop_empty_pages=True, in_place=False, allowed_change_ids=None):
+def scrub_files(source, output=None, extra_patterns=(), heuristic=True, drop_empty_pages=True, in_place=False, allowed_change_ids=None, profiles=None):
     """Scrub every .epub under source (file or folder).
 
     By default cleaned copies go to a separate output folder and originals are never modified.
@@ -545,7 +615,7 @@ def scrub_files(source, output=None, extra_patterns=(), heuristic=True, drop_emp
     for path in paths:
         row = {'input': str(path)}
         try:
-            data, report = scrub_epub(path.read_bytes(), extra_patterns, heuristic, drop_empty_pages, allowed_change_ids=allowed_change_ids)
+            data, report = scrub_epub(path.read_bytes(), extra_patterns, heuristic, drop_empty_pages, allowed_change_ids=allowed_change_ids, profiles=profiles)
             row.update(report)
             if data is None:
                 row['status'] = 'unchanged'
