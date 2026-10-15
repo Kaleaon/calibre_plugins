@@ -1,6 +1,8 @@
 """Nifty archive parsing and download logic. Pure standard library so it can be tested outside Calibre."""
+import concurrent.futures
 import html
 import re
+import threading
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
@@ -104,10 +106,133 @@ def group_files(entries):
     return [(prefix, [n for _, n in sorted(items)]) for prefix, items in groups.items()]
 
 
-def expand_dir(fetcher, path):
+MAX_PREFETCH_WORKERS = 4
+
+
+class DirCache:
+    """Thread-safe store for directory listing HTML pages and pre-fetch exceptions."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._pages = {}       # url -> html_text
+        self._exceptions = {}  # url -> Exception
+
+    def _norm_url(self, key):
+        if not key:
+            return ''
+        return key if key.startswith('http://') or key.startswith('https://') else url_for(key.rstrip('/') + '/')
+
+    def get(self, key):
+        url = self._norm_url(key)
+        with self._lock:
+            if url in self._exceptions:
+                raise self._exceptions[url]
+            return self._pages.get(url)
+
+    def set(self, key, html_page):
+        url = self._norm_url(key)
+        with self._lock:
+            self._pages[url] = html_page
+
+    def set_error(self, key, exc):
+        url = self._norm_url(key)
+        with self._lock:
+            self._exceptions[url] = exc
+
+    def __contains__(self, key):
+        url = self._norm_url(key)
+        with self._lock:
+            return url in self._pages or url in self._exceptions
+
+
+def extract_directory_urls(lines):
+    """Pre-parse input lines to extract all unique directory URLs needed for resolution."""
+    urls = []
+    seen = set()
+    for line in lines:
+        path = classify(line)
+        if path is None:
+            continue
+        parts = path.strip('/').split('/')
+        if len(parts) == 1:
+            continue
+        dir_path = None
+        if len(parts) == 2:
+            dir_path = path.rstrip('/')
+        elif path.endswith('/'):
+            dir_path = path.rstrip('/')
+        else:
+            folder, name = path.rsplit('/', 1)
+            prefix, number = split_chapter(name)
+            if number is not None:
+                dir_path = folder
+        if dir_path:
+            url = url_for(dir_path.rstrip('/') + '/')
+            if url not in seen:
+                seen.add(url)
+                urls.append(url)
+    return urls
+
+
+def prefetch_directories(fetcher, dir_urls, dir_cache=None):
+    """Execute concurrent HTTP GET calls for unique directory URLs using ThreadPoolExecutor."""
+    if dir_cache is None:
+        dir_cache = getattr(fetcher, 'dir_cache', None)
+    if dir_cache is None:
+        dir_cache = DirCache()
+        try:
+            fetcher.dir_cache = dir_cache
+        except AttributeError:
+            pass
+
+    urls_to_fetch = [u for u in dir_urls if u not in dir_cache]
+    if not urls_to_fetch:
+        return dir_cache
+
+    is_cancelled = getattr(fetcher, 'cancelled', lambda: False)
+    if is_cancelled():
+        raise Cancelled()
+
+    max_workers = min(MAX_PREFETCH_WORKERS, len(urls_to_fetch))
+
+    def _worker(url):
+        if is_cancelled():
+            raise Cancelled()
+        html_page = fetcher.get(url)
+        if is_cancelled():
+            raise Cancelled()
+        return url, html_page
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_url = {executor.submit(_worker, u): u for u in urls_to_fetch}
+        for future in concurrent.futures.as_completed(future_to_url):
+            url = future_to_url[future]
+            if is_cancelled():
+                executor.shutdown(wait=False, cancel_futures=True)
+                raise Cancelled()
+            try:
+                url_res, html_page = future.result()
+                dir_cache.set(url_res, html_page)
+            except Cancelled as exc:
+                dir_cache.set_error(url, exc)
+                executor.shutdown(wait=False, cancel_futures=True)
+                raise exc
+            except Exception as exc:
+                dir_cache.set_error(url, exc)
+
+    return dir_cache
+
+
+def expand_dir(fetcher, path, dir_cache=None):
     """Story references found in a directory: file groups, plus unresolved sub-folders."""
     path = path.rstrip('/')
-    entries = parse_listing(fetcher.get(url_for(path + '/')))
+    url = url_for(path + '/')
+    cache = dir_cache if dir_cache is not None else getattr(fetcher, 'dir_cache', None)
+    if cache is not None and url in cache:
+        html_page = cache.get(url)
+    else:
+        html_page = fetcher.get(url)
+    entries = parse_listing(html_page)
     refs = []
     for e in entries:
         if e['is_dir']:
@@ -135,6 +260,9 @@ def resolve_ref(fetcher, ref, depth=0):
 
 def expand_targets(fetcher, lines, progress=lambda msg: None):
     """Resolve pasted Nifty addresses into story references (files, series folders or category contents)."""
+    dir_urls = extract_directory_urls(lines)
+    dir_cache = prefetch_directories(fetcher, dir_urls)
+
     refs, errors = {}, []
     for line in lines:
         path = classify(line)
@@ -148,7 +276,7 @@ def expand_targets(fetcher, lines, progress=lambda msg: None):
                 errors.append(f'{line.strip()}: a whole section is too broad; pick a category or story.')
             elif len(parts) == 2:
                 progress(f'Reading category {path}')
-                found = expand_dir(fetcher, path)
+                found = expand_dir(fetcher, path, dir_cache=dir_cache)
                 if not found:
                     errors.append(f'No stories found at {line.strip()}')
                 for r in found:
@@ -163,7 +291,12 @@ def expand_targets(fetcher, lines, progress=lambda msg: None):
                     r = {'id': path, 'title': humanize(prefix), 'author': '', 'date': '', 'dir': None, 'files': [path], 'detail': 'single story'}
                 else:  # a chapter link means the whole series
                     progress(f'Reading series {folder}')
-                    names = dict(group_files(parse_listing(fetcher.get(url_for(folder + '/'))))).get(prefix) or [name]
+                    url = url_for(folder + '/')
+                    if dir_cache is not None and url in dir_cache:
+                        page_html = dir_cache.get(url)
+                    else:
+                        page_html = fetcher.get(url)
+                    names = dict(group_files(parse_listing(page_html))).get(prefix) or [name]
                     r = {'id': f'{folder}/{prefix}', 'title': book_title(prefix, folder.rsplit('/', 1)[-1]), 'author': '', 'date': '', 'dir': None,
                          'files': [f'{folder}/{n}' for n in names], 'detail': f'{len(names)} chapter(s)'}
                 refs.setdefault(r['id'], r)
