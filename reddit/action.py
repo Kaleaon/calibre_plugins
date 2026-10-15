@@ -79,8 +79,47 @@ class FollowerAction(InterfaceAction):
         qm = self.get_queue_manager()
         QueueManagerDialog(self.gui, qm, run_now_callback=self.auto_check).exec()
 
+    def registry(self):
+        db_path = os.path.join(self.cache_dir(), 'series_registry.db')
+        if getattr(self, '_registry', None) is None or self._registry.db_path != db_path:
+            try:
+                from .registry import SeriesRegistry
+            except ImportError:
+                try:
+                    from registry import SeriesRegistry
+                except ImportError:
+                    import sys as _sys, os as _os
+                    _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
+                    if _pkg_dir not in _sys.path:
+                        _sys.path.insert(0, _pkg_dir)
+                    from registry import SeriesRegistry
+            self._registry = SeriesRegistry(db_path)
+            self._migrate()
+        return self._registry
+
+    def _migrate(self):
+        if getattr(self, '_registry', None) is None:
+            return
+        try:
+            from .migration import migrate_json_to_sqlite
+        except ImportError:
+            try:
+                from migration import migrate_json_to_sqlite
+            except ImportError:
+                import sys as _sys, os as _os
+                _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
+                if _pkg_dir not in _sys.path:
+                    _sys.path.insert(0, _pkg_dir)
+                from migration import migrate_json_to_sqlite
+        migrate_json_to_sqlite(self._registry, prefs, self.cache_dir())
+
+    def get_follows(self):
+        self._migrate()
+        series_list = self.registry().get_all_series()
+        return series_list if series_list else prefs['follows']
+
     def chapter_count(self, follow):
-        return len(core.ChapterCache(self.cache_dir(), follow['id']).posts)
+        return len(core.ChapterCache(self.cache_dir(), follow['id'], registry=self.registry()).posts)
 
     def make_source(self, cancelled):
         return core.make_source(prefs['mode'], prefs['client_id'], prefs['client_secret'],
@@ -97,6 +136,8 @@ class FollowerAction(InterfaceAction):
             return
         added = ([dialog.chosen] if dialog.chosen is not None else []) + list(dialog.chosen_many)
         if added:
+            for s in added:
+                self.registry().save_series(s)
             prefs['follows'] = prefs['follows'] + added
             self.check_now(added)
 
@@ -104,7 +145,7 @@ class FollowerAction(InterfaceAction):
         SettingsDialog(self.gui).exec()
 
     def check_all_now(self):
-        self.check_now(list(prefs['follows']))
+        self.check_now(list(self.get_follows()))
 
     def check_now(self, follows):
         """Check the given follows while the user waits (with a Cancel button), then update the library."""
@@ -139,7 +180,7 @@ class FollowerAction(InterfaceAction):
         hours = float(prefs['check_hours'])
         qm = self.get_queue_manager()
 
-        for f in prefs['follows']:
+        for f in self.get_follows():
             if core.due(f, hours):
                 qm.enqueue_task(f['id'], 'check_follow', f)
 
@@ -152,7 +193,7 @@ class FollowerAction(InterfaceAction):
 
         def work():
             results = []
-            by_id = {f['id']: f for f in prefs['follows']}
+            by_id = {f['id']: f for f in self.get_follows()}
             for task in eligible_tasks:
                 if self.stopping:
                     break
@@ -194,13 +235,14 @@ class FollowerAction(InterfaceAction):
 
     # -- applying results
     def finish(self, results, interactive):
-        by_id = {f['id']: f for f in prefs['follows']}
+        by_id = {f['id']: f for f in self.get_follows()}
         for r in results:
             live = by_id.get(r['follow']['id'])
             if live is not None and not r['skipped']:
                 live['last_checked'] = r['follow'].get('last_checked', live.get('last_checked', 0.0))
                 live['last_status'] = r['follow'].get('last_status', '')
-        prefs['follows'] = list(prefs['follows'])  # assigning saves the settings
+                self.registry().save_series(live)
+        prefs['follows'] = list(self.get_follows())  # assigning saves the settings
         if any(r['rate_limited'] for r in results):
             wait = max([r['retry_after'] or 0 for r in results] + [MIN_BACKOFF])
             self.backoff_until = time.time() + wait
