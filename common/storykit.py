@@ -3,6 +3,7 @@ import functools
 import gzip
 import html
 import re
+import threading
 import time
 import uuid
 import zipfile
@@ -38,6 +39,7 @@ class Fetcher:
         self.cancelled = cancelled
         self.opener = opener
         self._last = 0.0
+        self._lock = threading.Lock()
 
     def get(self, url, retries=3, headers=None, limit=None, post=None):
         """Fetch a page as text. headers adds request headers; limit reads at most that many bytes (a partial read);
@@ -46,10 +48,11 @@ class Fetcher:
         for attempt in range(retries):
             if self.cancelled():
                 raise Cancelled()
-            wait = self._last + self.min_interval - time.monotonic()
-            if wait > 0:
-                time.sleep(wait)
-            self._last = time.monotonic()
+            with self._lock:
+                wait = self._last + self.min_interval - time.monotonic()
+                if wait > 0:
+                    time.sleep(wait)
+                self._last = time.monotonic()
             try:
                 merged = {'User-Agent': USER_AGENT, 'Accept-Encoding': 'identity' if limit else 'gzip'}
                 merged.update(headers or {})

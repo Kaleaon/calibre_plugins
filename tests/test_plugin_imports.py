@@ -67,7 +67,8 @@ class PluginImportTests(unittest.TestCase):
                        'gemini_library_fixer': ['config', 'action', 'engine'],
                        'media_matcher': ['config', 'action', 'tags', 'sources', 'matching'],
                        'epub_promo_scrubber': ['action', 'ui', 'core'],
-                       'fanfic_downloader': ['config', 'action', 'ui', 'engine', 'flaresolverr']}.get(import_name, ['config', 'action', 'ui', 'core'])
+                       'fanfic_downloader': ['config', 'action', 'ui', 'engine', 'flaresolverr'],
+                       'takeout_book_fixer': ['action', 'core', 'importer']}.get(import_name, ['config', 'action', 'ui', 'core'])
             for module in modules:
                 with self.subTest(plugin=import_name, module=module):
                     importlib.import_module(f'{package}.{module}')
@@ -189,6 +190,147 @@ class PluginImportTests(unittest.TestCase):
         finally:
             path_a.unlink(missing_ok=True)
             path_b.unlink(missing_ok=True)
+
+    def test_normalize_isbn(self):
+        from plugin import importer
+
+        # ISBN-10 to ISBN-13
+        self.assertEqual(importer.normalize_isbn('0-306-40615-2'), '9780306406157')
+        self.assertEqual(importer.normalize_isbn('0306406152'), '9780306406157')
+        self.assertEqual(importer.normalize_isbn('0-8044-2957-X'), '9780804429573')
+
+        # ISBN-13 normalization
+        self.assertEqual(importer.normalize_isbn('978-0-306-40615-7'), '9780306406157')
+        self.assertEqual(importer.normalize_isbn('  978 0 306 40615 7  '), '9780306406157')
+
+        # Invalid / Empty inputs
+        self.assertIsNone(importer.normalize_isbn(None))
+        self.assertIsNone(importer.normalize_isbn(''))
+        self.assertIsNone(importer.normalize_isbn('   '))
+
+    def test_import_books_multi_index_deduplication(self):
+        from plugin import importer
+
+        content_1 = b'Binary Content One' * 5000
+        content_2 = b'Binary Content Two' * 5000
+
+        with tempfile.NamedTemporaryFile(suffix='.epub', delete=False) as tf1:
+            tf1.write(content_1)
+            tf1.flush()
+            path_1 = Path(tf1.name)
+
+        with tempfile.NamedTemporaryFile(suffix='.epub', delete=False) as tf2:
+            tf2.write(content_2)
+            tf2.flush()
+            path_2 = Path(tf2.name)
+
+        with tempfile.NamedTemporaryFile(suffix='.epub', delete=False) as tf3:
+            tf3.write(content_2)
+            tf3.flush()
+            path_3 = Path(tf3.name)
+
+        try:
+            # Setup mock Calibre DB
+            mock_gui = MagicMock()
+            mock_db = MagicMock()
+            mock_gui.current_db.new_api = mock_db
+
+            mock_db.all_book_ids.return_value = [101, 102]
+
+            def mock_all_field_for(field, book_ids, default=None):
+                if field == 'title':
+                    return {101: 'Existing Title A', 102: 'Pride and Prejudice'}
+                if field == 'identifiers':
+                    return {101: {'isbn': '978-1-111-11111-1'}, 102: {'isbn': '0-306-40615-2'}}
+                if field == 'formats':
+                    return {101: ('EPUB',), 102: ('EPUB',)}
+                return default or {}
+
+            mock_db.all_field_for.side_effect = mock_all_field_for
+
+            def mock_format_metadata(book_id, fmt):
+                if book_id == 101:
+                    return {'size': len(content_1)}
+                if book_id == 102:
+                    return {'size': 999999}
+                return None
+
+            mock_db.format_metadata.side_effect = mock_format_metadata
+            mock_db.format_abspath.return_value = None
+
+            def mock_format(book_id, fmt):
+                if book_id == 101:
+                    return content_1
+                if book_id == 102:
+                    return b'Different Content'
+                return None
+
+            mock_db.format.side_effect = mock_format
+            mock_db.create_book_entry.return_value = 200
+            mock_db.add_format.return_value = True
+
+            # 1. Stage 1: Exact binary content hash match with DIFFERENT title string
+            row_binary_dup = {
+                'output': str(path_1),
+                'format': 'epub',
+                'source': 'Misnamed.epub',
+                'metadata': {'title': 'Completely Different Title'}
+            }
+            imported, errors = importer.import_books(mock_gui, [row_binary_dup])
+            self.assertEqual(imported, [])
+            self.assertEqual(row_binary_dup.get('import_status'), 'duplicate skipped')
+
+            # 2. Stage 2: Normalized ISBN match with DIFFERENT title string (ISBN-10 vs ISBN-13)
+            row_isbn_dup = {
+                'output': str(path_2),
+                'format': 'epub',
+                'source': 'Annotated.epub',
+                'metadata': {
+                    'title': 'Pride and Prejudice (Annotated Edition)',
+                    'industryIdentifiers': [{'type': 'ISBN_13', 'identifier': '978-0-306-40615-7'}]
+                }
+            }
+            imported, errors = importer.import_books(mock_gui, [row_isbn_dup])
+            self.assertEqual(imported, [])
+            self.assertEqual(row_isbn_dup.get('import_status'), 'duplicate skipped')
+
+            # 3. Novel Non-Duplicate import
+            row_novel = {
+                'output': str(path_2),
+                'format': 'epub',
+                'source': 'NovelBook.epub',
+                'metadata': {
+                    'title': 'Novel Unique Book Title',
+                    'isbn': '978-9-999-99999-9'
+                }
+            }
+            imported, errors = importer.import_books(mock_gui, [row_novel])
+            self.assertEqual(imported, [200])
+            self.assertEqual(row_novel.get('import_status'), 'imported')
+
+            # 4. Intra-batch duplicate import
+            mock_db.create_book_entry.return_value = 201
+            row_batch_1 = {
+                'output': str(path_2),
+                'format': 'epub',
+                'source': 'BatchOne.epub',
+                'metadata': {'title': 'Batch Unique Title', 'isbn': '978-8-888-88888-8'}
+            }
+            row_batch_2 = {
+                'output': str(path_3),
+                'format': 'epub',
+                'source': 'BatchTwo.epub',
+                'metadata': {'title': 'Batch Unique Title (Duplicate)', 'isbn': '978-8-888-88888-8'}
+            }
+            imported, errors = importer.import_books(mock_gui, [row_batch_1, row_batch_2])
+            self.assertEqual(imported, [201])
+            self.assertEqual(row_batch_1.get('import_status'), 'imported')
+            self.assertEqual(row_batch_2.get('import_status'), 'duplicate skipped')
+
+        finally:
+            path_1.unlink(missing_ok=True)
+            path_2.unlink(missing_ok=True)
+            path_3.unlink(missing_ok=True)
 
 
 if __name__ == '__main__':
