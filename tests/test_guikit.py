@@ -67,8 +67,21 @@ class MockBox:
 
 
 class MockTreeItem:
-    def __init__(self, data_role_32, data_role_33=None, check_state=0, children=None):
-        self._data = {32: data_role_32, 33: data_role_33}
+    def __init__(self, data_role_32=None, data_role_33=None, check_state=0, children=None):
+        from qt.core import Qt
+        role_user = getattr(Qt.ItemDataRole, 'UserRole', 32)
+        try:
+            role_user_int = int(role_user)
+        except (ValueError, TypeError):
+            role_user_int = 32
+
+        self._data = {
+            role_user: data_role_32,
+            role_user_int: data_role_32,
+            role_user_int + 1: data_role_33,
+            32: data_role_32,
+            33: data_role_33,
+        }
         self._check_state = check_state
         self._children = children or []
 
@@ -82,7 +95,12 @@ class MockTreeItem:
         return self._check_state
 
     def data(self, column, role):
-        return self._data.get(role)
+        if role in self._data:
+            return self._data[role]
+        try:
+            return self._data.get(int(role))
+        except (ValueError, TypeError):
+            return None
 
 
 class MockTreeWidget:
