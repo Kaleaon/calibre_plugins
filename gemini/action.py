@@ -281,6 +281,26 @@ def show_value(field, value):
         return ', '.join(value) if value else '(none)'
     return value or '(none)'
 
+def get_batch_dir():
+    custom = prefs.get('batch_dir', '').strip()
+    if custom:
+        try:
+            os.makedirs(custom, exist_ok=True)
+            return custom
+        except Exception:
+            pass
+    try:
+        from calibre.utils.config import config_dir
+        base = os.path.join(config_dir, 'plugins', 'gemini_library_fixer_batches')
+    except Exception:
+        import tempfile
+        base = os.path.join(tempfile.gettempdir(), 'gemini_library_fixer_batches')
+    try:
+        os.makedirs(base, exist_ok=True)
+    except Exception:
+        pass
+    return base
+
 
 class GeminiFixerAction(InterfaceAction):
     name = 'Gemini Library Fixer'
@@ -437,6 +457,15 @@ class GeminiFixerAction(InterfaceAction):
         row.addWidget(models_btn)
         layout.addLayout(row)
 
+        row = QHBoxLayout()
+        row.addWidget(QLabel(_('Instruction Template:')))
+        template_combo = QComboBox()
+        manage_templates_btn = QPushButton(_('Manage Templates...'))
+        manage_templates_btn.setToolTip(_('Create, edit, or delete instruction templates and presets'))
+        row.addWidget(template_combo, 1)
+        row.addWidget(manage_templates_btn)
+        layout.addLayout(row)
+
         layout.addWidget(QLabel(_('Fix:')))
         boxes = {}
         for field, label in FIELD_LABELS:
@@ -459,10 +488,11 @@ class GeminiFixerAction(InterfaceAction):
         confidence.addItems(['low', 'medium', 'high'])
         confidence.setCurrentText(prefs['min_confidence'])
         row.addWidget(confidence)
-        row.addWidget(QLabel(_('Books per request:')))
+        row.addWidget(QLabel(_('Batch size (books per batch):')))
         batch = QSpinBox()
         batch.setRange(1, 50)
         batch.setValue(int(prefs['batch_size']))
+        batch.setToolTip(_('Number of books processed in each separate batch request (default 10). Each batch is saved separately.'))
         row.addWidget(batch)
         row.addWidget(QLabel(_('Seconds between requests:')))
         interval = QSpinBox()
@@ -527,11 +557,17 @@ class GeminiFixerAction(InterfaceAction):
 
         buttons = QDialogButtonBox()
         check_btn = QPushButton(_('Check books'))
+        compile_btn = QPushButton(_('Compile saved batches'))
+        compile_btn.setToolTip(_('Compile separate batch output files from disk into the suggestions list'))
+        open_batch_dir_btn = QPushButton(_('Open batch folder'))
+        open_batch_dir_btn.setToolTip(_('Open the directory where separate batch outputs are saved'))
         apply_btn = QPushButton(_('Apply ticked changes'))
         apply_btn.setEnabled(False)
         undo_btn = QPushButton(_('Undo last run'))
         undo_btn.setEnabled(bool(prefs['undo']))
         buttons.addButton(check_btn, QDialogButtonBox.ButtonRole.ActionRole)
+        buttons.addButton(compile_btn, QDialogButtonBox.ButtonRole.ActionRole)
+        buttons.addButton(open_batch_dir_btn, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.addButton(apply_btn, QDialogButtonBox.ButtonRole.AcceptRole)
         buttons.addButton(undo_btn, QDialogButtonBox.ButtonRole.ResetRole)
         buttons.addButton(QDialogButtonBox.StandardButton.Close)
@@ -637,7 +673,7 @@ class GeminiFixerAction(InterfaceAction):
             run_busy[0] = busy
             for w in (all_btn, none_btn, safe_btn):
                 w.setEnabled(not busy)
-            for w in (check_btn, apply_btn, undo_btn, models_btn):
+            for w in (check_btn, apply_btn, undo_btn, models_btn, compile_btn, open_batch_dir_btn):
                 w.setEnabled(not busy and (w is not apply_btn) and (w is not undo_btn or bool(prefs['undo'])))
             stop_btn.setEnabled(busy)
             buttons.button(QDialogButtonBox.StandardButton.Close).setEnabled(not busy)
@@ -658,6 +694,30 @@ class GeminiFixerAction(InterfaceAction):
                 model.addItems(task.result)
                 model.setCurrentText(current)
 
+        def do_compile_saved():
+            b_dir = get_batch_dir()
+            files = engine.list_batch_files(b_dir)
+            if not files:
+                return info_dialog(dialog, _('Gemini Batches'), _('No saved batch output files found in:\n{dir}').format(dir=b_dir), show=True)
+            compiled = engine.compile_batch_outputs(files)
+            if not compiled.suggestions and not compiled.skipped:
+                return info_dialog(dialog, _('Gemini Batches'), _('The saved batch files did not contain any suggestions or skipped items.'), show=True)
+            finish_run((compiled.suggestions, compiled.skipped), compiled.metadata.get('total_books', len(compiled.suggestions)))
+            log(_('Compiled {s_count} suggestion(s) from {b_count} saved batch file(s) ({books_count} book(s) total).').format(
+                s_count=len(compiled.suggestions), b_count=len(files),
+                books_count=compiled.metadata.get('total_books', len(compiled.suggestions))))
+
+        def do_open_batch_dir():
+            b_dir = get_batch_dir()
+            try:
+                from qt.core import QDesktopServices, QUrl
+                QDesktopServices.openUrl(QUrl.fromLocalFile(b_dir))
+            except Exception:
+                try:
+                    os.startfile(b_dir)
+                except Exception as exc:
+                    error_dialog(dialog, _('Gemini'), str(exc), show=True)
+
         def do_check():
             save_prefs()
             if not api_key():
@@ -665,81 +725,68 @@ class GeminiFixerAction(InterfaceAction):
             if not chosen_fields():
                 return error_dialog(dialog, _('Gemini'), _('Tick at least one thing to fix.'), show=True)
             ids = selected if scope_selected.isChecked() else sorted(self.gui.current_db.new_api.all_book_ids())
+            if not ids:
+                return info_dialog(dialog, _('Gemini'), _('No books found to check.'), show=True)
+
+            b_dir = get_batch_dir()
+            existing_batches = engine.list_batch_files(b_dir)
+            resume_mode = False
+
+            if existing_batches:
+                completed_ids = engine.get_completed_batch_book_ids(b_dir)
+                remaining_ids = [bid for bid in ids if bid not in completed_ids]
+                if remaining_ids and completed_ids:
+                    prompt_msg = _(
+                        "Found {batch_count} saved batch output(s) from a previous run ({done_count} book(s) already checked).\n\n"
+                        "• Click Yes to Resume: check the remaining {remaining_count} book(s) in batches and compile them together.\n"
+                        "• Click No to Start Fresh: clear previous batches and start checking all {total_count} book(s)."
+                    ).format(
+                        batch_count=len(existing_batches),
+                        done_count=len(completed_ids),
+                        remaining_count=len(remaining_ids),
+                        total_count=len(ids)
+                    )
+                    if question_dialog(dialog, _('Resume Previous Run?'), prompt_msg, yes_text=_('Resume'), no_text=_('Start Fresh')):
+                        resume_mode = True
+                        ids = remaining_ids
+                    else:
+                        engine.clear_batch_outputs(b_dir)
+                else:
+                    engine.clear_batch_outputs(b_dir)
+
             tree.clear()
             update_ticked()
             activity.clear()
             cancel_flag.clear()
             set_busy(True)
             if not scroll.isHidden():
-                toggle_settings()  # more room for the log; the button brings the settings back
+                toggle_settings()
             splitter.setSizes([520, 180])
             try:
-                log(_('Reading {count} book(s) from your library').format(count=len(ids)) + (_(' (including the opening text of EPUBs)') if excerpt.isChecked() else '') + (_(' and their cover pictures') if covers.isChecked() else '') + '…')
-                bar.setRange(0, max(1, len(ids)))
-                bar.setValue(0)
-
-                read_messages = queue.Queue()
-                box = {}
-
-                def read_work():
-                    try:
-                        box['books'] = self.books_for(
-                            ids,
-                            excerpt.isChecked(),
-                            on_book=lambda index, total, book: read_messages.put(('progress', (index, total, book))),
-                            should_stop=cancel_flag.is_set,
-                            with_covers=covers.isChecked()
-                        )
-                    except Exception as exc:
-                        box['error'] = exc
-
-                reader = threading.Thread(target=read_work, daemon=True)
-                reader.start()
-
-                while reader.is_alive() or not read_messages.empty():
-                    while not read_messages.empty():
-                        kind, info = read_messages.get()
-                        if kind == 'progress':
-                            index, total, book = info
-                            bar.setValue(index)
-                            phase.setText(_('Reading your library: book {index} of {total}').format(index=index, total=total))
-                            log(_('  read {index}/{total}: {desc}').format(index=index, total=total, desc=engine.describe_book(book)))
-                    if cancel_flag.is_set():
-                        phase.setText(_('Cancelling… stopping library scan'))
-                    else:
-                        phase.setText(_('Reading your library…'))
-                    QApplication.processEvents()
-                    time.sleep(0.02)
-
-                if box.get('error'):
-                    log(_('✖ Stopped: {error}').format(error=box["error"]))
-                    return finish_run(None, 0, error=box['error'])
-
-                books = box.get('books', [])
-                if cancel_flag.is_set():
-                    log(_('Cancelled while reading. Nothing was sent to Google.'))
-                    return finish_run(None, len(books))
-
                 m_name = model.currentText().strip() or engine.DEFAULT_MODEL
                 active_text = get_active_template_text()
                 tpl_vars = get_current_sample_vars()
-                est = engine.estimate_batch_usage(
-                    books,
-                    batch_size=batch.value(),
+                bsize = max(1, batch.value())
+                per_req = min(bsize, 8) if covers.isChecked() else bsize
+
+                est = engine.estimate_library_summary(
+                    len(ids),
+                    batch_size=per_req,
                     covers=covers.isChecked(),
+                    excerpt=excerpt.isChecked(),
                     min_interval=interval.value(),
-                    model=m_name,
-                    instructions=active_text,
-                    template_vars=tpl_vars
+                    model=m_name
                 )
                 msg = (
                     _("Pre-Flight API Usage Estimate:\n\n"
-                      "• Selected Books: {books_count}\n"
-                      "• Batch Requests: {batch_count} ({per_request} books/request)\n"
-                      "• Text Characters: {text_chars:,}\n"
+                      "• Books to Check: {books_count}\n"
+                      "• Batch Requests: {batch_count} ({per_request} books/batch)\n"
+                      "• Text Characters: ~{text_chars:,}\n"
                       "• Estimated Tokens: ~{prompt_tokens:,} ({text_tokens:,} text, {image_tokens:,} image)\n"
                       "• Estimated Duration: ~{estimated_duration} seconds\n"
-                      "• Estimated Cost: ${estimated_cost:.4f} USD (Model: {model})\n\n"
+                      "• Estimated Cost: ${estimated_cost:.4f} USD (Model: {model})\n"
+                      "• Batch Save Directory: {batch_dir}\n\n"
+                      "Each batch of {per_request} books will be processed and saved separately, then compiled together.\n\n"
                       "Do you want to proceed with sending these requests to Google Gemini?")
                 ).format(
                     books_count=est['books_count'],
@@ -751,46 +798,134 @@ class GeminiFixerAction(InterfaceAction):
                     image_tokens=est['image_tokens'],
                     estimated_duration=est['estimated_duration'],
                     estimated_cost=est['estimated_cost'],
-                    model=m_name
+                    model=m_name,
+                    batch_dir=b_dir
                 )
                 if not question_dialog(dialog, _('Gemini Pre-Flight Confirmation'), msg):
                     log(_('Cancelled at pre-flight confirmation. Nothing was sent to Google.'))
-                    return finish_run(None, len(books))
+                    return finish_run(None, len(ids))
 
-                result, error = ask_gemini(books)
+                result, error = ask_gemini_batched(ids, b_dir, resume=resume_mode)
             finally:
                 set_busy(False)
-            return finish_run(result, len(books), error)
+            return finish_run(result, len(ids), error)
 
-        def ask_gemini(books):
-            """Runs the API calls in a thread; this loop shows what they report and keeps the window responsive."""
+        def ask_gemini_batched(target_ids, b_dir, resume=False):
+            """Processes books in batches, saves each batch output separately to disk, then compiles them together."""
             messages = queue.Queue()
             box = {}
-            total = len(books)
-            per_request = min(batch.value(), 8) if covers.isChecked() else batch.value()  # pictures make requests heavy
-            log(_('Sending {total} book(s) to Gemini ({model}), {per_request} per request. Only the details shown above leave your computer.').format(
-                total=total, model=model.currentText().strip() or engine.DEFAULT_MODEL, per_request=per_request))
-            bar.setRange(0, max(1, total))
+            total_books = len(target_ids)
+            bsize = max(1, batch.value())
+            per_request = min(bsize, 8) if covers.isChecked() else bsize
+            chunks = [target_ids[i:i + per_request] for i in range(0, len(target_ids), per_request)]
+            total_chunks = len(chunks)
+
+            existing = engine.list_batch_files(b_dir) if resume else []
+            start_batch_num = len(existing) + 1
+            total_all_batches = total_chunks + len(existing)
+
+            log(_('Processing {total_books} book(s) in {total_chunks} batch(es) of {per_request}. Each batch is saved separately to disk.').format(
+                total_books=total_books, total_chunks=total_chunks, per_request=per_request))
+            bar.setRange(0, max(1, total_books))
             bar.setValue(0)
 
             def work():
                 try:
                     active_text = get_active_template_text()
                     tpl_vars = get_current_sample_vars()
-                    box['result'] = engine.plan_fixes(
-                        books, api_key(), model.currentText().strip() or engine.DEFAULT_MODEL, chosen_fields(), confidence.currentText(),
-                        per_request, tags_remove.isChecked(), cancelled=cancel_flag.is_set, min_interval=interval.value(),
-                        instructions=active_text, template_vars=tpl_vars,
-                        on_event=lambda kind, **info: messages.put((kind, info)))
-                except Exception as exc:  # shown to the user by the caller
-                    box['error'] = exc
+                    books_done = 0
+
+                    for offset, chunk_ids in enumerate(chunks):
+                        if cancel_flag.is_set():
+                            break
+                        curr_batch_idx = start_batch_num + offset
+                        messages.put(('batch_start', {
+                            'batch_idx': curr_batch_idx,
+                            'total_batches': total_all_batches,
+                            'count': len(chunk_ids),
+                            'ids': chunk_ids
+                        }))
+
+                        # 1. Read ONLY this batch of books
+                        batch_books = self.books_for(
+                            chunk_ids,
+                            excerpt.isChecked(),
+                            on_book=lambda index, total, book: messages.put(('read_progress', (index, total, book))),
+                            should_stop=cancel_flag.is_set,
+                            with_covers=covers.isChecked()
+                        )
+                        if cancel_flag.is_set():
+                            break
+
+                        # 2. Process this batch with Gemini
+                        batch_suggestions, batch_skipped = engine.plan_fixes(
+                            batch_books, api_key(), model.currentText().strip() or engine.DEFAULT_MODEL,
+                            chosen_fields(), confidence.currentText(),
+                            per_request, tags_remove.isChecked(),
+                            cancelled=cancel_flag.is_set, min_interval=interval.value(),
+                            instructions=active_text, template_vars=tpl_vars,
+                            on_event=lambda kind, **info: messages.put((kind, info))
+                        )
+
+                        # 3. Save output SEPARATELY immediately!
+                        saved_path = engine.save_batch_output(
+                            b_dir, curr_batch_idx, batch_suggestions,
+                            skipped=batch_skipped, book_ids=chunk_ids,
+                            total_batches=total_all_batches
+                        )
+                        books_done += len(chunk_ids)
+                        messages.put(('batch_saved', {
+                            'batch_idx': curr_batch_idx,
+                            'total_batches': total_all_batches,
+                            'path': saved_path,
+                            'suggestions_count': len(batch_suggestions),
+                            'skipped_count': len(batch_skipped),
+                            'done': books_done
+                        }))
+
+                        # Free memory immediately
+                        del batch_books
+                        del batch_suggestions
+                        del batch_skipped
+
+                    # 4. Compile it together!
+                    messages.put(('compiling', {}))
+                    compiled = engine.compile_batch_outputs(b_dir)
+                    box['result'] = (compiled.suggestions, compiled.skipped)
+                except Exception as exc:
+                    compiled = engine.compile_batch_outputs(b_dir)
+                    box['error'] = engine.GeminiPartialError(
+                        engine.sanitize_error_message(exc, api_key()),
+                        suggestions=compiled.suggestions,
+                        skipped=compiled.skipped,
+                        original_error=exc
+                    )
 
             worker = threading.Thread(target=work, daemon=True)
             worker.start()
             waiting = {'since': None, 'count': 0}
 
             def handle(kind, info):
-                if kind == 'sending':
+                if kind == 'batch_start':
+                    phase.setText(_('Batch {idx} of {total}: reading {count} books…').format(
+                        idx=info['batch_idx'], total=info['total_batches'], count=info['count']))
+                    log(_('→ Batch {idx}/{total}: reading {count} book(s)…').format(
+                        idx=info['batch_idx'], total=info['total_batches'], count=info['count']))
+                elif kind == 'read_progress':
+                    index, total, book = info
+                    log(_('  read {index}/{total}: {desc}').format(index=index, total=total, desc=engine.describe_book(book)))
+                elif kind == 'batch_saved':
+                    log(_('✔ Batch {idx}/{total} saved separately to {filename} ({s_count} suggestion(s), {sk_count} skipped)').format(
+                        idx=info['batch_idx'], total=info['total_batches'],
+                        filename=os.path.basename(info['path']),
+                        s_count=info['suggestions_count'], sk_count=info['skipped_count']))
+                    bar.setValue(info['done'])
+                    phase.setText(_('Batch {idx} of {total} completed').format(
+                        idx=info['batch_idx'], total=info['total_batches']))
+                elif kind == 'compiling':
+                    phase.setText(_('Compiling separate batch outputs together…'))
+                    log(_('Compiling all separate batch output files together…'))
+                elif kind == 'sending':
                     batch_books = info['books']
                     waiting['since'], waiting['count'] = time.time(), len(batch_books)
                     log(_('→ Sending {count} book(s) to Gemini:').format(count=len(batch_books)))
@@ -818,13 +953,13 @@ class GeminiFixerAction(InterfaceAction):
                 elif kind == 'skipped':
                     log(_('✖ {text}').format(text=info['text']))
                 elif kind == 'progress':
-                    bar.setValue(info['done'])
+                    pass
 
             while worker.is_alive() or not messages.empty():
                 while not messages.empty():
                     handle(*messages.get())
                 if cancel_flag.is_set():
-                    phase.setText(_('Cancelling… waiting for the request in progress to come back'))
+                    phase.setText(_('Cancelling… compiling saved batches so far'))
                 elif waiting['since'] is not None:
                     phase.setText(_('Waiting for Gemini… {duration:.0f}s so far ({count} books in this request; usually 5–60s)').format(
                         duration=time.time() - waiting['since'], count=waiting['count']))
@@ -832,6 +967,7 @@ class GeminiFixerAction(InterfaceAction):
                     phase.setText(_('Working…'))
                 QApplication.processEvents()
                 time.sleep(0.05)
+
             return box.get('result'), box.get('error')
 
         def finish_run(result, count, error=None):
@@ -929,6 +1065,8 @@ class GeminiFixerAction(InterfaceAction):
         key.editingFinished.connect(save_prefs)  # the key is remembered as soon as it is typed, not only after a check
         dialog.finished.connect(lambda _result: save_prefs())
         models_btn.clicked.connect(do_list_models)
+        compile_btn.clicked.connect(do_compile_saved)
+        open_batch_dir_btn.clicked.connect(do_open_batch_dir)
         check_btn.clicked.connect(do_check)
         apply_btn.clicked.connect(do_apply)
         undo_btn.clicked.connect(do_undo)

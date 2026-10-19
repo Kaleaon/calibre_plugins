@@ -1,7 +1,9 @@
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import types
@@ -790,8 +792,208 @@ class TemplateManagerDialogUiTests(unittest.TestCase):
         combo_instances = qt_core.QComboBox.return_value
         self.assertTrue(qt_core.QComboBox.called)
 
+    def test_show_dialog_contains_compile_and_batch_buttons(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.GeminiFixerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+        action.show_dialog()
+
+        qt_core = sys.modules['qt.core']
+        translated_strings = [call.args[0] for call in qt_core._.call_args_list if call.args]
+        self.assertIn('Compile saved batches', translated_strings)
+        self.assertIn('Open batch folder', translated_strings)
+
+
+class BatchSeparationAndCompilationTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    def test_save_and_load_batch_output(self):
+        suggs = [{
+            'id': 101,
+            'title': 'Test Book',
+            'changes': {'series': (('Old Series', 1.0), ('New Series', 2.0)), 'title': ('Old Title', 'New Title')},
+            'confidence': 'high',
+            'reason': 'Cleaned series',
+            'big': False
+        }]
+        path = engine.save_batch_output(
+            self.tmp_dir, batch_index=1, suggestions=suggs, skipped=['Skipped book 102'],
+            book_ids=[101, 102], total_batches=5
+        )
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(os.path.basename(path), 'batch_0001.json')
+
+        loaded = engine.load_batch_output(path)
+        self.assertEqual(loaded['batch_index'], 1)
+        self.assertEqual(loaded['total_batches'], 5)
+        self.assertEqual(loaded['book_ids'], [101, 102])
+        self.assertEqual(loaded['skipped'], ['Skipped book 102'])
+        self.assertEqual(len(loaded['suggestions']), 1)
+        self.assertEqual(loaded['suggestions'][0]['id'], 101)
+        # Verify tuple restoration for series
+        series_change = loaded['suggestions'][0]['changes']['series']
+        self.assertEqual(series_change, (('Old Series', 1.0), ('New Series', 2.0)))
+
+    def test_list_batch_files_sorting(self):
+        for i in [3, 1, 12, 2]:
+            engine.save_batch_output(self.tmp_dir, batch_index=i, suggestions=[], book_ids=[i])
+        # Write dummy file that shouldn't match
+        with open(os.path.join(self.tmp_dir, 'other.txt'), 'w') as f:
+            f.write('ignore')
+
+        files = engine.list_batch_files(self.tmp_dir)
+        names = [os.path.basename(f) for f in files]
+        self.assertEqual(names, ['batch_0001.json', 'batch_0002.json', 'batch_0003.json', 'batch_0012.json'])
+
+    def test_compile_batch_outputs_merges_and_deduplicates(self):
+        b1_suggs = [
+            {'id': 1, 'title': 'Book 1', 'changes': {'title': ('Old 1', 'New 1')}, 'confidence': 'high', 'reason': '', 'big': False},
+            {'id': 2, 'title': 'Book 2', 'changes': {'title': ('Old 2', 'New 2')}, 'confidence': 'high', 'reason': '', 'big': False},
+        ]
+        b2_suggs = [
+            # Book 2 is repeated (updated), Book 3 is new
+            {'id': 2, 'title': 'Book 2', 'changes': {'title': ('Old 2', 'New 2 Updated')}, 'confidence': 'high', 'reason': '', 'big': False},
+            {'id': 3, 'title': 'Book 3', 'changes': {'title': ('Old 3', 'New 3')}, 'confidence': 'high', 'reason': '', 'big': False},
+        ]
+        engine.save_batch_output(self.tmp_dir, 1, b1_suggs, skipped=['Skipped A'], book_ids=[1, 2])
+        engine.save_batch_output(self.tmp_dir, 2, b2_suggs, skipped=['Skipped B'], book_ids=[2, 3])
+
+        compiled = engine.compile_batch_outputs(self.tmp_dir)
+        # Check unpacks as tuple
+        suggestions, skipped = compiled
+        self.assertEqual(len(suggestions), 3)
+        self.assertEqual([s['id'] for s in suggestions], [1, 2, 3])
+        # Book 2 should have the updated title
+        self.assertEqual(suggestions[1]['changes']['title'][1], 'New 2 Updated')
+        self.assertEqual(skipped, ['Skipped A', 'Skipped B'])
+        self.assertEqual(compiled.total_batches, 2)
+        self.assertEqual(compiled.metadata['total_books'], 3)
+
+    def test_clear_batch_outputs(self):
+        engine.save_batch_output(self.tmp_dir, 1, [], book_ids=[1])
+        engine.save_batch_output(self.tmp_dir, 2, [], book_ids=[2])
+        self.assertEqual(len(engine.list_batch_files(self.tmp_dir)), 2)
+
+        deleted = engine.clear_batch_outputs(self.tmp_dir)
+        self.assertEqual(deleted, 2)
+        self.assertEqual(len(engine.list_batch_files(self.tmp_dir)), 0)
+
+    def test_get_completed_batch_book_ids(self):
+        engine.save_batch_output(self.tmp_dir, 1, [{'id': 10}], book_ids=[10, 11])
+        engine.save_batch_output(self.tmp_dir, 2, [{'id': 12}], book_ids=[12, 13])
+
+        ids = engine.get_completed_batch_book_ids(self.tmp_dir)
+        self.assertEqual(ids, {10, 11, 12, 13})
+
+    def test_estimate_library_summary(self):
+        est = engine.estimate_library_summary(100, batch_size=10, covers=False, min_interval=7)
+        self.assertEqual(est['books_count'], 100)
+        self.assertEqual(est['batch_count'], 10)
+        self.assertEqual(est['per_request'], 10)
+        self.assertTrue(est['text_tokens'] > 0)
+        self.assertEqual(est['image_tokens'], 0)
+        self.assertEqual(est['estimated_duration'], (10 - 1) * 7 + 10 * 2)
+
+    def test_plan_fixes_batched_success(self):
+        # 25 book IDs with batch_size 10 -> 3 batches (10, 10, 5)
+        ids = list(range(1, 26))
+        def fetch_books(chunk_ids):
+            return [book(bid, title=f'Title {bid}') for bid in chunk_ids]
+
+        canned = lambda books: [{'id': b['id'], 'confidence': 'high', 'title': f"Clean {b['id']}"} for b in books]
+        def fake_transport(url, headers, body, timeout):
+            data = json.loads(body.decode('utf-8'))
+            prompt_text = data['contents'][0]['parts'][0]['text']
+            matched = [int(m) for m in re.findall(r'"id":\s*(\d+)', prompt_text)]
+            return json.dumps({'candidates': [{'content': {'parts': [{'text': json.dumps([
+                {'id': i, 'title': f'Clean {i}', 'confidence': 'high'} for i in matched
+            ])}]}}]}).encode('utf-8')
+
+        batch_events = []
+        def on_event(kind, **info):
+            if kind == 'batch_saved':
+                batch_events.append(info)
+
+        compiled = engine.plan_fixes_batched(
+            fetch_books, ids, 'test-key', self.tmp_dir, batch_size=10,
+            transport=fake_transport, on_event=on_event
+        )
+
+        self.assertEqual(len(batch_events), 3)
+        self.assertEqual(len(engine.list_batch_files(self.tmp_dir)), 3)
+        suggestions, skipped = compiled
+        self.assertEqual(len(suggestions), 25)
+        self.assertEqual(len(skipped), 0)
+
+    def test_plan_fixes_batched_resume(self):
+        # Pre-populate batch 1 for IDs 1..10
+        engine.save_batch_output(self.tmp_dir, 1, [{'id': 1, 'title': 'Clean 1', 'changes': {'title': ('Old', 'Clean 1')}, 'confidence': 'high', 'reason': '', 'big': False}], book_ids=list(range(1, 11)))
+
+        ids = list(range(1, 21)) # Total 20 books (1..20)
+        fetched_chunks = []
+        def fetch_books(chunk_ids):
+            fetched_chunks.append(list(chunk_ids))
+            return [book(bid, title=f'Title {bid}') for bid in chunk_ids]
+
+        def fake_transport(url, headers, body, timeout):
+            data = json.loads(body.decode('utf-8'))
+            prompt_text = data['contents'][0]['parts'][0]['text']
+            matched = [int(m) for m in re.findall(r'"id":\s*(\d+)', prompt_text)]
+            return json.dumps({'candidates': [{'content': {'parts': [{'text': json.dumps([
+                {'id': i, 'title': f'Clean {i}', 'confidence': 'high'} for i in matched
+            ])}]}}]}).encode('utf-8')
+
+        compiled = engine.plan_fixes_batched(
+            fetch_books, ids, 'test-key', self.tmp_dir, batch_size=10,
+            transport=fake_transport, resume=True
+        )
+
+        # Since IDs 1..10 were completed, only IDs 11..20 should be fetched!
+        self.assertEqual(fetched_chunks, [list(range(11, 21))])
+        self.assertEqual(len(engine.list_batch_files(self.tmp_dir)), 2)
+        suggestions, _ = compiled
+        # Batch 1 had 1 suggestion, Batch 2 had 10 suggestions -> total 11
+        self.assertEqual(len(suggestions), 11)
+
+    def test_plan_fixes_batched_partial_error_preserves_batches(self):
+        ids = list(range(1, 25))
+        call_count = [0]
+        def fetch_books(chunk_ids):
+            return [book(bid, title=f'Title {bid}') for bid in chunk_ids]
+
+        def fake_transport(url, headers, body, timeout):
+            data = json.loads(body.decode('utf-8'))
+            prompt_text = data['contents'][0]['parts'][0]['text']
+            matched = [int(m) for m in re.findall(r'"id":\s*(\d+)', prompt_text)]
+            if 11 in matched:
+                raise urllib.error.HTTPError(url, 429, 'rate limit exhausted', {}, None)
+            return json.dumps({'candidates': [{'content': {'parts': [{'text': json.dumps([
+                {'id': i, 'title': f'Clean {i}', 'confidence': 'high'} for i in matched
+            ])}]}}]}).encode('utf-8')
+
+        with self.assertRaises(engine.GeminiPartialError) as ctx:
+            engine.plan_fixes_batched(
+                fetch_books, ids, 'test-key', self.tmp_dir, batch_size=10,
+                transport=fake_transport, retries=0
+            )
+
+        # Batch 1 succeeded and was saved to disk
+        self.assertEqual(len(engine.list_batch_files(self.tmp_dir)), 1)
+        # Error contains the suggestions from batch 1
+        self.assertEqual(len(ctx.exception.suggestions), 10)
+
 
 if __name__ == '__main__':
     unittest.main()
+
 
 

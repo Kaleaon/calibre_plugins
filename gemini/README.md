@@ -21,11 +21,20 @@ Tick **Also look at the cover pictures** and Gemini is shown pictures as well as
 
 Results appear in a large list that shares the window with the activity log (drag the divider between them to resize either). The settings fold away while it works; **Show settings** brings them back. **Check all**, **Check none** and **Check all except big changes** tick everything at once, and the count beside them shows how many changes are ticked. Each book and each single change can still be ticked on its own.
 
+## Batched processing and crash prevention
+
+Large libraries (or the entire library) are processed in batches of 10 books at a time (configurable in settings) rather than loaded all at once in one large go:
+- **Low memory consumption:** Covers and excerpt texts are loaded for only 10 books at a time and freed from memory immediately after each batch is processed.
+- **Separate batch output saving:** Every completed batch's suggestions and skipped items are saved separately to disk (`batch_0001.json`, `batch_0002.json`, ...) right as it finishes.
+- **Compiled together:** When all batches complete (or if cancelled or stopped by an error), all separate batch outputs are automatically compiled together into the unified suggestions preview.
+- **Crash & quota resilience:** If a run is interrupted by network failure, daily quota limits, or an app crash, your completed batches are safe on disk.
+- **Resume & compile saved:** When starting a check, the plugin detects previously saved batches and offers to resume remaining books or start fresh. You can also click **Compile saved batches** at any time to reload all saved batches from disk.
+
 ## Using the free tier
 
 Free keys allow only a small number of requests per minute and per day, and Google sets and changes those numbers per model, so the plugin does not assume them:
 
-- **Spacing:** *Seconds between requests* (default 7) leaves a gap between requests so a run does not hit the per-minute limit. Set it to 0 if your key is on a paid plan. Sending more books per request (the default is 15) also means fewer requests.
+- **Spacing:** *Seconds between requests* (default 7) leaves a gap between requests so a run does not hit the per-minute limit. Set it to 0 if your key is on a paid plan. Sending books in batches of 10 (the default) keeps requests manageable and reliable.
 - **Per-minute limit hit anyway:** the plugin waits as long as Google's answer says (shown in the activity log, and Cancel still works) and tries again.
 - **Daily limit used up:** the plugin stops asking, **keeps the suggestions already found**, and reports how many books were not checked. Run it again after the daily reset on the remaining books, or pick a lighter model with **List models** (names containing "flash-lite" are usually allowed more requests; check Google's current limits).
 - **Privacy on the free tier:** Google's terms for the free tier may allow it to use what you send to improve its products, unlike paid use. I have not verified the current wording, so read [Google's Gemini API terms](https://ai.google.dev/gemini-api/terms) before sending books you consider private.

@@ -6,6 +6,7 @@ The model is told to leave anything it is unsure about alone, and every answer i
 """
 import difflib
 import json
+import os
 import re
 import string
 import time
@@ -761,3 +762,296 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
             msg = sanitize_error_message(exc, api_key)
             raise GeminiPartialError(msg, suggestions=suggestions, skipped=skipped, original_error=exc) from exc
     return suggestions, skipped
+
+
+# ------------------------------------------------------------------------------------------------ batches and compilation
+
+class CompiledBatchResult:
+    """Compiled results from separate batch output files, maintaining backwards compatibility
+    with code that expects a (suggestions, skipped) 2-tuple."""
+
+    def __init__(self, suggestions, skipped, metadata=None, batch_files=None):
+        self.suggestions = list(suggestions) if suggestions is not None else []
+        self.skipped = list(skipped) if skipped is not None else []
+        self.metadata = dict(metadata or {})
+        self.batch_files = list(batch_files or [])
+
+    def __iter__(self):
+        return iter((self.suggestions, self.skipped))
+
+    def __getitem__(self, idx):
+        return (self.suggestions, self.skipped)[idx]
+
+    def __len__(self):
+        return 2
+
+    @property
+    def total_batches(self):
+        return self.metadata.get('total_batches', len(self.batch_files))
+
+    @property
+    def total_suggestions(self):
+        return len(self.suggestions)
+
+    @property
+    def total_skipped(self):
+        return len(self.skipped)
+
+
+def save_batch_output(batch_dir, batch_index, suggestions, skipped=None, book_ids=None, total_batches=None, metadata=None):
+    """Saves a single batch's suggestions and skipped items to a separate JSON file in batch_dir.
+    Uses atomic write (.tmp -> rename) so corrupt partial files are avoided.
+    Returns the absolute path to the saved file."""
+    os.makedirs(batch_dir, exist_ok=True)
+    filename = f'batch_{int(batch_index):04d}.json'
+    filepath = os.path.join(batch_dir, filename)
+    tmppath = filepath + '.tmp'
+
+    serialized_suggestions = []
+    for s in (suggestions or []):
+        entry = dict(s)
+        if 'changes' in entry and isinstance(entry['changes'], dict):
+            raw_changes = {}
+            for field, vals in entry['changes'].items():
+                if isinstance(vals, (list, tuple)) and len(vals) == 2:
+                    raw_changes[field] = [vals[0], vals[1]]
+                else:
+                    raw_changes[field] = vals
+            entry['changes'] = raw_changes
+        serialized_suggestions.append(entry)
+
+    payload = {
+        'version': 1,
+        'batch_index': int(batch_index),
+        'total_batches': int(total_batches) if total_batches is not None else None,
+        'book_ids': list(book_ids or []),
+        'timestamp': time.time(),
+        'suggestions': serialized_suggestions,
+        'skipped': list(skipped or []),
+        'metadata': dict(metadata or {}),
+    }
+
+    with open(tmppath, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    if os.path.exists(filepath):
+        os.replace(tmppath, filepath)
+    else:
+        os.rename(tmppath, filepath)
+    return filepath
+
+
+def load_batch_output(file_path):
+    """Loads a single batch JSON file and returns its payload dictionary,
+    restoring tuple structures for series field changes."""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    for s in data.get('suggestions', []):
+        if 'changes' in s and isinstance(s['changes'], dict):
+            fixed_changes = {}
+            for field, pair in s['changes'].items():
+                if isinstance(pair, list) and len(pair) == 2:
+                    old_val, new_val = pair[0], pair[1]
+                    if field == 'series':
+                        if isinstance(old_val, list):
+                            old_val = tuple(old_val)
+                        if isinstance(new_val, list):
+                            new_val = tuple(new_val)
+                    fixed_changes[field] = (old_val, new_val)
+                else:
+                    fixed_changes[field] = pair
+            s['changes'] = fixed_changes
+
+    return data
+
+
+def list_batch_files(batch_dir):
+    """Returns a sorted list of batch file paths in batch_dir matching batch_*.json."""
+    if not batch_dir or not os.path.isdir(batch_dir):
+        return []
+    files = []
+    for name in os.listdir(batch_dir):
+        if name.startswith('batch_') and name.endswith('.json') and not name.endswith('.tmp'):
+            files.append(os.path.join(batch_dir, name))
+
+    def sort_key(p):
+        base = os.path.basename(p)
+        m = re.search(r'batch_(\d+)\.json$', base)
+        return (0, int(m.group(1))) if m else (1, base)
+
+    return sorted(files, key=sort_key)
+
+
+def compile_batch_outputs(batch_dir_or_files):
+    """Compiles separate batch JSON files into a unified CompiledBatchResult (suggestions, skipped).
+    Deduplicates suggestions by book id (keeping the latest occurrence) while preserving order.
+    Accepts either a directory path or an iterable of file paths."""
+    if isinstance(batch_dir_or_files, (list, tuple, set)):
+        files = list(batch_dir_or_files)
+    else:
+        files = list_batch_files(batch_dir_or_files)
+
+    all_suggestions = []
+    seen_suggestion_ids = set()
+    all_skipped = []
+    seen_skipped = set()
+    all_book_ids = set()
+
+    for fpath in files:
+        try:
+            data = load_batch_output(fpath)
+        except Exception:
+            continue
+        for s in data.get('suggestions', []):
+            bid = s.get('id')
+            if bid is not None:
+                all_book_ids.add(bid)
+                if bid in seen_suggestion_ids:
+                    all_suggestions = [item for item in all_suggestions if item.get('id') != bid]
+                seen_suggestion_ids.add(bid)
+            all_suggestions.append(s)
+        for sk in data.get('skipped', []):
+            if sk not in seen_skipped:
+                seen_skipped.add(sk)
+                all_skipped.append(sk)
+        for bid in data.get('book_ids', []):
+            all_book_ids.add(bid)
+
+    meta = {
+        'total_batches': len(files),
+        'total_books': len(all_book_ids),
+        'total_suggestions': len(all_suggestions),
+        'total_skipped': len(all_skipped),
+    }
+    return CompiledBatchResult(all_suggestions, all_skipped, metadata=meta, batch_files=files)
+
+
+def clear_batch_outputs(batch_dir):
+    """Removes all batch_*.json and batch_*.json.tmp files in batch_dir.
+    Returns the count of deleted files."""
+    if not batch_dir or not os.path.isdir(batch_dir):
+        return 0
+    count = 0
+    for name in os.listdir(batch_dir):
+        if name.startswith('batch_') and (name.endswith('.json') or name.endswith('.tmp')):
+            try:
+                os.remove(os.path.join(batch_dir, name))
+                count += 1
+            except OSError:
+                pass
+    return count
+
+
+def get_completed_batch_book_ids(batch_dir):
+    """Returns a set of all book IDs found in any existing batch files in batch_dir."""
+    files = list_batch_files(batch_dir)
+    ids = set()
+    for fpath in files:
+        try:
+            data = load_batch_output(fpath)
+            for bid in data.get('book_ids', []):
+                ids.add(bid)
+            for s in data.get('suggestions', []):
+                if s.get('id') is not None:
+                    ids.add(s['id'])
+        except Exception:
+            pass
+    return ids
+
+
+def estimate_library_summary(total_books, batch_size=10, covers=False, excerpt=False, min_interval=0, model=DEFAULT_MODEL, avg_chars_per_book=200):
+    """Calculates estimated token counts, durations, and costs for a given number of books
+    without requiring books to be loaded into memory."""
+    bsize = max(1, int(batch_size or 10))
+    per_request = min(bsize, 8) if covers else bsize
+    batch_count = (total_books + per_request - 1) // per_request if total_books > 0 else 0
+    text_chars_per_book = avg_chars_per_book + (1500 if excerpt else 0)
+    total_text_chars = total_books * text_chars_per_book + batch_count * 1200
+    text_tokens = (total_text_chars + 3) // 4
+    image_tokens = total_books * (IMAGE_TOKENS_PER_IMAGE * (2 if covers else 0))
+    prompt_tokens = text_tokens + image_tokens
+    interval = max(0, int(min_interval or 0))
+    estimated_duration = max(0, batch_count - 1) * interval + batch_count * 2
+    rate = MODEL_COST_PER_1M.get(str(model or '').strip().lower(), 0.075)
+    estimated_cost = (prompt_tokens / 1_000_000.0) * rate
+    return {
+        'books_count': total_books,
+        'text_chars': total_text_chars,
+        'text_tokens': text_tokens,
+        'image_tokens': image_tokens,
+        'prompt_tokens': prompt_tokens,
+        'batch_count': batch_count,
+        'per_request': per_request,
+        'estimated_duration': estimated_duration,
+        'estimated_cost': round(estimated_cost, 6),
+    }
+
+
+def plan_fixes_batched(fetch_books_fn, ids, api_key, batch_dir, batch_size=10, model=DEFAULT_MODEL,
+                       fields=FIELDS, min_confidence='medium', tags_may_be_removed=False,
+                       progress=lambda text: None, cancelled=lambda: False,
+                       on_event=lambda kind, **info: None, min_interval=0,
+                       resume=False, sleep=time.sleep, clock=time.monotonic, **kw):
+    """Executes library book fixing in batches of batch_size (default 10), saving each batch's output
+    separately to disk in batch_dir as it completes. Then compiles all separate batch outputs together.
+    If an error or cancellation interrupts the process, already saved batches are preserved on disk.
+    If resume=True, already completed book IDs are skipped."""
+    os.makedirs(batch_dir, exist_ok=True)
+    if resume:
+        completed_ids = get_completed_batch_book_ids(batch_dir)
+        target_ids = [bid for bid in ids if bid not in completed_ids]
+        if completed_ids:
+            on_event('notice', text=f'Resuming: {len(completed_ids)} book(s) previously saved in batches, {len(target_ids)} remaining.')
+    else:
+        clear_batch_outputs(batch_dir)
+        target_ids = list(ids)
+
+    size = max(1, int(batch_size or 10))
+    chunks = [target_ids[i:i + size] for i in range(0, len(target_ids), size)]
+    total_batches = len(chunks)
+
+    existing_files = list_batch_files(batch_dir) if resume else []
+    start_batch_num = len(existing_files) + 1
+
+    for idx_offset, chunk_ids in enumerate(chunks):
+        if cancelled():
+            break
+        current_batch_num = start_batch_num + idx_offset
+        batch_label = f'Batch {current_batch_num}' + (f' of {total_batches + len(existing_files)}' if total_batches else '')
+        progress(f'Processing {batch_label} ({len(chunk_ids)} books)…')
+
+        batch_books = fetch_books_fn(chunk_ids)
+        if not batch_books:
+            continue
+
+        try:
+            batch_suggestions, batch_skipped = plan_fixes(
+                batch_books, api_key, model=model, fields=fields,
+                min_confidence=min_confidence, batch_size=len(batch_books),
+                tags_may_be_removed=tags_may_be_removed,
+                cancelled=cancelled, on_event=on_event,
+                min_interval=min_interval, sleep=sleep, clock=clock, **kw
+            )
+        except (GeminiError, Exception) as exc:
+            compiled = compile_batch_outputs(batch_dir)
+            msg = sanitize_error_message(exc, api_key)
+            raise GeminiPartialError(msg, suggestions=compiled.suggestions, skipped=compiled.skipped, original_error=exc) from exc
+
+        saved_path = save_batch_output(
+            batch_dir, current_batch_num, batch_suggestions,
+            skipped=batch_skipped, book_ids=chunk_ids,
+            total_batches=total_batches + len(existing_files)
+        )
+        on_event(
+            'batch_saved',
+            batch_index=current_batch_num,
+            total_batches=total_batches + len(existing_files),
+            file=saved_path,
+            count=len(batch_suggestions),
+            skipped_count=len(batch_skipped),
+            book_ids=chunk_ids
+        )
+
+    return compile_batch_outputs(batch_dir)
+
