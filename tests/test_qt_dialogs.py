@@ -48,7 +48,7 @@ TAG_PAGES = {
 
 class StubMetadata:
     def __init__(self, title, authors):
-        self.title, self.authors, self.ids, self.comments, self.tags = title, authors, {}, None, []
+        self.title, self.authors, self.ids, self.comments, self.tags, self.publisher = title, authors, {}, None, [], None
 
     def set_identifier(self, key, value):
         self.ids[key] = value
@@ -1541,6 +1541,180 @@ class FanficDialogTests(QtCase):
 
         self.assertIn('[www.royalroad.com]\nuse_flaresolverr_proxy:true', advanced.toPlainText())
 
+
+
+def make_dirty_epub():
+    xhtml = '<?xml version="1.0" encoding="utf-8"?>\n<html xmlns="http://www.w3.org/1999/xhtml"><head><title>t</title></head><body>%s</body></html>'
+    container = '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>'
+    opf = '''<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Book Title - OceanofPDF.com</dc:title></metadata>
+    <manifest><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest>
+    <spine><itemref idref="c1"/></spine></package>'''
+    b = io.BytesIO()
+    with zipfile.ZipFile(b, 'w') as z:
+        z.writestr('mimetype', 'application/epub+zip', zipfile.ZIP_STORED)
+        z.writestr('META-INF/container.xml', container)
+        z.writestr('OEBPS/content.opf', opf)
+        z.writestr('OEBPS/c1.xhtml', xhtml % '<p>Downloaded from OceanofPDF.com</p><p>Story text.</p>')
+    return b.getvalue()
+
+
+class ScrubberFakeDb:
+    def __init__(self):
+        self.books = {}
+
+    def formats(self, book_id):
+        if book_id not in self.books:
+            return ()
+        return tuple(self.books[book_id]['formats'].keys())
+
+    def format(self, book_id, fmt):
+        return self.books[book_id]['formats'].get(fmt)
+
+    def save_original_format(self, book_id, fmt):
+        data = self.format(book_id, fmt)
+        if data is not None:
+            self.books[book_id]['formats']['ORIGINAL_' + fmt] = data
+
+    def remove_formats(self, mapping):
+        for book_id, fmts in mapping.items():
+            for fmt in fmts:
+                self.books[book_id]['formats'].pop(fmt, None)
+
+    def add_format(self, book_id, fmt, stream, replace=True):
+        self.books[book_id]['formats'][fmt] = stream.read()
+        return True
+
+    def get_metadata(self, book_id):
+        return self.books[book_id]['mi']
+
+    def set_field(self, field, mapping):
+        for book_id, val in mapping.items():
+            setattr(self.books[book_id]['mi'], field, val)
+
+
+@unittest.skipUnless(HAVE_QT, 'PyQt6 (with its system libraries) is not installed')
+class ScrubberPluginTests(QtCase):
+    def setUp(self):
+        super().setUp()
+        sys.modules['calibre.gui2.actions'].InterfaceAction = object
+        self.package = self.load('epub_promo_scrubber')
+        self.action_module = importlib.import_module(self.package + '.action')
+
+    def make_action(self, selected_ids):
+        action = self.action_module.ScrubAction()
+        action.gui = make_gui()
+        action.gui.db = ScrubberFakeDb()
+        action.gui.current_db.new_api = action.gui.db
+        action.gui.library_view.get_selected_ids.return_value = selected_ids
+        action.qaction = MagicMock()
+        action.genesis()
+        self.action_module.prefs['show_preview'] = False
+        return action
+
+    def test_backup_disabled_user_declines_deletion_preserves_backup(self):
+        self.action_module.prefs['backup'] = False
+        action = self.make_action([1])
+        db = action.gui.db
+        dirty_epub = make_dirty_epub()
+        original_epub = b'original_backup_bytes'
+        db.books[1] = {
+            'mi': StubMetadata('Book Title', ['An Author']),
+            'formats': {'EPUB': dirty_epub, 'ORIGINAL_EPUB': original_epub}
+        }
+        with unittest.mock.patch.object(self.action_module.QMessageBox, 'question',
+                                       return_value=QtWidgets.QMessageBox.StandardButton.No) as mock_q:
+            action.scrub_selected()
+            mock_q.assert_called_once()
+            self.assertIn('Delete existing backups?', mock_q.call_args[0][1])
+        self.assertIn('ORIGINAL_EPUB', db.formats(1))
+        self.assertEqual(db.format(1, 'ORIGINAL_EPUB'), original_epub)
+
+    def test_backup_disabled_user_confirms_deletion_removes_backup(self):
+        self.action_module.prefs['backup'] = False
+        action = self.make_action([1])
+        db = action.gui.db
+        dirty_epub = make_dirty_epub()
+        original_epub = b'original_backup_bytes'
+        db.books[1] = {
+            'mi': StubMetadata('Book Title', ['An Author']),
+            'formats': {'EPUB': dirty_epub, 'ORIGINAL_EPUB': original_epub}
+        }
+        with unittest.mock.patch.object(self.action_module.QMessageBox, 'question',
+                                       return_value=QtWidgets.QMessageBox.StandardButton.Yes) as mock_q:
+            action.scrub_selected()
+            mock_q.assert_called_once()
+        self.assertNotIn('ORIGINAL_EPUB', db.formats(1))
+
+    def test_backup_enabled_saves_original_and_does_not_prompt(self):
+        self.action_module.prefs['backup'] = True
+        action = self.make_action([1])
+        db = action.gui.db
+        dirty_epub = make_dirty_epub()
+        db.books[1] = {
+            'mi': StubMetadata('Book Title', ['An Author']),
+            'formats': {'EPUB': dirty_epub}
+        }
+        with unittest.mock.patch.object(self.action_module.QMessageBox, 'question') as mock_q:
+            action.scrub_selected()
+            mock_q.assert_not_called()
+        self.assertIn('ORIGINAL_EPUB', db.formats(1))
+
+    def test_backup_disabled_multiple_books_prompts_once(self):
+        self.action_module.prefs['backup'] = False
+        action = self.make_action([1, 2])
+        db = action.gui.db
+        dirty_epub = make_dirty_epub()
+        for bid in (1, 2):
+            db.books[bid] = {
+                'mi': StubMetadata(f'Book {bid}', ['Author']),
+                'formats': {'EPUB': dirty_epub, 'ORIGINAL_EPUB': b'backup'}
+            }
+        with unittest.mock.patch.object(self.action_module.QMessageBox, 'question',
+                                       return_value=QtWidgets.QMessageBox.StandardButton.Yes) as mock_q:
+            action.scrub_selected()
+            self.assertEqual(mock_q.call_count, 1)
+        self.assertNotIn('ORIGINAL_EPUB', db.formats(1))
+        self.assertNotIn('ORIGINAL_EPUB', db.formats(2))
+
+    def test_backup_disabled_no_existing_backups_does_not_prompt(self):
+        self.action_module.prefs['backup'] = False
+        action = self.make_action([1])
+        db = action.gui.db
+        dirty_epub = make_dirty_epub()
+        db.books[1] = {
+            'mi': StubMetadata('Book Title', ['Author']),
+            'formats': {'EPUB': dirty_epub}
+        }
+        with unittest.mock.patch.object(self.action_module.QMessageBox, 'question') as mock_q:
+            action.scrub_selected()
+            mock_q.assert_not_called()
+
+    def test_backup_disabled_preview_mode_removes_backup_when_accepted(self):
+        self.action_module.prefs['backup'] = False
+        action = self.make_action([1])
+        self.action_module.prefs['show_preview'] = True
+        db = action.gui.db
+        dirty_epub = make_dirty_epub()
+        original_epub = b'original_backup_bytes'
+        db.books[1] = {
+            'mi': StubMetadata('Book Title', ['An Author']),
+            'formats': {'EPUB': dirty_epub, 'ORIGINAL_EPUB': original_epub}
+        }
+        _, report = self.action_module.scrub_epub(dirty_epub, *action.options(), dry_run=True)
+        change_ids = {c['id'] for c in report.get('changes', [])}
+        scrub_ui = importlib.import_module(self.package + '.ui')
+        mock_dialog_class = MagicMock()
+        mock_dialog_inst = mock_dialog_class.return_value
+        mock_dialog_inst.exec.return_value = QtWidgets.QDialog.DialogCode.Accepted
+        mock_dialog_inst.get_selected_change_ids.return_value = change_ids
+
+        with unittest.mock.patch.object(self.action_module.QMessageBox, 'question',
+                                       return_value=QtWidgets.QMessageBox.StandardButton.Yes) as mock_q, \
+             unittest.mock.patch.object(scrub_ui, 'ScrubPreviewDialog', mock_dialog_class):
+            action.scrub_selected()
+            mock_q.assert_called_once()
+        self.assertNotIn('ORIGINAL_EPUB', db.formats(1))
 
 
 if __name__ == '__main__':
