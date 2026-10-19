@@ -1,7 +1,13 @@
+import sys
 import unittest
 import zipfile
 from io import BytesIO
-from unittest.mock import MagicMock
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from common.storykit import build_epub, extract_epub_story, merge_epubs, strip_tags
 from common.libkit import merge_library_books
@@ -163,5 +169,58 @@ class EpubMergeTests(unittest.TestCase):
         self.assertIn(b'<svg', gui.db.covers_set[new_id].lower())
 
 
+class MergeSelectedActionMixinTests(unittest.TestCase):
+
+    def test_merge_selected_insufficient_selection(self):
+        from common.guikit import MergeSelectedActionMixin
+
+        class DummyAction(MergeSelectedActionMixin):
+            def __init__(self):
+                self.gui = MagicMock()
+
+        action = DummyAction()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+        with unittest.mock.patch('common.guikit.info_dialog') as mock_info:
+            action.merge_selected()
+            mock_info.assert_called_once_with(
+                action.gui, 'EPUB Merger', 'Select two or more books in Calibre first to merge.', show=True
+            )
+
+    def test_merge_selected_success(self):
+        from common.guikit import MergeSelectedActionMixin
+
+        class DummyAction(MergeSelectedActionMixin):
+            def __init__(self):
+                self.gui = MagicMock()
+
+        action = DummyAction()
+        action.gui.library_view.get_selected_ids.return_value = [1, 2]
+        with unittest.mock.patch('common.guikit.info_dialog') as mock_info, \
+             unittest.mock.patch('common.libkit.merge_library_books', return_value=(99, [])) as mock_merge:
+            action.merge_selected()
+            mock_merge.assert_called_once_with(action.gui, [1, 2])
+            mock_info.assert_called_once_with(
+                action.gui, 'EPUB Merger', 'Successfully merged books into a new omnibus EPUB in your library.', show=True
+            )
+
+    def test_merge_selected_failure(self):
+        from common.guikit import MergeSelectedActionMixin
+
+        class DummyAction(MergeSelectedActionMixin):
+            def __init__(self):
+                self.gui = MagicMock()
+
+        action = DummyAction()
+        action.gui.library_view.get_selected_ids.return_value = [1, 2]
+        with unittest.mock.patch('common.guikit.error_dialog') as mock_error, \
+             unittest.mock.patch('common.libkit.merge_library_books', return_value=(None, ['Format mismatch'])) as mock_merge:
+            action.merge_selected()
+            mock_merge.assert_called_once_with(action.gui, [1, 2])
+            mock_error.assert_called_once_with(
+                action.gui, 'EPUB Merger', 'Could not merge books:\nFormat mismatch', show=True
+            )
+
+
 if __name__ == '__main__':
     unittest.main()
+
