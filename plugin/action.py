@@ -1,4 +1,3 @@
-from pathlib import Path
 from calibre.gui2.actions import InterfaceAction
 from calibre.gui2 import error_dialog, info_dialog
 from qt.core import QAction, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QLabel, QVBoxLayout, QProgressDialog, Qt
