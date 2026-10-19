@@ -2,8 +2,8 @@
 import time
 import webbrowser
 
-from qt.core import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel,
-                     QLineEdit, QMessageBox, QPushButton, QRadioButton, QSpinBox, QTableWidget, QTableWidgetItem, Qt, QVBoxLayout)
+from qt.core import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
+                     QLineEdit, QMessageBox, QPushButton, QRadioButton, QSpinBox, QTableWidget, QTableWidgetItem, Qt, QTimer, QVBoxLayout)
 try:
     from qt.core import _
 except ImportError:
@@ -415,6 +415,11 @@ class SettingsDialog(QDialog):
         test.setToolTip('Makes one request to r/HFY with the settings above (nothing is saved or changed)')
         test.clicked.connect(self.test_connection)
         row.addWidget(test)
+        self.switch_api_button = QPushButton('Switch to Official API')
+        self.switch_api_button.setToolTip('Switch to Official API mode to set up credentials')
+        self.switch_api_button.clicked.connect(self.switch_to_api_mode)
+        self.switch_api_button.setVisible(False)
+        row.addWidget(self.switch_api_button)
         self.test_result = QLabel('')
         self.test_result.setWordWrap(True)
         row.addWidget(self.test_result, 1)
@@ -469,15 +474,34 @@ class SettingsDialog(QDialog):
         prefs['refresh_token'] = prefs['account_name'] = ''
         self.sync()
 
+    def switch_to_api_mode(self):
+        self.api.setChecked(True)
+        self.switch_api_button.setVisible(False)
+        self.test_result.setText('Switched to official API mode. Register an app at reddit.com/prefs/apps and enter your client ID above.')
+
     def test_connection(self):
         mode = 'api' if self.api.isChecked() else 'rss'
         client_id, secret, username = self.client_id.text().strip(), self.client_secret.text().strip(), self.username.text().strip()
         src = core.parse_source('r/HFY')
         task = run_task(self, 'Testing Reddit…', lambda t: core.probe(core.make_source(mode, client_id, secret, self.account_name or username, t.cancelled, self.refresh_token), src, limit=5))
-        if task.error:
-            self.test_result.setText(f'The test failed: {task.error}')
+        err_msg = str(task.error) if task.error else (task.result[1] if task.result and not task.result[0] else None)
+        if err_msg:
+            if any(code in err_msg for code in ('429', '403')) or any(w in err_msg.lower() for w in ('rate', 'slow down', 'forbidden', 'too many requests')):
+                if mode == 'rss':
+                    if '403' in err_msg or 'forbidden' in err_msg.lower():
+                        self.test_result.setText('Problem: Reddit restricted access (HTTP 403). Public feeds share rate limits across IP addresses. Switch to Official API mode with your own credentials for reliable access.')
+                    else:
+                        self.test_result.setText('Problem: Reddit asked us to slow down (HTTP 429). Public feeds share rate limits across IP addresses. Switch to Official API mode with your own credentials for reliable access.')
+                    self.switch_api_button.setVisible(True)
+                else:
+                    self.test_result.setText(f'Problem: Reddit API error ({err_msg}). Check client ID, secret, and account credentials.')
+                    self.switch_api_button.setVisible(False)
+            else:
+                self.test_result.setText(f'Problem: {err_msg}')
+                self.switch_api_button.setVisible(False)
         elif task.result is not None:
-            self.test_result.setText(('OK: ' if task.result[0] else 'Problem: ') + task.result[1])
+            self.test_result.setText('OK: ' + task.result[1])
+            self.switch_api_button.setVisible(False)
 
     def save(self):
         if self.api.isChecked() and not self.client_id.text().strip():
@@ -660,6 +684,35 @@ class ManageDialog(QDialog):
         self.setWindowTitle(_('Followed Reddit stories'))
         self.resize(880, 460)
         layout = QVBoxLayout(self)
+
+        self.error_banner = QFrame(self)
+        self.error_banner.setFrameShape(QFrame.Shape.StyledPanel)
+        self.error_banner.setStyleSheet('QFrame { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 4px; padding: 4px; }')
+        error_layout = QHBoxLayout(self.error_banner)
+        error_layout.setContentsMargins(6, 2, 6, 2)
+        self.error_label = QLabel(self.error_banner)
+        self.error_label.setWordWrap(True)
+        self.dismiss_error_button = QPushButton('Dismiss', self.error_banner)
+        self.dismiss_error_button.clicked.connect(self.dismiss_error)
+        error_layout.addWidget(self.error_label, 1)
+        error_layout.addWidget(self.dismiss_error_button)
+        layout.addWidget(self.error_banner)
+        self.error_banner.setVisible(False)
+
+        self.backoff_banner = QFrame(self)
+        self.backoff_banner.setFrameShape(QFrame.Shape.StyledPanel)
+        self.backoff_banner.setStyleSheet('QFrame { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; border-radius: 4px; padding: 4px; }')
+        backoff_layout = QHBoxLayout(self.backoff_banner)
+        backoff_layout.setContentsMargins(6, 2, 6, 2)
+        self.backoff_label = QLabel(self.backoff_banner)
+        self.backoff_label.setWordWrap(True)
+        self.reset_backoff_button = QPushButton('Reset Backoff & Retry', self.backoff_banner)
+        self.reset_backoff_button.clicked.connect(self.reset_backoff_and_retry)
+        backoff_layout.addWidget(self.backoff_label, 1)
+        backoff_layout.addWidget(self.reset_backoff_button)
+        layout.addWidget(self.backoff_banner)
+        self.backoff_banner.setVisible(False)
+
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -678,6 +731,12 @@ class ManageDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+        self.update_timer = QTimer(self)
+        self.update_timer.setInterval(1000)
+        self.update_timer.timeout.connect(self.update_backoff_timer)
+        self.update_timer.start()
+
         self.refresh()
 
     def open_queue_manager(self):
@@ -689,7 +748,43 @@ class ManageDialog(QDialog):
             return self.action.get_follows()
         return prefs['follows']
 
+    def dismiss_error(self):
+        if hasattr(self.action, 'last_background_error'):
+            self.action.last_background_error = None
+        self.refresh()
+
+    def reset_backoff_and_retry(self):
+        if hasattr(self.action, 'backoff_until'):
+            self.action.backoff_until = 0
+        self.action.check_all_now()
+        self.refresh()
+
+    def update_backoff_timer(self):
+        backoff_until = getattr(self.action, 'backoff_until', 0.0)
+        now = time.time()
+        if backoff_until > now:
+            remaining = max(0, int(backoff_until - now))
+            mins, secs = divmod(remaining, 60)
+            hours, mins = divmod(mins, 60)
+            if hours > 0:
+                time_str = f'{hours}h {mins}m {secs}s'
+            else:
+                time_str = f'{mins}m {secs}s'
+            self.backoff_label.setText(f'Backoff active: retrying in {time_str}')
+            self.backoff_banner.setVisible(True)
+        else:
+            self.backoff_banner.setVisible(False)
+
     def refresh(self):
+        err = getattr(self.action, 'last_background_error', None)
+        if err:
+            self.error_label.setText(f'Last background check failed: {err}')
+            self.error_banner.setVisible(True)
+        else:
+            self.error_banner.setVisible(False)
+
+        self.update_backoff_timer()
+
         follows = self.follows()
         self.table.setRowCount(len(follows))
         for r, follow in enumerate(follows):
