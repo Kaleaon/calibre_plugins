@@ -310,7 +310,7 @@ class PathGuessTests(unittest.TestCase):
                 p = Path(d) / name
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_bytes(b'x')
-            found = [str(Path(p).relative_to(d)) for p in tags.scan_folder(d)]
+            found = [Path(p).relative_to(d).as_posix() for p in tags.scan_folder(d)]
             self.assertEqual(found, ['a/01.flac', 'b/02.mp3', 'c/x.M4B'])
 
 
