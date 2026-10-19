@@ -221,9 +221,18 @@ def add_prebuilt(gui, items):
 def find_book(gui, identifier, value):
     """Id of the first library book carrying identifier:value, or None."""
     db = gui.current_db.new_api
+    if not value:
+        return None
+    norm_val = value.replace('|', ':').rstrip('/') if isinstance(value, str) else value
     for book_id, idents in db.all_field_for('identifiers', db.all_book_ids(), {}).items():
-        if idents and idents.get(identifier) == value:
-            return book_id
+        if idents and identifier in idents:
+            ival = idents[identifier]
+            if isinstance(ival, str):
+                ival = ival.replace('|', ':').rstrip('/')
+                if ival == norm_val or ival.replace('http://', 'https://') == norm_val.replace('http://', 'https://'):
+                    return book_id
+            elif ival == norm_val:
+                return book_id
     return None
 
 
