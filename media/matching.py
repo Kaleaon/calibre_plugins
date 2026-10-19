@@ -375,8 +375,9 @@ def _match_music(want, book, http, options, on_event, name):
         for rec in found:
             recs.setdefault(rec.get('id'), rec)
 
-    for rid in list(dict.fromkeys(list(exact) + list(acoustid_scores)))[:4]:
-        add(sources.mb_search_recordings(http, recording_id=rid, limit=1))
+    candidate_ids = list(dict.fromkeys(list(exact) + list(acoustid_scores)))[:4]
+    if candidate_ids:
+        add(sources.mb_search_recordings(http, recording_id=candidate_ids, limit=len(candidate_ids)))
     want_title = (want.get('title') or '').strip()
     if want_title:
         on_event('searching', name=name, query=f"{want_title} / {want.get('artist', '')} / {want.get('album', '')}")

@@ -477,6 +477,24 @@ class ServiceCallTests(unittest.TestCase):
         self.assertEqual(sources.mb_search_recordings(http), [])
         self.assertEqual(len(fetch.calls), 1, 'nothing to ask, so nothing is sent')
 
+    def test_batched_recording_ids_lucene_or_query(self):
+        http, fetch, _ = make_http({'recordings': [{'id': 'id1'}, {'id': 'id2'}]})
+        out = sources.mb_search_recordings(http, recording_id=['id1', 'id2', 'id3'])
+        self.assertEqual(len(fetch.calls), 1)
+        url = fetch.calls[0][0]
+        from urllib.parse import parse_qs, urlsplit
+        query = parse_qs(urlsplit(url).query)['query'][0]
+        self.assertEqual(query, 'rid:id1 OR rid:id2 OR rid:id3')
+        self.assertEqual(out, [{'id': 'id1'}, {'id': 'id2'}])
+
+    def test_batched_recording_ids_limited_to_four(self):
+        http, fetch, _ = make_http({'recordings': []})
+        sources.mb_search_recordings(http, recording_ids=['id1', 'id2', 'id3', 'id4', 'id5', 'id6'])
+        url = fetch.calls[0][0]
+        from urllib.parse import parse_qs, urlsplit
+        query = parse_qs(urlsplit(url).query)['query'][0]
+        self.assertEqual(query, 'rid:id1 OR rid:id2 OR rid:id3 OR rid:id4')
+
     def test_unparseable_query_is_no_result_not_a_failure(self):
         http, *_ = make_http(http_error(400))
         self.assertEqual(sources.mb_search_recordings(http, 'x', 'y'), [])
@@ -842,6 +860,31 @@ class PlanMatchesTests(unittest.TestCase):
             self.assertIn('notice', [e for e, _ in events])
         finally:
             sources.fingerprint = real
+
+    def test_candidate_recording_resolution_batched_in_single_http_request(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / 'a.mp3'
+            path.write_bytes(id3_tag(3, [('TIT2', id3_text(0, 'Track 01')), ('UFID', b'http://musicbrainz.org\x00' + b'rec-exact-1')]) + mp3_frames())
+            real = sources.fingerprint
+            sources.fingerprint = lambda p, f: (200, 'AQAD')
+            try:
+                book = library_book(title='Track 01', series='', path=str(path))
+                acoustid_res = {'status': 'ok', 'results': [{'score': 0.95, 'recordings': [{'id': MB[0]['id']}, {'id': 'rec-fp-2'}, {'id': 'rec-fp-3'}]}]}
+                mb_cand_res = {'recordings': [MB[0]]}
+                mb_text_res = {'recordings': []}
+                routes = {'acoustid': [acoustid_res], 'musicbrainz.org': [mb_cand_res, mb_text_res]}
+                opts = {'fingerprint': True, 'acoustid_key': 'K', 'fpcalc': '/bin/fpcalc'}
+                http, fetch, clock = make_http(routes=routes)
+                found, skipped = matching.plan_matches([book], http, opts)
+                mb_calls = [c for c in fetch.calls if 'musicbrainz.org' in c[0]]
+                cand_call_url = mb_calls[0][0]
+                from urllib.parse import parse_qs, urlsplit
+                query = parse_qs(urlsplit(cand_call_url).query)['query'][0]
+                expected_query = f"rid:rec-exact-1 OR rid:{MB[0]['id']} OR rid:rec-fp-2 OR rid:rec-fp-3"
+                self.assertEqual(query, expected_query)
+                self.assertEqual(len(found), 1)
+            finally:
+                sources.fingerprint = real
 
     def test_big_title_changes_are_flagged(self):
         books = [library_book(title='Yesterday', authors=['Frank Herbert'], series='', formats=['EPUB'])]
