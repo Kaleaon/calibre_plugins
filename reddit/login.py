@@ -81,12 +81,23 @@ class CallbackServer:
     def redirect_uri(self):
         return f'http://127.0.0.1:{self.port}/callback'
 
+    def _create_server(self, port):
+        server = http.server.HTTPServer(('127.0.0.1', port), self._handler, bind_and_activate=False)
+        server.allow_reuse_address = False
+        try:
+            server.server_bind()
+            server.server_activate()
+        except BaseException:
+            server.server_close()
+            raise
+        return server
+
     def __enter__(self):
         try:
-            self.server = http.server.HTTPServer(('127.0.0.1', self.port), self._handler)
+            self.server = self._create_server(self.port)
         except OSError:
             try:
-                self.server = http.server.HTTPServer(('127.0.0.1', 0), self._handler)
+                self.server = self._create_server(0)
             except OSError as exc:
                 raise LoginError(f'Port {self.port} on this computer is already in use ({exc}). Close the program using it and try again.') from exc
         self.port = self.server.server_address[1]
