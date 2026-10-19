@@ -401,9 +401,20 @@ class CoverTests(unittest.TestCase):
                 for n in ('p01.jpg', 'p02.jpg', 'p10.jpg'):
                     z.writestr(n, n.encode())
             self.assertEqual(engine.find_back_cover(cbz, 'CBZ')[0], b'p10.jpg')
+            unpadded_cbz = Path(d) / 'unpadded.cbz'
+            with zipfile.ZipFile(unpadded_cbz, 'w') as z:
+                for n in ('page1.jpg', 'page2.jpg', 'page10.jpg'):
+                    z.writestr(n, n.encode())
+            self.assertEqual(engine.find_back_cover(unpadded_cbz, 'CBZ')[0], b'page10.jpg')
             (Path(d) / 'junk.epub').write_bytes(b'not a zip')
             self.assertIsNone(engine.find_back_cover(Path(d) / 'junk.epub', 'EPUB'))
             self.assertIsNone(engine.find_back_cover(Path(d) / 'missing.epub', 'EPUB'))
+
+    def test_natural_sort_key(self):
+        f = engine._natural_sort_key
+        filenames = ['page10.jpg', 'page1.jpg', 'page2.jpg', 'cover.jpg', 'PAGE1A.JPG']
+        sorted_files = sorted(filenames, key=f)
+        self.assertEqual(sorted_files, ['cover.jpg', 'page1.jpg', 'PAGE1A.JPG', 'page2.jpg', 'page10.jpg'])
 
 
 class InputTests(unittest.TestCase):
