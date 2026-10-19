@@ -443,22 +443,33 @@ class GeminiFixerAction(InterfaceAction):
                         excerpt = ''
                 images = []
                 if with_covers:
+                    has_front = False
                     try:
-                        front_data = db.cover(book_id)
-                        front = prepare_image(front_data)
-                        if front:
-                            images.append({'label': 'front cover', 'mime': 'image/jpeg', 'data': front})
+                        if hasattr(db, 'has_cover'):
+                            has_front = db.has_cover(book_id)
+                        else:
+                            has_front = bool(db.cover(book_id))
                     except Exception:
-                        pass
+                        has_front = False
+
+                    if has_front:
+                        images.append({
+                            'type': 'front',
+                            'label': 'front cover',
+                            'mime': 'image/jpeg',
+                            'book_id': book_id,
+                            'loader': lambda bid=book_id: db.cover(bid)
+                        })
+
                     for fmt in fmts:
                         if fmt.upper() in ('EPUB', 'CBZ'):
                             try:
                                 fmt_path = db.format_abspath(book_id, fmt)
-                                found = engine.find_back_cover(fmt_path, fmt) if fmt_path else None
-                                back = prepare_image(found[0]) if found else None
-                                if back:
-                                    images.append({'label': found[1], 'mime': 'image/jpeg', 'data': back})
-                                    break
+                                if fmt_path:
+                                    desc = engine.find_back_cover_descriptor(fmt_path, fmt)
+                                    if desc:
+                                        images.append(desc)
+                                        break
                             except Exception:
                                 continue
                 return {
@@ -1128,7 +1139,8 @@ class GeminiFixerAction(InterfaceAction):
                             instructions=active_text, template_vars=tpl_vars,
                             system_instruction_mode=prefs['system_instruction_mode'],
                             custom_instructions=prefs['custom_system_instructions'],
-                            on_event=lambda kind, **info: messages.put((kind, info))
+                            on_event=lambda kind, **info: messages.put((kind, info)),
+                            image_hydrator=prepare_image, db=self.gui.current_db.new_api
                         )
 
                         # 3. Save output SEPARATELY immediately!

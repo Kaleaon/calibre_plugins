@@ -817,8 +817,6 @@ class EstimateBatchUsageTests(unittest.TestCase):
 
         est_pro = engine.estimate_batch_usage(books, batch_size=2, covers=False, min_interval=0, model='gemini-1.5-pro')
         self.assertAlmostEqual(est_pro['estimated_cost'], (est_pro['prompt_tokens'] / 1_000_000.0) * 1.25, places=6)
-
-
 class AdaptiveDowngradeTests(unittest.TestCase):
     def test_fallback_model_mapping(self):
         f = engine.get_fallback_model
@@ -1459,6 +1457,136 @@ class SystemInstructionTests(unittest.TestCase):
         sent_body = json.loads(t.calls[0][2])
         expected_instructions = f"{engine.INSTRUCTIONS}\n\n{custom}"
         self.assertEqual(sent_body['systemInstruction']['parts'][0]['text'], expected_instructions)
+
+
+class TwoPhaseHydrationTests(BackgroundScanTests):
+    def test_books_for_records_lightweight_cover_descriptors(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.GeminiFixerAction()
+
+        class MockMetadata:
+            title = "Test Book"
+            authors = ["Author A"]
+            identifiers = {}
+            series = ""
+            series_index = None
+            tags = []
+            languages = []
+            publisher = ""
+
+        class MockDb:
+            def get_metadata(self, book_id, get_cover=False):
+                return MockMetadata()
+            def formats(self, book_id):
+                return ['EPUB']
+            def format_abspath(self, book_id, fmt):
+                return None
+            def has_cover(self, book_id):
+                return True
+            def cover(self, book_id):
+                return b'FAKE_JPEG_DATA'
+
+        action.gui = MagicMock(current_db=MagicMock(new_api=MockDb()))
+
+        books = action.books_for([1], with_excerpt=False, with_covers=True)
+        self.assertEqual(len(books), 1)
+        b = books[0]
+        self.assertEqual(len(b['images']), 1)
+        desc = b['images'][0]
+        self.assertEqual(desc['label'], 'front cover')
+        self.assertEqual(desc['type'], 'front')
+        self.assertNotIn('data', desc, "books_for must not store base64 data string upfront")
+        self.assertTrue(callable(desc.get('loader')), "Descriptor must contain a loader callable")
+
+    def test_estimate_batch_usage_uses_descriptors_without_hydration(self):
+        mock_hydrator = MagicMock()
+        b1 = book(1, images=[{
+            'type': 'front', 'label': 'front cover', 'mime': 'image/jpeg',
+            'loader': lambda: b'FAKE_JPEG'
+        }])
+        b2 = book(2, images=[{
+            'type': 'front', 'label': 'front cover', 'mime': 'image/jpeg',
+            'loader': lambda: b'FAKE_JPEG'
+        }, {
+            'type': 'back', 'label': 'back cover (rear.jpg)', 'mime': 'image/jpeg',
+            'loader': lambda: b'FAKE_BACK_JPEG'
+        }])
+
+        est = engine.estimate_batch_usage([b1, b2], batch_size=10, covers=True)
+        self.assertEqual(est['books_count'], 2)
+        self.assertEqual(est['image_count'], 3)
+        self.assertEqual(est['image_tokens'], 3 * 258)
+        mock_hydrator.assert_not_called()
+
+    def test_per_batch_hydration_in_plan_fixes(self):
+        b1 = book(1, images=[{
+            'type': 'front', 'label': 'front cover', 'mime': 'image/jpeg',
+            'loader': lambda: b'FAKE_BINARY_1'
+        }])
+        b2 = book(2, images=[{
+            'type': 'front', 'label': 'front cover', 'mime': 'image/jpeg',
+            'loader': lambda: b'FAKE_BINARY_2'
+        }])
+
+        mock_hydrator = MagicMock(side_effect=lambda data: f"BASE64_{data.decode()}")
+
+        answers_b1 = [{'id': 1, 'title': 'Book 1 Fixed', 'confidence': 'high'}]
+        answers_b2 = [{'id': 2, 'title': 'Book 2 Fixed', 'confidence': 'high'}]
+        t = Scripted(reply(answers_b1), reply(answers_b2))
+
+        suggestions, skipped = engine.plan_fixes(
+            [b1, b2], 'k', batch_size=1, transport=t, image_hydrator=mock_hydrator
+        )
+
+        self.assertEqual(len(suggestions), 2)
+        self.assertEqual(mock_hydrator.call_count, 2)
+
+        call1_parts = json.loads(t.calls[0][2])['contents'][0]['parts']
+        inline1 = [p for p in call1_parts if 'inlineData' in p]
+        self.assertEqual(len(inline1), 1)
+        self.assertEqual(inline1[0]['inlineData']['data'], 'BASE64_FAKE_BINARY_1')
+
+        call2_parts = json.loads(t.calls[1][2])['contents'][0]['parts']
+        inline2 = [p for p in call2_parts if 'inlineData' in p]
+        self.assertEqual(len(inline2), 1)
+        self.assertEqual(inline2[0]['inlineData']['data'], 'BASE64_FAKE_BINARY_2')
+
+        self.assertNotIn('data', b1['images'][0], "Original book dict must remain lightweight without base64 payload")
+        self.assertNotIn('data', b2['images'][0], "Original book dict must remain lightweight without base64 payload")
+
+    def test_graceful_handling_of_corrupt_or_missing_covers(self):
+        def bad_loader():
+            raise OSError("Cover file missing or corrupt")
+
+        b = book(1, images=[{
+            'type': 'front', 'label': 'front cover', 'mime': 'image/jpeg',
+            'loader': bad_loader
+        }])
+
+        mock_hydrator = MagicMock()
+        parts = engine.build_parts([b], image_hydrator=mock_hydrator, hydrate=True)
+
+        inline_parts = [p for p in parts if 'inlineData' in p]
+        self.assertEqual(len(inline_parts), 0, "Corrupt or missing covers must be omitted gracefully")
+
+        answers = [{'id': 1, 'title': 'Book 1 Fixed', 'confidence': 'high'}]
+        t = Scripted(reply(answers))
+        suggestions, skipped = engine.plan_fixes([b], 'k', transport=t, image_hydrator=mock_hydrator)
+        self.assertEqual(len(suggestions), 1)
+
+    def test_backward_compatibility_with_prepopulated_images(self):
+        b = book(1, images=[{'label': 'front cover', 'mime': 'image/jpeg', 'data': 'PREPOPULATED_B64'}])
+        mock_hydrator = MagicMock()
+
+        parts = engine.build_parts([b], image_hydrator=mock_hydrator, hydrate=True)
+        mock_hydrator.assert_not_called()
+
+        inline_parts = [p for p in parts if 'inlineData' in p]
+        self.assertEqual(len(inline_parts), 1)
+        self.assertEqual(inline_parts[0]['inlineData']['data'], 'PREPOPULATED_B64')
 
 
 if __name__ == '__main__':
