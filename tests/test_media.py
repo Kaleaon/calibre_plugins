@@ -619,6 +619,14 @@ class MusicMatchTests(unittest.TestCase):
         self.assertEqual(best['recording_id'], '0aa1938a-ee7f-487b-b742-8b2cfa110c85')
         self.assertFalse(best['ambiguous'])
 
+    def test_untagged_track_acoustid_match_scores_above_tick_threshold(self):
+        untagged = want(title='', artist='', album='', duration=125.6)
+        self.assertIsNone(matching.best_music_candidate(MB, untagged))
+        best = matching.best_music_candidate(MB, untagged, {'0aa1938a-ee7f-487b-b742-8b2cfa110c85': 0.95})
+        self.assertIsNotNone(best)
+        self.assertEqual(best['recording_id'], '0aa1938a-ee7f-487b-b742-8b2cfa110c85')
+        self.assertGreaterEqual(best['score'], matching.TICK_SCORE)
+
     def test_tagged_musicbrainz_id_is_a_strong_match(self):
         best = matching.best_music_candidate(MB, want(duration=500), exact_ids=('8083d5ff-d097-4636-9c30-77171b97aa43',))
         self.assertEqual((best['recording_id'], best['by_id']), ('8083d5ff-d097-4636-9c30-77171b97aa43', True))
@@ -844,6 +852,44 @@ class PlanMatchesTests(unittest.TestCase):
         self.assertTrue(found[0]['big'], 'a quite different title is flagged, which starts it unticked')
         self.assertFalse(self.run_plan([library_book(title='dune', authors=['Frank Herbert'], series='', formats=['EPUB'])],
                                        {'openlibrary.org': [{'docs': OL}]})[0][0][0]['big'], 'a tidy-up of the same title is not')
+
+    def test_untagged_audio_lookup_decoupled_from_title_presence(self):
+        calls = {}
+        real = sources.fingerprint
+
+        def fake_fingerprint(path, fpcalc):
+            calls['fp'] = (path, fpcalc)
+            return 125, 'AQAD'
+        sources.fingerprint = fake_fingerprint
+        try:
+            book = library_book(title='', authors=[], series='', series_index=None, path='/m/untagged.mp3')
+            routes = {'acoustid': [{'status': 'ok', 'results': [{'score': 0.97, 'recordings': [{'id': MB[0]['id']}]}]}],
+                      'musicbrainz.org': [{'recordings': [MB[0]]}]}
+            opts = {'fingerprint': True, 'acoustid_key': 'K', 'fpcalc': '/bin/fpcalc'}
+            (found, _), fetch, _ = self.run_plan([book], routes, opts)
+            self.assertEqual(len(found), 1)
+            self.assertEqual(found[0]['candidate']['recording_id'], MB[0]['id'])
+            self.assertGreaterEqual(found[0]['score'], matching.TICK_SCORE)
+            self.assertFalse(found[0]['big'])
+            changes = found[0]['changes']
+            self.assertIn('title', changes)
+            self.assertEqual(changes['title'], ('', 'Yesterday'))
+            self.assertIn('authors', changes)
+            self.assertEqual(changes['authors'], ([], ['The Beatles']))
+            self.assertIn('album', changes)
+            self.assertEqual(changes['album'], (['', None], ['Help!', 13.0]))
+            self.assertIn('date', changes)
+            self.assertIn('identifiers', changes)
+        finally:
+            sources.fingerprint = real
+
+    def test_untagged_audio_unconfigured_fingerprint_notice(self):
+        book = library_book(title='', authors=[], series='', path='/m/untagged.mp3')
+        opts = {'fingerprint': False}
+        (found, skipped), _, events = self.run_plan([book], {}, opts)
+        self.assertEqual(found, [])
+        notices = [info['text'] for event, info in events if event == 'notice']
+        self.assertTrue(any('unconfigured' in n for n in notices))
 
 
 class AudiobookEndToEndTests(unittest.TestCase):
