@@ -5,6 +5,8 @@ import types
 import unittest
 from unittest.mock import MagicMock
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'common'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tagger'))
 
 spec = importlib.util.spec_from_file_location('rules', Path(__file__).resolve().parents[1] / 'tagger/rules.py')
@@ -142,10 +144,12 @@ class TaggerDialogTests(unittest.TestCase):
         tagger_pkg = types.ModuleType('calibre_plugins.story_collection_tagger')
         tagger_pkg.config = MagicMock(prefs={'add_source': True, 'source_prefix': 'Source.', 'series_prefix': 'Series.', 'scan_comments': False, 'rules': '', 'sites': ''})
         tagger_pkg.rules = rules
+        tagger_pkg.error_handler = MagicMock()
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins.story_collection_tagger'] = tagger_pkg
         sys.modules['calibre_plugins.story_collection_tagger.config'] = tagger_pkg.config
         sys.modules['calibre_plugins.story_collection_tagger.rules'] = tagger_pkg.rules
+        sys.modules['calibre_plugins.story_collection_tagger.error_handler'] = tagger_pkg.error_handler
 
     def tearDown(self):
         for k in list(sys.modules.keys()):

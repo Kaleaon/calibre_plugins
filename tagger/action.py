@@ -8,7 +8,10 @@ except ImportError:
     try:
         from .error_handler import show_friendly_error_dialog
     except ImportError:
-        from error_handler import show_friendly_error_dialog
+        try:
+            from error_handler import show_friendly_error_dialog
+        except ImportError:
+            from common.error_handler import show_friendly_error_dialog
 
 from calibre_plugins.story_collection_tagger import rules as rules_mod
 from calibre_plugins.story_collection_tagger.config import prefs
