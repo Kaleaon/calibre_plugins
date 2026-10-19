@@ -4,6 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'common'))
+import storykit
 spec = importlib.util.spec_from_file_location('ncore', Path(__file__).resolve().parents[1] / 'nifty/core.py')
 core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
@@ -187,12 +188,12 @@ class DownloadSelectionTests(unittest.TestCase):
         class Cancelling(FakeFetcher):
             def get(self, url):
                 if url.endswith('/jeremiah'):
-                    raise core.Cancelled()
+                    raise storykit.Cancelled()
                 return super().get(url)
         done = []
         selection = core.build_selection([], [{'title': 'Texas Tails', 'path': 'gay/college/texas-tails', 'dir': True},
                                               {'title': 'Texas Tails: Jeremiah', 'path': 'gay/highschool/jeremiah', 'dir': False}])
-        with self.assertRaises(core.Cancelled):
+        with self.assertRaises(storykit.Cancelled):
             for group in core.iter_selection(Cancelling(self.pages()), selection):
                 done.append(group)
         self.assertEqual(len(done), 1, 'the first story finished before the cancel and must be kept')
@@ -310,10 +311,10 @@ class RangeScanTests(unittest.TestCase):
         class Cancelling(self.RangeFetcher):
             def get_range(self, url, length=3000, tail=False):
                 if url.endswith('/two'):
-                    raise core.Cancelled()
+                    raise storykit.Cancelled()
                 return super().get_range(url, length, tail)
         kept = {}
-        with self.assertRaises(core.Cancelled):
+        with self.assertRaises(storykit.Cancelled):
             core.scan_texts(Cancelling({}, {core.SITE + 'gay/b/one': 'ONE'}), stories(('One', 'gay/b/one'), ('Two', 'gay/b/two')), kept)
         self.assertIn('gay/b/one', kept)
 

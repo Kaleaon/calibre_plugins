@@ -7,6 +7,7 @@ import xml.dom.minidom
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'common'))
+import storykit
 spec = importlib.util.spec_from_file_location('mcore', Path(__file__).resolve().parents[1] / 'metabods/core.py')
 core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
@@ -136,7 +137,7 @@ class SearchTagsTests(unittest.TestCase):
 
         seen_fetchers = set()
 
-        class TrackingFetcher(core.Fetcher):
+        class TrackingFetcher(getattr(core, 'Fetcher', storykit.Fetcher)):
             def get(self, url):
                 seen_fetchers.add(id(self))
                 time.sleep(0.02)
@@ -168,13 +169,13 @@ class StoryTests(unittest.TestCase):
         self.assertIn('<text>Solo</text>', ncx)
 
     def test_cleaner(self):
-        out = core.clean_fragment('<p><p>One <b>bold <i>x</b></i></p>\n<p></p>stray<script>no()</script><img src="x"><a href="javascript:1">l</a></p>')
+        out = storykit.clean_fragment('<p><p>One <b>bold <i>x</b></i></p>\n<p></p>stray<script>no()</script><img src="x"><a href="javascript:1">l</a></p>')
         xml.dom.minidom.parseString(f'<r>{out}</r>')
         self.assertNotIn('script', out)
         self.assertNotIn('javascript', out)
         self.assertNotIn('<p></p>', out)
         self.assertIn('stray', out)
-        styled = core.clean_fragment('<p style="margin-left:40px;color:red;background:url(x)">t</p>')
+        styled = storykit.clean_fragment('<p style="margin-left:40px;color:red;background:url(x)">t</p>')
         self.assertIn('margin-left:40px', styled)
         self.assertNotIn('color', styled)
 
@@ -221,10 +222,10 @@ class FetcherTests(unittest.TestCase):
                 raise OSError('boom')
             return FakeResponse('café'.encode())
 
-        self.assertEqual(core.Fetcher(min_interval=0, opener=opener).get('https://metabods.com/x'), 'café')
+        self.assertEqual(storykit.Fetcher(min_interval=0, opener=opener).get('https://metabods.com/x'), 'café')
         self.assertEqual(len(calls), 2)
-        with self.assertRaises(core.Cancelled):
-            core.Fetcher(min_interval=0, cancelled=lambda: True, opener=opener).get('https://metabods.com/x')
+        with self.assertRaises(storykit.Cancelled):
+            storykit.Fetcher(min_interval=0, cancelled=lambda: True, opener=opener).get('https://metabods.com/x')
 
 
 if __name__ == '__main__':

@@ -1,20 +1,21 @@
 """Metabods parsing and download logic. Pure standard library so it can be tested outside Calibre."""
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import copy
+import functools
 import html
 import re
 import threading
 from urllib.parse import parse_qs, urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
-    from .storykit import Cancelled, Fetcher, clean_fragment, decode, epub_builder, strip_tags  # noqa: F401
+    from .storykit import Cancelled, Fetcher, build_epub as _build_epub, strip_tags
 except ImportError:  # tests load this file directly with common/ on sys.path
-    from storykit import Cancelled, Fetcher, clean_fragment, decode, epub_builder, strip_tags  # noqa: F401
+    from storykit import Cancelled, Fetcher, build_epub as _build_epub, strip_tags
 
 SITE = 'https://metabods.com/mbxy/site/'
 PUBLISHER = 'Metabods'
 
-build_epub = epub_builder(PUBLISHER)
+build_epub = functools.partial(_build_epub, publisher=PUBLISHER)
 
 
 # ---------------------------------------------------------------- input parsing

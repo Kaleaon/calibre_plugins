@@ -368,7 +368,7 @@ def _from_vorbis(comments, pictures):
     return t
 
 
-def _read_flac(f, start, size):
+def _read_flac(f, start):
     f.seek(start)
     if f.read(4) != b'fLaC':
         return None
@@ -590,12 +590,12 @@ def read_tags(path):
                 if result and os.path.splitext(path)[1].lower() == '.m4b':
                     result['format'] = 'M4B'
             elif head[:4] == b'fLaC':
-                result = _read_flac(f, 0, size)
+                result = _read_flac(f, 0)
             elif head[:3] == b'ID3':
                 _tag, end = _read_id3v2(f)
                 f.seek(end)
                 if f.read(4) == b'fLaC':  # a FLAC file with an ID3v2 tag in front of it
-                    result = _read_flac(f, end, size)
+                    result = _read_flac(f, end)
                     if result and _tag:
                         for key in ('title', 'artist', 'album', 'date', 'genre'):
                             result[key] = result[key] or _tag[key]

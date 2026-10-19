@@ -6,6 +6,7 @@ import unittest
 import zipfile
 from unittest.mock import MagicMock
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'common'))
 
 spec_core = importlib.util.spec_from_file_location('ncore', Path(__file__).resolve().parents[1] / 'nifty/core.py')
