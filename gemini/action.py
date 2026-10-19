@@ -502,6 +502,30 @@ class GeminiFixerAction(InterfaceAction):
         row.addStretch(1)
         layout.addLayout(row)
 
+        row = QHBoxLayout()
+        row.addWidget(QLabel('System instructions mode:'))
+        instruction_mode = QComboBox()
+        instruction_mode.addItem('Append custom rules to default instructions', 'append')
+        instruction_mode.addItem('Override default instructions completely', 'override')
+        current_mode = prefs.get('system_instruction_mode', 'append')
+        if current_mode == 'override':
+            instruction_mode.setCurrentIndex(1)
+        else:
+            instruction_mode.setCurrentIndex(0)
+        row.addWidget(instruction_mode)
+
+        reset_instructions_btn = QPushButton('Reset to default instructions')
+        reset_instructions_btn.setToolTip('Clear custom instruction text and restore mode to append')
+        row.addWidget(reset_instructions_btn)
+        layout.addLayout(row)
+
+        layout.addWidget(QLabel('Custom system instructions / guidelines:'))
+        custom_instructions_edit = QPlainTextEdit()
+        custom_instructions_edit.setMaximumHeight(80)
+        custom_instructions_edit.setPlaceholderText('e.g. Always prefix genre tags with "Genre: " or preserve custom series names.')
+        custom_instructions_edit.setPlainText(prefs.get('custom_system_instructions', ''))
+        layout.addWidget(custom_instructions_edit)
+
         layout = main
         row = QHBoxLayout()
         settings_btn = QPushButton(_('Hide settings'))
@@ -628,6 +652,18 @@ class GeminiFixerAction(InterfaceAction):
             prefs['batch_size'] = batch.value()
             prefs['min_interval'] = interval.value()
             prefs['active_template'] = template_combo.currentText().strip() or 'Default Ebook Cleanup'
+            mode_data = instruction_mode.currentData()
+            if not mode_data:
+                mode_data = 'override' if instruction_mode.currentIndex() == 1 else 'append'
+            prefs['system_instruction_mode'] = mode_data
+            prefs['custom_system_instructions'] = custom_instructions_edit.toPlainText()
+
+        def do_reset_instructions():
+            custom_instructions_edit.setPlainText('')
+            instruction_mode.setCurrentIndex(0)
+            save_prefs()
+
+        reset_instructions_btn.clicked.connect(do_reset_instructions)
 
         cancel_flag = threading.Event()
 
@@ -774,7 +810,11 @@ class GeminiFixerAction(InterfaceAction):
                     covers=covers.isChecked(),
                     excerpt=excerpt.isChecked(),
                     min_interval=interval.value(),
-                    model=m_name
+                    model=m_name,
+                    instructions=active_text,
+                    template_vars=tpl_vars,
+                    system_instruction_mode=prefs['system_instruction_mode'],
+                    custom_instructions=prefs['custom_system_instructions'],
                 )
                 msg = (
                     _("Pre-Flight API Usage Estimate:\n\n"
@@ -863,6 +903,8 @@ class GeminiFixerAction(InterfaceAction):
                             per_request, tags_remove.isChecked(),
                             cancelled=cancel_flag.is_set, min_interval=interval.value(),
                             instructions=active_text, template_vars=tpl_vars,
+                            system_instruction_mode=prefs['system_instruction_mode'],
+                            custom_instructions=prefs['custom_system_instructions'],
                             on_event=lambda kind, **info: messages.put((kind, info))
                         )
 
@@ -893,10 +935,21 @@ class GeminiFixerAction(InterfaceAction):
                     box['result'] = (compiled.suggestions, compiled.skipped)
                 except Exception as exc:
                     compiled = engine.compile_batch_outputs(b_dir)
+                    suggs = list(compiled.suggestions)
+                    skips = list(compiled.skipped)
+                    if getattr(exc, 'suggestions', None):
+                        seen_ids = {s['id'] for s in suggs if 'id' in s}
+                        for s in exc.suggestions:
+                            if s.get('id') not in seen_ids:
+                                suggs.append(s)
+                    if getattr(exc, 'skipped', None):
+                        for sk in exc.skipped:
+                            if sk not in skips:
+                                skips.append(sk)
                     box['error'] = engine.GeminiPartialError(
                         engine.sanitize_error_message(exc, api_key()),
-                        suggestions=compiled.suggestions,
-                        skipped=compiled.skipped,
+                        suggestions=suggs,
+                        skipped=skips,
                         original_error=exc
                     )
 

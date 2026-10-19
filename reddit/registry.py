@@ -3,6 +3,7 @@
 Maintains thread-safe persistent state for cross-author series, multi-source feed rules,
 chapter manifests, deduplication, and author attributions.
 """
+import contextlib
 import json
 import os
 import sqlite3
@@ -19,6 +20,7 @@ class SeriesRegistry:
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self.init_db()
 
+    @contextlib.contextmanager
     def _get_connection(self):
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
@@ -35,7 +37,11 @@ class SeriesRegistry:
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='series';")
         if not cursor.fetchone():
             self._create_tables(conn)
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _create_tables(self, conn):
         cursor = conn.cursor()

@@ -1134,6 +1134,57 @@ class BatchSeparationAndCompilationTests(unittest.TestCase):
         self.assertEqual(len(ctx.exception.suggestions), 10)
 
 
+class SystemInstructionTests(unittest.TestCase):
+    def test_get_system_instructions_append_and_override(self):
+        # Default fallback on empty custom text
+        self.assertEqual(engine.get_system_instructions('append', ''), engine.INSTRUCTIONS)
+        self.assertEqual(engine.get_system_instructions('override', '   '), engine.INSTRUCTIONS)
+
+        # Append mode appends text
+        custom = "Always prefix genre tags with 'Genre: '"
+        appended = engine.get_system_instructions('append', custom)
+        self.assertTrue(appended.startswith(engine.INSTRUCTIONS))
+        self.assertTrue(appended.endswith(custom))
+        self.assertIn("\n\n" + custom, appended)
+
+        # Override mode replaces default instructions
+        overridden = engine.get_system_instructions('override', custom)
+        self.assertEqual(overridden, custom)
+
+        # Handles unicode special characters
+        unicode_custom = "Prefix: 📚 Special tags & rule: ✨"
+        self.assertEqual(engine.get_system_instructions('override', unicode_custom), unicode_custom)
+
+    def test_generate_payload_contains_system_instructions(self):
+        t = Scripted(reply([{'id': 1, 'title': 'T1', 'confidence': 'high'}]))
+        custom_text = "Custom override rule"
+        engine.generate('key', 'gemini-2.5-flash', 'prompt', system_instruction_mode='override', custom_instructions=custom_text, transport=t)
+        body = json.loads(t.calls[0][2])
+        self.assertEqual(body['systemInstruction']['parts'][0]['text'], custom_text)
+
+    def test_estimate_batch_usage_with_custom_instructions(self):
+        books = [book(1, title='Test Book')]
+        default_est = engine.estimate_batch_usage(books, batch_size=1)
+
+        custom = "Custom system prompt rule"
+        override_est = engine.estimate_batch_usage(books, batch_size=1, system_instruction_mode='override', custom_instructions=custom)
+        self.assertEqual(override_est['text_chars'], len(custom) + len(engine.build_parts(books)[0]['text']))
+        self.assertLess(override_est['text_chars'], default_est['text_chars'])
+
+        append_est = engine.estimate_batch_usage(books, batch_size=1, system_instruction_mode='append', custom_instructions=custom)
+        expected_len = len(engine.INSTRUCTIONS) + 2 + len(custom) + len(engine.build_parts(books)[0]['text'])
+        self.assertEqual(append_est['text_chars'], expected_len)
+
+    def test_plan_fixes_passes_custom_instructions(self):
+        t = Scripted(reply([{'id': 1, 'title': 'Clean Title', 'confidence': 'high'}]))
+        custom = "Append rule"
+        b = book(1, title='raw title')
+        out, _ = engine.plan_fixes([b], 'k', system_instruction_mode='append', custom_instructions=custom, transport=t)
+        sent_body = json.loads(t.calls[0][2])
+        expected_instructions = f"{engine.INSTRUCTIONS}\n\n{custom}"
+        self.assertEqual(sent_body['systemInstruction']['parts'][0]['text'], expected_instructions)
+
+
 if __name__ == '__main__':
     unittest.main()
 
