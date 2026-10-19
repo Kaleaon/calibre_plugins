@@ -15,7 +15,7 @@ PLUGINS = {
     'EpubPromoScrubber.zip': ('scrubber_plugin', 'epub_promo_scrubber', SHARED, False),
     'MetabodsDownloader.zip': ('metabods', 'metabods_downloader', SHARED, False),
     'NiftyDownloader.zip': ('nifty', 'nifty_downloader', SHARED, False),
-    'StoryCollectionTagger.zip': ('tagger', 'story_collection_tagger', ['error_handler.py'], False),
+    'StoryCollectionTagger.zip': ('tagger', 'story_collection_tagger', ['guikit.py', 'error_handler.py'], False),
     'FanficDownloader.zip': ('fanfic', 'fanfic_downloader', SHARED, True),
     'RedditStoryFollower.zip': ('reddit', 'reddit_follower', SHARED, False),
     'GeminiLibraryFixer.zip': ('gemini', 'gemini_library_fixer', ['storykit.py', 'guikit.py', 'error_handler.py'], False),

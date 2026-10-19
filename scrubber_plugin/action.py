@@ -94,8 +94,6 @@ class ScrubAction(InterfaceAction):
         profiles = get_profiles_from_prefs(prefs)
         extra, heuristic, drop = self.options()
         db = self.gui.current_db.new_api
-<<<<<<< HEAD
-=======
         matcher = Matcher(extra, heuristic)
         delete_backups = False
         if not prefs['backup'] and any('ORIGINAL_EPUB' in (db.formats(book_id) or ()) for book_id in ids):
@@ -105,7 +103,6 @@ class ScrubAction(InterfaceAction):
                 'Backup creation is disabled in settings. Delete existing ORIGINAL_EPUB backup files for the selected book(s)?'
             )
             delete_backups = (sure == QMessageBox.StandardButton.Yes)
->>>>>>> origin/stitch/confirm-backup-deletion-jm0-d22c6e31-575b-47bf-aba8-b2aed62ab8bf
 
         if prefs.get('show_preview', True):
             def scan_worker(task):

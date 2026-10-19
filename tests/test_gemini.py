@@ -493,6 +493,8 @@ class BackgroundScanTests(unittest.TestCase):
             'enable_fallback': True, 'fallback_model': 'gemini-2.5-flash-lite'
         })
         gemini_pkg.guikit = MagicMock()
+        from common.guikit import DialogAction
+        gemini_pkg.guikit.DialogAction = DialogAction
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
         sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine
@@ -1077,6 +1079,8 @@ class UndoSeriesTests(unittest.TestCase):
         gemini_pkg.engine = engine
         gemini_pkg.config = MagicMock(prefs={})
         gemini_pkg.guikit = MagicMock()
+        from common.guikit import DialogAction
+        gemini_pkg.guikit.DialogAction = DialogAction
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
         sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine
@@ -1182,6 +1186,8 @@ class TemplateManagerDialogUiTests(unittest.TestCase):
             'custom_templates': {}
         })
         gemini_pkg.guikit = MagicMock()
+        from common.guikit import DialogAction
+        gemini_pkg.guikit.DialogAction = DialogAction
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
         sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine
@@ -1675,6 +1681,8 @@ class MarqueeBatchProgressTests(unittest.TestCase):
             'batch_dir': self.tmp_dir
         })
         gemini_pkg.guikit = MagicMock()
+        from common.guikit import DialogAction
+        gemini_pkg.guikit.DialogAction = DialogAction
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
         sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine

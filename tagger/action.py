@@ -1,5 +1,4 @@
 from calibre.gui2 import error_dialog, info_dialog
-from calibre.gui2.actions import InterfaceAction
 from qt.core import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
                      QPushButton, QRadioButton, QVBoxLayout)
 try:
@@ -15,6 +14,7 @@ except ImportError:
 
 from calibre_plugins.story_collection_tagger import rules as rules_mod
 from calibre_plugins.story_collection_tagger.config import prefs
+from calibre_plugins.story_collection_tagger.guikit import DialogAction
 
 RULES_HELP = ('One rule per line:  [field:]pattern => Tag, Tag\n'
               'Fields: tags, title, author, series, comments, publisher, source, any (default: title, tags and series).\n'
@@ -23,12 +23,9 @@ RULES_HELP = ('One rule per line:  [field:]pattern => Tag, Tag\n'
 SITES_HELP = 'Extra sites, one per line:  host, host2 => Name     (for example: storiesonline.net => Stories Online)'
 
 
-class TaggerAction(InterfaceAction):
+class TaggerAction(DialogAction):
     name = 'Story Collection Tagger'
     action_spec = ('Auto-tag stories', None, 'Add source-site and keyword-rule tags to books', None)
-
-    def genesis(self):
-        self.qaction.triggered.connect(self.show_dialog)
 
     def books_for(self, ids):
         db = self.gui.current_db.new_api

@@ -27,14 +27,42 @@ from qt.core import (
     QWidget,
 )
 
-from .storykit import Cancelled, extract_epub_story, sort_by_posting_order
+try:
+    from .storykit import Cancelled, extract_epub_story, sort_by_posting_order
+except (ImportError, ValueError):
+    try:
+        from storykit import Cancelled, extract_epub_story, sort_by_posting_order
+    except ImportError:
+        try:
+            from common.storykit import Cancelled, extract_epub_story, sort_by_posting_order
+        except ImportError:
+            class Cancelled(Exception):
+                pass
+
 try:
     from .error_handler import format_exception
 except ImportError:
     try:
         from error_handler import format_exception
     except ImportError:
-        from common.error_handler import format_exception
+        try:
+            from common.error_handler import format_exception
+        except ImportError:
+            def format_exception(e):
+                return str(e)
+
+try:
+    from calibre.gui2.actions import InterfaceAction
+except ImportError:
+    class InterfaceAction:
+        pass
+
+
+class DialogAction(InterfaceAction):
+    """Shared base class for actions that open a single dialog when clicked."""
+
+    def genesis(self):
+        self.qaction.triggered.connect(self.show_dialog)
 
 
 class Task:
