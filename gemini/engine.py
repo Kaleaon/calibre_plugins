@@ -571,14 +571,19 @@ def find_back_cover(path, fmt):
 
 def clean_isbn(text):
     """The ISBN-10 or ISBN-13 in text as digits (final X kept), or '' unless the check digit is right."""
-    text = re.sub(r'(?i)^\s*isbn(?:[- ]?1[03]\s*:|\s*:)?', '', str(text or ''))  # "ISBN-13:" / "ISBN:" / "ISBN "
-    digits = re.sub(r'[\s-]', '', text.upper())
-    if re.fullmatch(r'\d{13}', digits):
-        if sum(int(c) * (1 if i % 2 == 0 else 3) for i, c in enumerate(digits)) % 10 == 0:
-            return digits
-    elif re.fullmatch(r'\d{9}[\dX]', digits):
-        if sum((10 - i) * (10 if c == 'X' else int(c)) for i, c in enumerate(digits)) % 11 == 0:
-            return digits
+    if text is None:
+        return ''
+    raw = str(text)
+    text_clean = re.sub(r'(?i)^\s*isbn(?:[\s-]*1[03])?\s*:?\s*', '', raw)
+    candidates = re.finditer(r'\b(?:(?:\d[ -]*){12}\d|(?:\d[ -]*){9}[\dX])\b', text_clean, re.IGNORECASE)
+    for match in candidates:
+        digits = re.sub(r'[\s-]', '', match.group(0).upper())
+        if re.fullmatch(r'\d{13}', digits):
+            if sum(int(c) * (1 if i % 2 == 0 else 3) for i, c in enumerate(digits)) % 10 == 0:
+                return digits
+        elif re.fullmatch(r'\d{9}[\dX]', digits):
+            if sum((10 - i) * (10 if c == 'X' else int(c)) for i, c in enumerate(digits)) % 11 == 0:
+                return digits
     return ''
 
 

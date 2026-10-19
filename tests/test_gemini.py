@@ -341,11 +341,17 @@ class CoverTests(unittest.TestCase):
         f = engine.clean_isbn
         self.assertEqual(f('978-0-306-40615-7'), '9780306406157')
         self.assertEqual(f('ISBN-13: 978-0-306-40615-7'), '9780306406157')
+        self.assertEqual(f('ISBN 13 978-0-306-40615-7'), '9780306406157')
+        self.assertEqual(f('ISBN 10 0306406152'), '0306406152')
         self.assertEqual(f('ISBN 0-306-40615-2'), '0306406152')
+        self.assertEqual(f('978-0-306-40615-7 (pbk.)'), '9780306406157')
+        self.assertEqual(f('0306406152 (alk. paper)'), '0306406152')
+        self.assertEqual(f('9780306406158 0306406152'), '0306406152')
         self.assertEqual(f('080442957X'), '080442957X')
         self.assertEqual(f('ISBN: 1034567891'), '', 'a wrong check digit is rejected, not "fixed"')
         self.assertEqual(f('9780306406158'), '')
         self.assertEqual(f('12345'), '')
+        self.assertEqual(f(12345), '')
         self.assertEqual(f(None), '')
 
     def test_isbn_suggestion_only_with_a_valid_number_and_a_difference(self):
