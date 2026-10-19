@@ -1109,6 +1109,7 @@ class GeminiFixerAction(InterfaceAction):
             messages = queue.Queue()
             box = {}
             total_books = len(target_ids)
+            total = total_books
             bsize = max(1, batch.value())
             per_request = min(bsize, 8) if covers.isChecked() else bsize
             chunks = [target_ids[i:i + per_request] for i in range(0, len(target_ids), per_request)]
@@ -1218,21 +1219,24 @@ class GeminiFixerAction(InterfaceAction):
             worker = threading.Thread(target=work, daemon=True)
             worker.start()
             waiting = {'since': None, 'count': 0}
+            completed_books = 0
 
             def handle(kind, info):
+                nonlocal completed_books
                 if kind == 'batch_start':
                     phase.setText(_('Batch {idx} of {total}: reading {count} books…').format(
                         idx=info['batch_idx'], total=info['total_batches'], count=info['count']))
                     log(_('→ Batch {idx}/{total}: reading {count} book(s)…').format(
                         idx=info['batch_idx'], total=info['total_batches'], count=info['count']))
                 elif kind == 'read_progress':
-                    index, total, book = info
-                    log(_('  read {index}/{total}: {desc}').format(index=index, total=total, desc=engine.describe_book(book)))
+                    index, tot, book = info
+                    log(_('  read {index}/{total}: {desc}').format(index=index, total=tot, desc=engine.describe_book(book)))
                 elif kind == 'batch_saved':
                     log(_('✔ Batch {idx}/{total} saved separately to {filename} ({s_count} suggestion(s), {sk_count} skipped)').format(
                         idx=info['batch_idx'], total=info['total_batches'],
                         filename=os.path.basename(info['path']),
                         s_count=info['suggestions_count'], sk_count=info['skipped_count']))
+                    completed_books = info['done']
                     bar.setValue(info['done'])
                     phase.setText(_('Batch {idx} of {total} completed').format(
                         idx=info['batch_idx'], total=info['total_batches']))
@@ -1242,6 +1246,7 @@ class GeminiFixerAction(InterfaceAction):
                 elif kind == 'sending':
                     batch_books = info['books']
                     waiting['since'], waiting['count'] = time.time(), len(batch_books)
+                    bar.setRange(0, 0)
                     log(_('→ Sending {count} book(s) to Gemini:').format(count=len(batch_books)))
                     for b in batch_books:
                         log(f'     {engine.describe_book(b)}')
@@ -1249,6 +1254,8 @@ class GeminiFixerAction(InterfaceAction):
                     log(_('← Gemini answered after {duration:.0f}s ({count} entries)').format(
                         duration=time.time() - (waiting["since"] or time.time()), count=info["count"]))
                     waiting['since'] = None
+                    bar.setRange(0, max(1, total_books))
+                    bar.setValue(completed_books)
                 elif kind == 'answer':
                     book, changes = info['book'], info['changes']
                     name = f"“{book.get('title') or book['id']}”"
@@ -1267,7 +1274,9 @@ class GeminiFixerAction(InterfaceAction):
                 elif kind == 'skipped':
                     log(_('✖ {text}').format(text=info['text']))
                 elif kind == 'progress':
-                    pass
+                    completed_books = info['done']
+                    bar.setRange(0, max(1, total_books))
+                    bar.setValue(completed_books)
 
             while worker.is_alive() or not messages.empty():
                 while not messages.empty():
@@ -1281,11 +1290,13 @@ class GeminiFixerAction(InterfaceAction):
                     phase.setText(_('Working…'))
                 QApplication.processEvents()
                 time.sleep(0.05)
-
+            bar.setRange(0, max(1, total_books))
+            bar.setValue(completed_books)
             return box.get('result'), box.get('error')
 
         def finish_run(result, count, error=None):
             phase.setText(_('Idle.'))
+            bar.setRange(0, max(1, count))
             partial_error = None
             if error:
                 if hasattr(error, 'suggestions') and getattr(error, 'suggestions') is not None:
