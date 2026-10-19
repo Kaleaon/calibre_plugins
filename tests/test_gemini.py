@@ -627,6 +627,94 @@ class BackgroundScanTests(unittest.TestCase):
         self.assertFalse(t.is_alive())
         self.assertEqual(len(result_container['books']), 2, "Should stop after 2 books due to cancellation")
 
+    def test_books_for_concurrent_worker_pool(self):
+        import queue
+        import time
+        import threading
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.GeminiFixerAction()
+
+        active_threads = set()
+        lock = threading.Lock()
+
+        class MockMetadata:
+            title = "Test Title"
+            authors = ["Author"]
+            identifiers = {}
+            series = ""
+            series_index = None
+            tags = []
+            languages = []
+            publisher = ""
+
+        class MockDb:
+            def get_metadata(self, book_id, get_cover=False):
+                with lock:
+                    active_threads.add(threading.current_thread().name)
+                return MockMetadata()
+            def formats(self, book_id):
+                return ['EPUB']
+            def format_abspath(self, book_id, fmt):
+                return '/dummy/path.epub'
+            def cover(self, book_id):
+                return None
+
+        action.gui = MagicMock(current_db=MagicMock(new_api=MockDb()))
+
+        progress_events = []
+        books = action.books_for(
+            list(range(1, 10)),
+            with_excerpt=False,
+            on_book=lambda idx, total, b: progress_events.append((idx, total, b['id'])),
+            should_stop=lambda: False,
+            with_covers=False,
+            max_workers=4
+        )
+
+        self.assertEqual(len(books), 9)
+        self.assertEqual(len(progress_events), 9)
+        self.assertTrue(len(active_threads) > 1, "Should use multiple worker threads from ThreadPoolExecutor")
+
+    def test_books_for_corrupted_archive_fallback(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.GeminiFixerAction()
+
+        class MockDb:
+            def get_metadata(self, book_id, get_cover=False):
+                if book_id == 2:
+                    raise OSError("Corrupted DB or file system read error")
+                return MagicMock(title=f"Book {book_id}", authors=[], identifiers={}, series="", series_index=None, tags=[], languages=[], publisher="")
+            def formats(self, book_id):
+                return ['EPUB']
+            def format_abspath(self, book_id, fmt):
+                return '/corrupted/file.epub'
+            def cover(self, book_id):
+                return None
+
+        action.gui = MagicMock(current_db=MagicMock(new_api=MockDb()))
+
+        books = action.books_for(
+            [1, 2, 3],
+            with_excerpt=True,
+            on_book=lambda idx, total, b: None,
+            should_stop=lambda: False,
+            with_covers=False,
+            max_workers=2
+        )
+
+        self.assertEqual(len(books), 3)
+        book_ids = [b['id'] for b in books]
+        self.assertEqual(sorted(book_ids), [1, 2, 3])
+        corrupted_book = next(b for b in books if b['id'] == 2)
+        self.assertEqual(corrupted_book['title'], "")
+        self.assertEqual(corrupted_book['excerpt'], "")
+
     def test_show_dialog_scroll_area_and_sizing(self):
         spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
         action_mod = importlib.util.module_from_spec(spec)

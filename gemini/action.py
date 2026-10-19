@@ -1,4 +1,5 @@
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import os
 import queue
 import threading
@@ -310,39 +311,134 @@ class GeminiFixerAction(InterfaceAction):
         self.qaction.triggered.connect(self.show_dialog)
 
     # -- reading and writing the library ------------------------------------------------------------------------------
-    def books_for(self, ids, with_excerpt, on_book=lambda index, total, book: None, should_stop=lambda: False, with_covers=False):
+    def books_for(self, ids, with_excerpt, on_book=lambda index, total, book: None, should_stop=lambda: False, with_covers=False, max_workers=None):
         db = self.gui.current_db.new_api
+        if not ids:
+            return []
+
+        if max_workers is None:
+            max_workers = min(8, max(1, os.cpu_count() or 4))
+
         books = []
-        for i, book_id in enumerate(ids):
-            mi = db.get_metadata(book_id, get_cover=False)
-            fmts = list(db.formats(book_id) or [])
-            names = []
-            for fmt in fmts:
-                path = db.format_abspath(book_id, fmt)
-                if path:
-                    names.append(os.path.basename(path))
-            excerpt = ''
-            if with_excerpt and 'EPUB' in fmts:
-                excerpt = engine.epub_excerpt(db.format_abspath(book_id, 'EPUB'))
-            images = []
-            if with_covers:
-                front = prepare_image(db.cover(book_id))
-                if front:
-                    images.append({'label': 'front cover', 'mime': 'image/jpeg', 'data': front})
-                for fmt in fmts:
-                    found = engine.find_back_cover(db.format_abspath(book_id, fmt), fmt) if fmt.upper() in ('EPUB', 'CBZ') else None
-                    back = prepare_image(found[0]) if found else None
-                    if back:
-                        images.append({'label': found[1], 'mime': 'image/jpeg', 'data': back})
-                        break
-            books.append({'id': book_id, 'title': mi.title or '', 'authors': list(mi.authors or []),
-                          'identifiers': dict(mi.identifiers or {}), 'images': images,
-                          'series': mi.series or '', 'series_index': mi.series_index if mi.series else None,
-                          'tags': list(mi.tags or []), 'languages': list(mi.languages or []), 'publisher': mi.publisher or '',
-                          'filenames': names, 'excerpt': excerpt})
-            on_book(i + 1, len(ids), books[-1])
+        finished_queue = queue.Queue()
+        futures_map = {}
+
+        def process_book(book_id):
             if should_stop():
-                break
+                return None
+            try:
+                mi = db.get_metadata(book_id, get_cover=False)
+                fmts = list(db.formats(book_id) or [])
+                names = []
+                for fmt in fmts:
+                    path = db.format_abspath(book_id, fmt)
+                    if path:
+                        names.append(os.path.basename(path))
+                excerpt = ''
+                if with_excerpt and 'EPUB' in fmts:
+                    try:
+                        epub_path = db.format_abspath(book_id, 'EPUB')
+                        if epub_path:
+                            excerpt = engine.epub_excerpt(epub_path)
+                    except Exception:
+                        excerpt = ''
+                images = []
+                if with_covers:
+                    try:
+                        front_data = db.cover(book_id)
+                        front = prepare_image(front_data)
+                        if front:
+                            images.append({'label': 'front cover', 'mime': 'image/jpeg', 'data': front})
+                    except Exception:
+                        pass
+                    for fmt in fmts:
+                        if fmt.upper() in ('EPUB', 'CBZ'):
+                            try:
+                                fmt_path = db.format_abspath(book_id, fmt)
+                                found = engine.find_back_cover(fmt_path, fmt) if fmt_path else None
+                                back = prepare_image(found[0]) if found else None
+                                if back:
+                                    images.append({'label': found[1], 'mime': 'image/jpeg', 'data': back})
+                                    break
+                            except Exception:
+                                continue
+                return {
+                    'id': book_id,
+                    'title': (mi.title if mi else '') or '',
+                    'authors': list(mi.authors or []) if mi else [],
+                    'identifiers': dict(mi.identifiers or {}) if mi else {},
+                    'images': images,
+                    'series': (mi.series if mi else '') or '',
+                    'series_index': (mi.series_index if mi and mi.series else None),
+                    'tags': list(mi.tags or []) if mi else [],
+                    'languages': list(mi.languages or []) if mi else [],
+                    'publisher': (mi.publisher if mi else '') or '',
+                    'filenames': names,
+                    'excerpt': excerpt
+                }
+            except Exception:
+                return {
+                    'id': book_id,
+                    'title': '',
+                    'authors': [],
+                    'identifiers': {},
+                    'images': [],
+                    'series': '',
+                    'series_index': None,
+                    'tags': [],
+                    'languages': [],
+                    'publisher': '',
+                    'filenames': [],
+                    'excerpt': ''
+                }
+
+        executor = ThreadPoolExecutor(max_workers=max_workers)
+        try:
+            for book_id in ids:
+                if should_stop():
+                    break
+                fut = executor.submit(process_book, book_id)
+                futures_map[fut] = book_id
+                fut.add_done_callback(lambda f: finished_queue.put(f))
+
+            completed_count = 0
+            total_submitted = len(futures_map)
+
+            while completed_count < total_submitted:
+                if should_stop():
+                    for f in futures_map:
+                        f.cancel()
+                    break
+                try:
+                    fut = finished_queue.get(timeout=0.02)
+                except queue.Empty:
+                    continue
+
+                if fut.cancelled():
+                    continue
+
+                try:
+                    book_res = fut.result()
+                except Exception:
+                    book_res = None
+
+                if book_res is None:
+                    continue
+
+                books.append(book_res)
+                completed_count += 1
+                on_book(completed_count, len(ids), book_res)
+
+                if should_stop():
+                    for f in futures_map:
+                        f.cancel()
+                    break
+        finally:
+            try:
+                executor.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                executor.shutdown(wait=False)
+
         return books
 
     def write_changes(self, items):
