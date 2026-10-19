@@ -13,7 +13,13 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
-from html.parser import HTMLParser
+try:
+    from .storykit import strip_tags
+except ImportError:
+    try:
+        from storykit import strip_tags
+    except ImportError:
+        from common.storykit import strip_tags
 
 API_ROOT = 'https://generativelanguage.googleapis.com/v1beta'
 DEFAULT_MODEL = 'gemini-2.5-flash'
@@ -400,22 +406,6 @@ def list_models(api_key, **kw):
 
 # ------------------------------------------------------------------------------------------------------------- input
 
-class _Text(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.parts, self.skip = [], 0
-
-    def handle_starttag(self, tag, attrs):
-        self.skip += tag in ('script', 'style', 'head')
-
-    def handle_endtag(self, tag):
-        self.skip -= tag in ('script', 'style', 'head') and self.skip > 0
-
-    def handle_data(self, data):
-        if not self.skip:
-            self.parts.append(data)
-
-
 def epub_excerpt(path, limit=1500):
     """The first readable text of an EPUB (skipping very short front-matter pages), or ''. Never raises."""
     try:
@@ -423,9 +413,8 @@ def epub_excerpt(path, limit=1500):
             names = [n for n in z.namelist() if n.lower().endswith(('.xhtml', '.html', '.htm'))]
             names.sort()
             for name in names:
-                parser = _Text()
-                parser.feed(z.read(name).decode('utf-8', 'replace'))
-                text = re.sub(r'\s+', ' ', ' '.join(parser.parts)).strip()
+                html_content = z.read(name).decode('utf-8', 'replace')
+                text = strip_tags(html_content)
                 if len(text) > 400:
                     return text[:limit]
     except Exception:

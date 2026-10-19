@@ -29,7 +29,10 @@ if HAVE_QT and 'qt.core' not in sys.modules:
     sys.modules['qt'] = types.ModuleType('qt')
     sys.modules['qt.core'] = qtcore
 
-from queue_ui import QueueManagerDialog
+if HAVE_QT:
+    from queue_ui import QueueManagerDialog
+else:
+    QueueManagerDialog = None
 from task_queue import FailureCategory, QueueManager, TaskState, categorize_error
 
 # Ensure QApplication instance for Qt GUI tests

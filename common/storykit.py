@@ -99,8 +99,34 @@ def decode(raw, charset=None):
     return raw.decode('utf-8', 'replace')
 
 
+class _TagStripper(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() in ('script', 'style', 'head'):
+            self.skip += 1
+
+    def handle_endtag(self, tag):
+        if tag.lower() in ('script', 'style', 'head') and self.skip > 0:
+            self.skip -= 1
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.parts.append(data)
+
+
 def strip_tags(fragment):
-    return re.sub(r'\s+', ' ', html.unescape(re.sub(r'<[^>]+>', '', fragment))).strip()
+    if not fragment:
+        return ''
+    parser = _TagStripper()
+    try:
+        parser.feed(fragment)
+    except Exception:
+        pass
+    return re.sub(r'\s+', ' ', html.unescape(' '.join(parser.parts))).strip()
 
 
 # ---------------------------------------------------------------- XHTML cleaning

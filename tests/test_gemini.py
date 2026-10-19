@@ -13,6 +13,9 @@ import zipfile
 from email.message import Message
 from unittest.mock import MagicMock
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'common'))
+
 spec = importlib.util.spec_from_file_location('engine', Path(__file__).resolve().parents[1] / 'gemini/engine.py')
 engine = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(engine)
@@ -444,6 +447,29 @@ class InputTests(unittest.TestCase):
             (Path(d) / 'junk.epub').write_bytes(b'not a zip')
             self.assertEqual(engine.epub_excerpt(Path(d) / 'junk.epub'), '')
             self.assertEqual(engine.epub_excerpt(Path(d) / 'missing.epub'), '')
+
+    def test_strip_tags_direct_and_via_engine(self):
+        html_sample = (
+            '<html><head><title>Title To Drop</title><style>body { color: red; }</style></head>'
+            '<body><script>alert("ignore me");</script><p>Hello &amp; <b>World</b>!</p></body></html>'
+        )
+        self.assertEqual(engine.strip_tags(html_sample), 'Hello & World !')
+
+    def test_epub_excerpt_ignores_script_style_head_blocks(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / 'test.epub'
+            long_text = 'Content ' * 100
+            with zipfile.ZipFile(path, 'w') as z:
+                z.writestr(
+                    'ch1.xhtml',
+                    f'<html><head><title>Head Title</title><style>.css {{ display: none; }}</style></head>'
+                    f'<body><script>console.log("script block");</script><p>{long_text}</p></body></html>'
+                )
+            excerpt = engine.epub_excerpt(path, limit=200)
+            self.assertNotIn('Head Title', excerpt)
+            self.assertNotIn('.css', excerpt)
+            self.assertNotIn('console.log', excerpt)
+            self.assertTrue(excerpt.startswith('Content Content'))
 
 
 class BackgroundScanTests(unittest.TestCase):

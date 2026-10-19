@@ -3,8 +3,32 @@ import zipfile
 from io import BytesIO
 from unittest.mock import MagicMock
 
-from common.storykit import build_epub, extract_epub_story, merge_epubs
+from common.storykit import build_epub, extract_epub_story, merge_epubs, strip_tags
 from common.libkit import merge_library_books
+
+
+class StripTagsTests(unittest.TestCase):
+    def test_strip_tags_basic(self):
+        self.assertEqual(strip_tags('<p>Hello <b>World</b></p>'), 'Hello World')
+
+    def test_strip_tags_script_style_head(self):
+        html = (
+            '<head><title>Header</title><style>p { color: blue; }</style></head>'
+            '<div><script>var secret = 123;</script><p>Visible content</p></div>'
+        )
+        self.assertEqual(strip_tags(html), 'Visible content')
+
+    def test_strip_tags_case_insensitive_tags(self):
+        html = '<SCRIPT>bad()</SCRIPT><STYLE>p{}</STYLE><HEAD><TITLE>T</TITLE></HEAD><p>Good</p>'
+        self.assertEqual(strip_tags(html), 'Good')
+
+    def test_strip_tags_entities_and_whitespace(self):
+        html = '<p>  Tom &amp;   Jerry  &quot;Fun&quot;   </p>'
+        self.assertEqual(strip_tags(html), 'Tom & Jerry "Fun"')
+
+    def test_strip_tags_empty_and_falsy(self):
+        self.assertEqual(strip_tags(''), '')
+        self.assertEqual(strip_tags(None), '')
 
 
 class EpubMergeTests(unittest.TestCase):
