@@ -9,6 +9,8 @@ except ImportError:
     except ImportError:
         from error_handler import show_friendly_error_dialog
 from calibre_plugins.takeout_book_fixer.core import recover
+from calibre_plugins.takeout_book_fixer.watcher import WatchFolderManager
+from calibre_plugins.takeout_book_fixer.ui import ConfigWidget, ConfigDialog
 
 class TakeoutAction(InterfaceAction):
     name = 'Takeout Book Fixer'
@@ -46,7 +48,14 @@ class TakeoutAction(InterfaceAction):
         merge = QAction('Merge selected books into one EPUB…', self.gui)
         merge.triggered.connect(self.merge_selected)
         menu.addAction(merge)
+        menu.addSeparator()
+        configure = QAction('Configure Watch Folder & Preferences…', self.gui)
+        configure.triggered.connect(self.show_configuration)
+        menu.addAction(configure)
         self.qaction.triggered.connect(lambda: self.run_recovery(False))
+
+        self.watch_manager = WatchFolderManager(self.gui)
+        self.watch_manager.start_watching()
 
     def show_queue_manager(self):
         try:
@@ -65,6 +74,23 @@ class TakeoutAction(InterfaceAction):
                     self.daemon.scan_drop_folder()
         except Exception as e:
             error_dialog(self.gui, 'Drop Folder Error', str(e), show=True)
+
+    def is_customizable(self):
+        return True
+
+    def config_widget(self):
+        return ConfigWidget(self.gui)
+
+    def save_settings(self, config_widget):
+        config_widget.save_settings()
+        if hasattr(self, 'watch_manager'):
+            self.watch_manager.start_watching()
+
+    def show_configuration(self):
+        dialog = ConfigDialog(self.gui)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            if hasattr(self, 'watch_manager'):
+                self.watch_manager.start_watching()
 
     def run_recovery(self, archive=False):
         if archive:
@@ -166,4 +192,3 @@ class TakeoutAction(InterfaceAction):
                         (f'\nNotes: {"; ".join(errors)}' if errors else ''), show=True)
         else:
             show_friendly_error_dialog(self.gui, 'EPUB Merger', 'Could not merge books:\n' + '\n'.join(errors), show=True)
-
