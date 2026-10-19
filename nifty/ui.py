@@ -4,7 +4,7 @@ from qt.core import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayou
 
 from calibre_plugins.nifty_downloader import core
 from calibre_plugins.nifty_downloader.config import prefs
-from calibre_plugins.nifty_downloader.guikit import DownloadOptions, run_task
+from calibre_plugins.nifty_downloader.guikit import DownloadOptions, clean_lines, run_task
 
 
 class LinksDialog(QDialog):
@@ -28,7 +28,7 @@ class LinksDialog(QDialog):
         layout.addWidget(buttons)
 
     def lines(self):
-        return [line for line in self.text.toPlainText().splitlines() if line.strip()]
+        return clean_lines(self.text)
 
 
 class BrowseDialog(QDialog):

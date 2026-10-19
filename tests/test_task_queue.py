@@ -21,13 +21,16 @@ except ImportError:
     HAVE_QT = False
     QtCore = QtGui = QtWidgets = None
 
-if HAVE_QT and 'qt.core' not in sys.modules:
+if HAVE_QT:
     qtcore = types.ModuleType('qt.core')
     for module in (QtWidgets, QtGui, QtCore):
         for name in dir(module):
             setattr(qtcore, name, getattr(module, name))
     sys.modules['qt'] = types.ModuleType('qt')
     sys.modules['qt.core'] = qtcore
+    if 'queue_ui' in sys.modules:
+        import importlib
+        importlib.reload(sys.modules['queue_ui'])
 
 if HAVE_QT:
     from queue_ui import QueueManagerDialog

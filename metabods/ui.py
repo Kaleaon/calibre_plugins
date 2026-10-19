@@ -4,7 +4,7 @@ from qt.core import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayou
 
 from calibre_plugins.metabods_downloader.config import prefs
 from calibre_plugins.metabods_downloader import core
-from calibre_plugins.metabods_downloader.guikit import DownloadOptions, run_task
+from calibre_plugins.metabods_downloader.guikit import DownloadOptions, clean_lines, run_task
 
 
 class DownloadDialog(QDialog):
@@ -27,7 +27,7 @@ class DownloadDialog(QDialog):
         layout.addWidget(buttons)
 
     def lines(self):
-        return [line for line in self.text.toPlainText().splitlines() if line.strip()]
+        return clean_lines(self.text)
 
 
 class TagSearchDialog(QDialog):
