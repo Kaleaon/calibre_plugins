@@ -866,7 +866,7 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
                tags_may_be_removed=False, progress=lambda text: None, cancelled=lambda: False, on_event=lambda kind, **info: None,
                min_interval=0, sleep=time.sleep, clock=time.monotonic,
                system_instruction_mode='append', custom_instructions='', system_instruction=None, state=None,
-               image_hydrator=None, db=None, **kw):
+               image_hydrator=None, db=None, fallback_model=None, **kw):
     """Returns (suggestions, skipped). A suggestion is {'id', 'title', 'changes', 'confidence', 'reason', 'big'}; skipped is a
     list of 'title: why' strings for books that could not be checked. On cancel, returns what was finished so far.
 
@@ -889,6 +889,7 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
     by_id = {b['id']: b for b in (books + pending_books)}
     total = len(completed_ids) + len(pending_books)
     current_model = [model]
+    current_fallback = [fallback_model] if (fallback_model and fallback_model != model) else [None]
 
     instructions = kw.pop('instructions', None)
     template_vars = kw.pop('template_vars', None)
@@ -1038,6 +1039,16 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
         try:
             ask(current_batch)
         except QuotaExhausted as exc:
+            if current_fallback[0]:
+                prev_model = current_model[0]
+                current_model[0] = current_fallback[0]
+                current_fallback[0] = None
+                on_event('notice', text=f'Quota exhausted for {prev_model}. Falling back to {current_model[0]}.')
+                try:
+                    ask(current_batch)
+                    continue
+                except QuotaExhausted as exc2:
+                    exc = exc2
             msg = sanitize_error_message(exc, api_key)
             left_pending = pending_books[start:]
             model_config = {

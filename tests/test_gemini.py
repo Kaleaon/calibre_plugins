@@ -489,7 +489,8 @@ class BackgroundScanTests(unittest.TestCase):
         gemini_pkg.config = MagicMock(prefs={
             'api_key': '', 'model': 'gemini-1.5-flash', 'fields': ['title'],
             'tags_remove': False, 'excerpt': False, 'covers': False,
-            'min_confidence': 'medium', 'batch_size': 5, 'min_interval': 7, 'undo': {}
+            'min_confidence': 'medium', 'batch_size': 5, 'min_interval': 7, 'undo': {},
+            'enable_fallback': True, 'fallback_model': 'gemini-2.5-flash-lite'
         })
         gemini_pkg.guikit = MagicMock()
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
@@ -1587,6 +1588,71 @@ class TwoPhaseHydrationTests(BackgroundScanTests):
         inline_parts = [p for p in parts if 'inlineData' in p]
         self.assertEqual(len(inline_parts), 1)
         self.assertEqual(inline_parts[0]['inlineData']['data'], 'PREPOPULATED_B64')
+
+
+class FallbackModelTests(unittest.TestCase):
+    def test_default_preference_keys(self):
+        class FakeJSONConfig:
+            def __init__(self, name):
+                self.defaults = {}
+            def __getitem__(self, item):
+                return self.defaults.get(item)
+
+        mock_config = MagicMock()
+        mock_config.JSONConfig = FakeJSONConfig
+        with unittest.mock.patch.dict(sys.modules, {'calibre': MagicMock(), 'calibre.utils': MagicMock(), 'calibre.utils.config': mock_config}):
+            spec = importlib.util.spec_from_file_location('config', Path(__file__).resolve().parents[1] / 'gemini/config.py')
+            config_mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(config_mod)
+            self.assertTrue(config_mod.prefs.defaults.get('enable_fallback'))
+            self.assertEqual(config_mod.prefs.defaults.get('fallback_model'), 'gemini-2.5-flash-lite')
+
+    def test_fallback_model_switches_on_quota_exhausted(self):
+        daily = http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                                                         'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
+        events = []
+        t = Scripted(daily, reply([{'id': 1, 'title': 'One', 'confidence': 'high'}]))
+        out, skipped = engine.plan_fixes([book(1)], 'k', model='gemini-2.5-flash', fallback_model='gemini-2.5-flash-lite',
+                                         transport=t, sleep=lambda s: None, on_event=lambda kind, **i: events.append((kind, i)))
+        self.assertEqual([s['id'] for s in out], [1])
+        self.assertEqual(skipped, [])
+        self.assertEqual(len(t.calls), 2)
+        self.assertTrue(t.calls[0][0].endswith('/models/gemini-2.5-flash:generateContent'))
+        self.assertTrue(t.calls[1][0].endswith('/models/gemini-2.5-flash-lite:generateContent'))
+        notices = [info['text'] for kind, info in events if kind == 'notice']
+        self.assertTrue(any('Quota exhausted' in n and 'Falling back to gemini-2.5-flash-lite' in n for n in notices))
+
+    def test_fallback_disabled_halts_on_quota(self):
+        daily = http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                                                         'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
+        events = []
+        t = Scripted(daily)
+        with self.assertRaises(engine.GeminiBatchPausedError) as cm:
+            engine.plan_fixes([book(1)], 'k', model='gemini-2.5-flash', fallback_model=None,
+                              transport=t, sleep=lambda s: None, on_event=lambda kind, **i: events.append((kind, i)))
+        self.assertEqual(len(t.calls), 1)
+
+    def test_custom_fallback_model(self):
+        daily = http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                                                         'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
+        t = Scripted(daily, reply([{'id': 1, 'title': 'One', 'confidence': 'high'}]))
+        out, skipped = engine.plan_fixes([book(1)], 'k', model='gemini-2.5-pro', fallback_model='my-custom-model',
+                                         transport=t, sleep=lambda s: None)
+        self.assertEqual([s['id'] for s in out], [1])
+        self.assertEqual(len(t.calls), 2)
+        self.assertTrue(t.calls[1][0].endswith('/models/my-custom-model:generateContent'))
+
+    def test_fallback_model_itself_exhausts_quota(self):
+        daily1 = http_error_with(429, 'Quota exceeded 1', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                                                          'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
+        daily2 = http_error_with(429, 'Quota exceeded 2', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                                                          'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
+        events = []
+        t = Scripted(daily1, daily2)
+        with self.assertRaises(engine.GeminiBatchPausedError) as cm:
+            engine.plan_fixes([book(1)], 'k', model='gemini-2.5-flash', fallback_model='gemini-2.5-flash-lite',
+                              transport=t, sleep=lambda s: None, on_event=lambda kind, **i: events.append((kind, i)))
+        self.assertEqual(len(t.calls), 2)
 
 
 if __name__ == '__main__':

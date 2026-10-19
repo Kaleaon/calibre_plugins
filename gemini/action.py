@@ -671,6 +671,20 @@ class GeminiFixerAction(InterfaceAction):
         row.addWidget(manage_templates_btn)
         layout.addLayout(row)
 
+        row = QHBoxLayout()
+        enable_fallback = QCheckBox(_('Enable dynamic fallback on rate limit'))
+        enable_fallback.setChecked(bool(prefs.get('enable_fallback', True)))
+        row.addWidget(enable_fallback)
+        row.addWidget(QLabel(_('Fallback model:')))
+        fallback_model = QComboBox()
+        fallback_model.setEditable(True)
+        fallback_model.addItem(prefs.get('fallback_model', 'gemini-2.5-flash-lite'))
+        fallback_model.setCurrentText(prefs.get('fallback_model', 'gemini-2.5-flash-lite'))
+        fallback_model.setEnabled(enable_fallback.isChecked())
+        enable_fallback.toggled.connect(fallback_model.setEnabled)
+        row.addWidget(fallback_model, 1)
+        layout.addLayout(row)
+
         layout.addWidget(QLabel(_('Fix:')))
         boxes = {}
         for field, label in FIELD_LABELS:
@@ -850,6 +864,8 @@ class GeminiFixerAction(InterfaceAction):
         def save_prefs():
             prefs['api_key'] = key.text().strip()
             prefs['model'] = model.currentText().strip() or engine.DEFAULT_MODEL
+            prefs['enable_fallback'] = enable_fallback.isChecked()
+            prefs['fallback_model'] = fallback_model.currentText().strip() or 'gemini-2.5-flash-lite'
             prefs['fields'] = list(chosen_fields())
             prefs['tags_remove'] = tags_remove.isChecked()
             prefs['excerpt'] = excerpt.isChecked()
@@ -934,6 +950,11 @@ class GeminiFixerAction(InterfaceAction):
                 model.clear()
                 model.addItems(task.result)
                 model.setCurrentText(current)
+
+                current_fb = fallback_model.currentText()
+                fallback_model.clear()
+                fallback_model.addItems(task.result)
+                fallback_model.setCurrentText(current_fb)
 
         def do_compile_saved():
             b_dir = get_batch_dir()
@@ -1102,6 +1123,8 @@ class GeminiFixerAction(InterfaceAction):
             bar.setRange(0, max(1, total_books))
             bar.setValue(0)
 
+            fb_model = (fallback_model.currentText().strip() or 'gemini-2.5-flash-lite') if enable_fallback.isChecked() else None
+
             def work():
                 try:
                     active_text = get_active_template_text()
@@ -1140,7 +1163,8 @@ class GeminiFixerAction(InterfaceAction):
                             system_instruction_mode=prefs['system_instruction_mode'],
                             custom_instructions=prefs['custom_system_instructions'],
                             on_event=lambda kind, **info: messages.put((kind, info)),
-                            image_hydrator=prepare_image, db=self.gui.current_db.new_api
+                            image_hydrator=prepare_image, db=self.gui.current_db.new_api,
+                            fallback_model=fb_model
                         )
 
                         # 3. Save output SEPARATELY immediately!
