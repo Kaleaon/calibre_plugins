@@ -3,7 +3,7 @@ import re
 import zipfile
 from html import escape
 from io import BytesIO
-from pathlib import PosixPath
+from pathlib import PurePosixPath
 
 try:
     from .storykit import build_epub, extract_epub_story, sort_by_posting_order
@@ -48,7 +48,7 @@ def extract_epub_cover(epub_bytes):
                         break
 
             if opf_path and opf_path in names:
-                opf_dir = PosixPath(opf_path).parent.as_posix()
+                opf_dir = PurePosixPath(opf_path).parent.as_posix()
                 if opf_dir == '.':
                     opf_dir = ''
                 elif opf_dir and not opf_dir.endswith('/'):
@@ -264,11 +264,11 @@ def upsert_epub(gui, mi, data, identifier, value):
     return book_id, created
 
 
-def merge_library_books(gui, book_ids, title=None, author=None, publisher=None):
+def merge_library_books(gui, book_ids, title=None, author=None, publisher=None, tags=None, description=None, stories_override=None, preserve_story_order=False):
     """Merge selected library books into a single omnibus EPUB.
     Returns (added_book_id, errors).
     """
-    if not book_ids:
+    if not book_ids and stories_override is None:
         return None, ['No books selected']
     try:
         from .storykit import build_epub, extract_epub_story
@@ -278,34 +278,38 @@ def merge_library_books(gui, book_ids, title=None, author=None, publisher=None):
         except ImportError:
             from common.storykit import build_epub, extract_epub_story
 
-    db = gui.current_db.new_api
-    stories = []
     errors = []
-    for book_id in book_ids:
-        try:
-            epub_bytes = db.format(book_id, 'EPUB')
-            if not epub_bytes:
-                epub_bytes = db.format(book_id, 'ORIGINAL_EPUB')
-            if not epub_bytes:
-                errors.append(f'Book ID {book_id} has no EPUB format')
-                continue
-            mi = db.get_metadata(book_id)
-            story = extract_epub_story(epub_bytes)
-            if mi and mi.title:
-                story['title'] = mi.title
-            if mi and mi.authors:
-                story['author'] = ' & '.join(mi.authors)
-            stories.append(story)
-        except Exception as exc:
-            errors.append(f'Book ID {book_id}: {exc}')
+    if stories_override is not None:
+        stories = stories_override
+    else:
+        db = gui.current_db.new_api
+        stories = []
+        for book_id in book_ids:
+            try:
+                epub_bytes = db.format(book_id, 'EPUB')
+                if not epub_bytes:
+                    epub_bytes = db.format(book_id, 'ORIGINAL_EPUB')
+                if not epub_bytes:
+                    errors.append(f'Book ID {book_id} has no EPUB format')
+                    continue
+                mi = db.get_metadata(book_id)
+                story = extract_epub_story(epub_bytes)
+                if mi and mi.title:
+                    story['title'] = mi.title
+                if mi and mi.authors:
+                    story['author'] = ' & '.join(mi.authors)
+                stories.append(story)
+            except Exception as exc:
+                errors.append(f'Book ID {book_id}: {exc}')
 
     if not stories:
         return None, errors or ['No valid EPUB formats found among selected books']
 
-    stories = sort_by_posting_order(stories)
+    if not preserve_story_order and stories_override is None:
+        stories = sort_by_posting_order(stories)
 
     try:
-        data = build_epub(stories, title=title, author=author, publisher=publisher or 'Merged Omnibus')
+        data = build_epub(stories, title=title, author=author, publisher=publisher or 'Merged Omnibus', tags=tags, summary=description, preserve_story_order=preserve_story_order or (stories_override is not None))
         book_title = title or (f"{stories[0]['title']} and {len(stories) - 1} more" if len(stories) > 1 else stories[0]['title'])
         authors = [a.strip() for a in (author or ' & '.join(dict.fromkeys(s['author'] for s in stories))).split('&')]
 
@@ -324,9 +328,20 @@ def merge_library_books(gui, book_ids, title=None, author=None, publisher=None):
         mi = Metadata(book_title, authors)
         mi.publisher = publisher or 'Merged Omnibus'
         mi.languages = ['eng']
-        mi.tags = list(dict.fromkeys(t for s in stories for t in s.get('tags', [])))
-        mi.comments = '<ol>' + ''.join(f"<li>{escape(s['title'])} — {escape(s['author'])}</li>" for s in stories) + '</ol>'
+        if tags is not None:
+            if isinstance(tags, str):
+                mi.tags = [t.strip() for t in tags.split(',') if t.strip()]
+            else:
+                mi.tags = list(tags)
+        else:
+            mi.tags = list(dict.fromkeys(t for s in stories for t in s.get('tags', [])))
 
+        if description is not None:
+            mi.comments = description
+        else:
+            mi.comments = '<ol>' + ''.join(f"<li>{escape(s['title'])} — {escape(s['author'])}</li>" for s in stories) + '</ol>'
+
+        db = gui.current_db.new_api
         ids, _ = db.add_books([(mi, {'EPUB': BytesIO(data)})])
         if ids:
             try:
