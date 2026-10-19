@@ -231,6 +231,59 @@ class GeminiPartialError(GeminiError):
 PartialGeminiError = GeminiPartialError
 
 
+class BatchExecutionState:
+    """Stores execution state for an interrupted or resumable batch scan."""
+
+    def __init__(self, completed_ids=None, pending_books=None, suggestions=None, skipped=None, model_config=None):
+        self.completed_ids = list(completed_ids) if completed_ids is not None else []
+        self.pending_books = list(pending_books) if pending_books is not None else []
+        self.suggestions = list(suggestions) if suggestions is not None else []
+        self.skipped = list(skipped) if skipped is not None else []
+        cfg = dict(model_config) if model_config is not None else {}
+        cfg.pop('api_key', None)
+        self.model_config = cfg
+
+    @property
+    def is_resumable(self):
+        return len(self.pending_books) > 0
+
+    def to_dict(self):
+        cfg = dict(self.model_config)
+        cfg.pop('api_key', None)
+        return {
+            'completed_ids': list(self.completed_ids),
+            'pending_books': [dict(b) for b in self.pending_books],
+            'suggestions': [dict(s) for s in self.suggestions],
+            'skipped': list(self.skipped),
+            'model_config': cfg,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        if not data:
+            return cls()
+        return cls(
+            completed_ids=data.get('completed_ids'),
+            pending_books=data.get('pending_books'),
+            suggestions=data.get('suggestions'),
+            skipped=data.get('skipped'),
+            model_config=data.get('model_config'),
+        )
+
+
+class GeminiBatchPausedError(GeminiPartialError):
+    """Raised when batch processing is paused due to rate limits or quota errors, carrying execution state."""
+
+    def __init__(self, message, state=None, suggestions=None, skipped=None, original_error=None):
+        if state is not None:
+            if suggestions is None:
+                suggestions = state.suggestions
+            if skipped is None:
+                skipped = state.skipped
+        super().__init__(message, suggestions=suggestions, skipped=skipped, original_error=original_error)
+        self.state = state
+
+
 def sanitize_error_message(msg, api_key=None):
     """Sanitizes sensitive information like API keys from exception messages."""
     text = str(msg or '')
@@ -704,17 +757,28 @@ def is_rate_limit_error(exc):
 def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidence='medium', batch_size=15,
                tags_may_be_removed=False, progress=lambda text: None, cancelled=lambda: False, on_event=lambda kind, **info: None,
                min_interval=0, sleep=time.sleep, clock=time.monotonic,
-               system_instruction_mode='append', custom_instructions='', system_instruction=None, **kw):
+               system_instruction_mode='append', custom_instructions='', system_instruction=None, state=None, **kw):
     """Returns (suggestions, skipped). A suggestion is {'id', 'title', 'changes', 'confidence', 'reason', 'big'}; skipped is a
     list of 'title: why' strings for books that could not be checked. On cancel, returns what was finished so far.
 
     on_event(kind, **info) reports the work as it happens: 'sending' (books=batch), 'received' (count), 'answer' (book, changes,
     confidence, reason, kept, dropped_why), 'notice' (text), 'skipped' (text), 'progress' (done, total)."""
-    suggestions, skipped = [], []
-    state = {'done': 0, 'last': None}
+    if state is not None:
+        suggestions = list(state.suggestions)
+        skipped = list(state.skipped)
+        completed_ids = set(state.completed_ids)
+        pending_books = list(state.pending_books) if state.pending_books else [b for b in books if b['id'] not in completed_ids]
+    else:
+        suggestions = []
+        skipped = []
+        completed_ids = set()
+        # Books by the same author go in the same request, so volumes of one series can be recognised together.
+        pending_books = sorted(books, key=lambda b: ((b.get('authors') or [''])[0].lower(), (b.get('series') or '').lower(), (b.get('title') or '').lower()))
+
+    state_tracker = {'done': len(completed_ids), 'last': None}
     threshold = CONFIDENCE.get(min_confidence, 1)
-    by_id = {b['id']: b for b in books}
-    total = len(books)
+    by_id = {b['id']: b for b in (books + pending_books)}
+    total = len(completed_ids) + len(pending_books)
     current_model = [model]
 
     instructions = kw.pop('instructions', None)
@@ -735,19 +799,19 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
         sys_inst = get_system_instructions(system_instruction_mode, custom_instructions, base_instructions=compiled_inst)
 
     def finish(count):
-        state['done'] += count
-        on_event('progress', done=state['done'], total=total)
+        state_tracker['done'] += count
+        on_event('progress', done=state_tracker['done'], total=total)
 
     def pace():
         """Free keys allow only a few requests a minute, so leave a gap between requests instead of running into the limit."""
-        if min_interval and state['last'] is not None:
-            wait = state['last'] + min_interval - clock()
+        if min_interval and state_tracker['last'] is not None:
+            wait = state_tracker['last'] + min_interval - clock()
             if wait > 2:
                 on_event('notice', text=f'Pausing {wait:.0f}s between requests to stay inside the free-tier limit')
             while wait > 0 and not cancelled():
                 sleep(min(1.0, wait))
                 wait -= 1.0
-        state['last'] = clock()
+        state_tracker['last'] = clock()
 
     def ask_direct(batch):
         pace()
@@ -773,9 +837,11 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
             if changes and enough:
                 suggestions.append({'id': book['id'], 'title': book.get('title') or '', 'changes': changes, 'confidence': confidence,
                                     'reason': _clean(raw.get('reason'), 300), 'big': is_big_change(changes)})
+            completed_ids.add(raw['id'])
         for missing in wanted - seen:
             skipped.append(f"{by_id[missing].get('title') or missing}: no answer from the model")
             on_event('skipped', text=skipped[-1])
+            completed_ids.add(missing)
         finish(len(batch))
 
     def ask(batch):
@@ -854,24 +920,56 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
                 raise
 
     size = max(1, int(batch_size))
-    # Books by the same author go in the same request, so volumes of one series can be recognised together.
-    books = sorted(books, key=lambda b: ((b.get('authors') or [''])[0].lower(), (b.get('series') or '').lower(), (b.get('title') or '').lower()))
-    for start in range(0, len(books), size):
+    for start in range(0, len(pending_books), size):
         if cancelled():
             break
-        progress(f'Asking Gemini… {min(start + size, len(books))} of {len(books)} books')
+        current_batch = pending_books[start:start + size]
+        progress(f'Asking Gemini… {min(state_tracker["done"] + len(current_batch), total)} of {total} books')
         try:
-            ask(books[start:start + size])
+            ask(current_batch)
         except QuotaExhausted as exc:
-            left = total - state['done']
-            skipped.append(f'{left} book(s) not checked: request limit used up')
-            on_event('notice', text=sanitize_error_message(exc, api_key))
-            on_event('skipped', text=skipped[-1])
-            break
+            msg = sanitize_error_message(exc, api_key)
+            left_pending = pending_books[start:]
+            model_config = {
+                'model': model,
+                'batch_size': batch_size,
+                'min_interval': min_interval,
+                'min_confidence': min_confidence,
+                'fields': list(fields),
+                'tags_may_be_removed': tags_may_be_removed,
+            }
+            paused_state = BatchExecutionState(
+                completed_ids=completed_ids,
+                pending_books=left_pending,
+                suggestions=suggestions,
+                skipped=skipped,
+                model_config=model_config,
+            )
+            on_event('notice', text=msg)
+            raise GeminiBatchPausedError(msg, state=paused_state, suggestions=suggestions, skipped=skipped, original_error=exc) from exc
         except GeminiError as exc:
             if str(exc) == 'Cancelled':
                 break
             msg = sanitize_error_message(exc, api_key)
+            if '429' in msg or 'limit' in msg.lower() or 'quota' in msg.lower():
+                left_pending = pending_books[start:]
+                model_config = {
+                    'model': model,
+                    'batch_size': batch_size,
+                    'min_interval': min_interval,
+                    'min_confidence': min_confidence,
+                    'fields': list(fields),
+                    'tags_may_be_removed': tags_may_be_removed,
+                }
+                paused_state = BatchExecutionState(
+                    completed_ids=completed_ids,
+                    pending_books=left_pending,
+                    suggestions=suggestions,
+                    skipped=skipped,
+                    model_config=model_config,
+                )
+                on_event('notice', text=msg)
+                raise GeminiBatchPausedError(msg, state=paused_state, suggestions=suggestions, skipped=skipped, original_error=exc) from exc
             raise GeminiPartialError(msg, suggestions=suggestions, skipped=skipped, original_error=exc) from exc
         except Exception as exc:
             msg = sanitize_error_message(exc, api_key)
