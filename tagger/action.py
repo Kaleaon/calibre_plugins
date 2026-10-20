@@ -3,7 +3,7 @@ from qt.core import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QHBoxLa
                      QPushButton, QRadioButton, QVBoxLayout)
 try:
     from calibre_plugins.story_collection_tagger.error_handler import show_friendly_error_dialog
-except ImportError:
+except (ImportError, AttributeError):
     try:
         from .error_handler import show_friendly_error_dialog
     except ImportError:
@@ -143,6 +143,22 @@ class TaggerAction(DialogAction):
                 return show_friendly_error_dialog(self.gui, 'Auto-tag', exc, det_msg=f'Could not apply the tags to {len(plan)} book(s)', show=True)
             info_dialog(self.gui, 'Auto-tag', f'Tags added to {len(plan)} book(s).', show=True)
             dialog.accept()
+
+        def invalidate_preview(*args):
+            if not state['plan']:
+                return
+            state['plan'] = []
+            apply_btn.setEnabled(False)
+            preview.clear()
+
+        rules_edit.textChanged.connect(invalidate_preview)
+        sites_edit.textChanged.connect(invalidate_preview)
+        prefix.textChanged.connect(invalidate_preview)
+        series_prefix.textChanged.connect(invalidate_preview)
+        add_source.toggled.connect(invalidate_preview)
+        scan.toggled.connect(invalidate_preview)
+        scope_selected.toggled.connect(invalidate_preview)
+        scope_all.toggled.connect(invalidate_preview)
 
         preview_btn.clicked.connect(do_preview)
         apply_btn.clicked.connect(do_apply)
