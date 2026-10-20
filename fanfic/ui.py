@@ -1,6 +1,6 @@
 """Fanfic downloader dialog. Network work never runs on the GUI thread (see guikit.run_task)."""
-from qt.core import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit,
-                     QPushButton, QTextBrowser, QVBoxLayout)
+from qt.core import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
+                     QPushButton, QRadioButton, QTextBrowser, QVBoxLayout, QWizard, QWizardPage)
 try:
     from qt.core import _
 except ImportError:
@@ -28,6 +28,15 @@ ADVANCED_HELP = '''# FanFicFare personal.ini settings, optional. Examples (remov
 #[www.royalroad.com]
 #use_browser_cache:true
 '''
+
+
+def guide_text():
+    """The Royal Road / FlareSolverr guide, shipped inside the plugin zip."""
+    try:
+        data = get_resources('royalroad-flaresolverr.md')  # noqa: F821  injected by Calibre's plugin loader
+    except NameError:
+        data = None
+    return data.decode('utf-8') if data else _('The setup guide is missing from this copy of the plugin.')
 
 
 class StartupMethodPage(QWizardPage):
@@ -184,34 +193,34 @@ class FlareSolverrSetupWizard(QWizard):
     def __init__(self, parent=None, advanced_edit=None, recovery_mode=False, recovery_url=None):
         super().__init__(parent)
         self.advanced = advanced_edit  # the dialog's Advanced settings box; changes here are saved when that dialog is accepted
-        self.setWindowTitle(_('Royal Road setup (FlareSolverr)'))
+        self.recovery_mode = recovery_mode
+        self.recovery_url = recovery_url or flaresolverr.TEST_URL
+        self.setWindowTitle(_('FlareSolverr Setup Wizard'))
         self.resize(760, 680)
 
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.program = QLabel()
         self.program.setWordWrap(True)
-        layout.addWidget(self.program)
-        row = QHBoxLayout()
         self.choose_button = QPushButton(_('Choose FlareSolverr program…'))
-        self.choose_button.clicked.connect(self.choose_program)
         self.start_button = QPushButton(_('Start FlareSolverr'))
-        self.start_button.clicked.connect(self.start_program)
         self.stop_button = QPushButton(_('Stop FlareSolverr'))
+        self.choose_button.clicked.connect(self.choose_program)
+        self.start_button.clicked.connect(self.start_program)
         self.stop_button.clicked.connect(self.stop_program)
-        for button in (self.choose_button, self.start_button, self.stop_button):
-            row.addWidget(button)
-        layout.addLayout(row)
-        row = QHBoxLayout()
-        for label, slot in ((_('Copy Docker command'), self.copy_docker), (_('Test: is FlareSolverr running?'), self.test_server),
-                            (_('Test: load Royal Road through it'), self.test_site), (_('Enable for Royal Road'), self.enable)):
-            button = QPushButton(label)
-            button.clicked.connect(slot)
-            row.addWidget(button)
-        layout.addLayout(row)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+
+        self.guide_browser = QTextBrowser()
+        self.guide_browser.setOpenExternalLinks(True)
+        self.guide_browser.setMarkdown(guide_text())
+
+        self.method = 0 if prefs['flaresolverr_path'] else 1
+
+        self.addPage(StartupMethodPage(self))
+        self.addPage(MethodConfigPage(self))
+        self.addPage(HealthCheckPage(self))
+        self.addPage(ApplySettingsPage(self))
+        self.restart()
+
         self.show_enabled_state()
         self.refresh_program()
 
@@ -302,6 +311,9 @@ class FlareSolverrSetupWizard(QWizard):
             prefs['advanced_ini'] = new_text
         self.show_enabled_state()
         self.status.setText(self.status.text() + (_(' Saved when you press OK in the download window.') if changed else ''))
+
+
+RoyalRoadSetupDialog = FlareSolverrSetupWizard
 
 
 class SitesDialog(QDialog):
