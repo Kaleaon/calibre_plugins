@@ -196,6 +196,26 @@ class FollowDialog(QDialog):
             self.layout_box.setCurrentIndex(1)
         form.addRow(_('Make'), self.layout_box)
         layout.addLayout(form)
+
+        # Multi-source section
+        layout.addWidget(QLabel(_('Additional Feed Sources (for multi-author or multi-subreddit series):')))
+        self.sources_table = QTableWidget(0, 4)
+        self.sources_table.setHorizontalHeaderLabels([_('Where'), _('Title filter'), _('Author filter'), _('Flair filter')])
+        self.sources_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.sources_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.sources_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.sources_table)
+
+        src_btn_row = QHBoxLayout()
+        add_src_btn = QPushButton(_('Add feed source…'))
+        add_src_btn.clicked.connect(self.add_source)
+        rem_src_btn = QPushButton(_('Remove feed source'))
+        rem_src_btn.clicked.connect(self.remove_source)
+        src_btn_row.addWidget(add_src_btn)
+        src_btn_row.addWidget(rem_src_btn)
+        src_btn_row.addStretch(1)
+        layout.addLayout(src_btn_row)
+
         self.title_from_body = QCheckBox(_('The first line of each post is its chapter title (use it to name the chapter)'))
         self.title_from_body.setToolTip(_('For authors who open every post with a short title line. The line becomes the chapter name and is taken out of the text; '
                                         'a note in brackets next to it becomes a boxed author\'s note; posts that do not open that way keep their own title.'))
