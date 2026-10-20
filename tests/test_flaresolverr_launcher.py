@@ -75,8 +75,11 @@ def alive(pid):
                 return True
         try:
             import subprocess
-            out = subprocess.check_output(['ps', '-p', str(pid), '-o', 'state='], text=True, stderr=subprocess.DEVNULL).strip()
-            if not out or out.startswith('Z'):
+            res = subprocess.run(['ps', '-p', str(pid), '-o', 'state='], capture_output=True, text=True)
+            if res.returncode != 0:
+                return False
+            out = res.stdout.strip()
+            if not out or 'Z' in out:
                 return False
             return True
         except Exception:
@@ -137,7 +140,7 @@ class LauncherTests(unittest.TestCase):
         if sys.platform.startswith('win'):
             py_path = self.dir / f'{path.stem}_script.py'
             py_path.write_text(py_body)
-            path.write_text(f'@"{sys.executable}" "{py_path.resolve()}" %*\n')
+            path.write_text(f'@echo off\n"{sys.executable}" "{py_path.resolve()}" %*\nexit /b %errorlevel%\n')
         else:
             if not py_body.startswith('#!'):
                 py_body = f'#!{sys.executable}\n' + py_body
