@@ -122,11 +122,15 @@ class QtCase(unittest.TestCase):
     def tearDown(self):
         if hasattr(builtins, 'get_resources'):
             del builtins.get_resources
-        for key in [k for k in sys.modules if k.startswith(('calibre', 'qt'))]:
+        for key in [k for k in sys.modules if k.startswith(('calibre', 'qt', 'calibre_plugins'))]:
             del sys.modules[key]
         sys.modules.update(self.saved)
 
     def load(self, import_name):
+        prefix = f'calibre_plugins.{import_name}'
+        for key in list(sys.modules):
+            if key == prefix or key.startswith(prefix + '.'):
+                del sys.modules[key]
         target = Path(self.tmp.name) / import_name
         if target.exists():
             shutil.rmtree(target)
@@ -1130,12 +1134,8 @@ class GeminiDialogTests(QtCase):
             seen['writes_after_apply'] = list(db.writes)
             button('Undo last run').click()
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, 'exec', drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
 
 
         log = seen['log']
@@ -1198,12 +1198,8 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs['fields'] = list(engine.FIELDS)
 
         def run(drive):
-            original_exec = QtWidgets.QDialog.exec
-            QtWidgets.QDialog.exec = drive
-            try:
+            with patch.object(QtWidgets.QDialog, 'exec', drive):
                 action.show_dialog()
-            finally:
-                QtWidgets.QDialog.exec = original_exec
         return action_mod, run, sent
 
     @staticmethod
@@ -1337,12 +1333,8 @@ class GeminiDialogTests(QtCase):
             seen['log'] = dialog.findChild(QtWidgets.QPlainTextEdit).toPlainText()
             seen['check_enabled'] = next(b for b in dialog.findChildren(QtWidgets.QPushButton) if b.text() == 'Check books').isEnabled()
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, 'exec', drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
         self.assertEqual(len(calls), 1, 'the second and third requests never start')
         self.assertIn('Cancel pressed', seen['log'])
         self.assertTrue(seen['check_enabled'], 'the window is usable again afterwards')
@@ -1377,12 +1369,8 @@ class GeminiDialogTests(QtCase):
             seen['tree_count'] = dialog.findChild(QtWidgets.QTreeWidget).topLevelItemCount()
             seen['log'] = dialog.findChild(QtWidgets.QPlainTextEdit).toPlainText()
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, 'exec', drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
 
         self.assertEqual(seen['tree_count'], 1, 'partial suggestion for book 1 rendered in results tree')
         self.assertIn('Stopped early due to an error', seen['log'])
@@ -1406,12 +1394,8 @@ class GeminiDialogTests(QtCase):
             edit.setText('  my-secret-key  ')
             dialog.reject()  # closed without pressing Check books
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, 'exec', drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
         self.assertEqual(action_mod.prefs['api_key'], 'my-secret-key')
 
 

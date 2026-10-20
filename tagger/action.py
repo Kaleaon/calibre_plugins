@@ -8,7 +8,14 @@ except ImportError:
     try:
         from .error_handler import show_friendly_error_dialog
     except ImportError:
-        from error_handler import show_friendly_error_dialog
+        try:
+            from error_handler import show_friendly_error_dialog
+        except ImportError:
+            import sys as _sys, os as _os
+            _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
+            if _pkg_dir not in _sys.path:
+                _sys.path.insert(0, _pkg_dir)
+            from error_handler import show_friendly_error_dialog
 
 from calibre_plugins.story_collection_tagger import rules as rules_mod
 from calibre_plugins.story_collection_tagger.config import prefs

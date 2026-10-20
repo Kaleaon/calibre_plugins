@@ -42,7 +42,7 @@ class PluginImportTests(unittest.TestCase):
         sys.modules['calibre_plugins'].__path__ = []
 
     def tearDown(self):
-        for k in [k for k in sys.modules if k.startswith(('calibre', 'qt'))]:
+        for k in [k for k in sys.modules if k.startswith(('calibre', 'qt', 'calibre_plugins'))]:
             del sys.modules[k]
         sys.modules.update(self.saved)
         self.tmp.cleanup()

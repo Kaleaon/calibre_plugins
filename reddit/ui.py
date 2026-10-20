@@ -207,6 +207,25 @@ class FollowDialog(QDialog):
         self.author_note.setChecked(bool(follow and follow.get('author_note')))
         layout.addWidget(self.author_note)
 
+        # Multi-source section
+        layout.addWidget(QLabel(_('Additional Feed Sources (for multi-author or multi-subreddit series):')))
+        self.sources_table = QTableWidget(0, 4)
+        self.sources_table.setHorizontalHeaderLabels([_('Where'), _('Title filter'), _('Author filter'), _('Flair filter')])
+        self.sources_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.sources_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.sources_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.sources_table)
+
+        src_btn_row = QHBoxLayout()
+        add_src_btn = QPushButton(_('Add feed source…'))
+        add_src_btn.clicked.connect(self.add_source)
+        rem_src_btn = QPushButton(_('Remove feed source'))
+        rem_src_btn.clicked.connect(self.remove_source)
+        src_btn_row.addWidget(add_src_btn)
+        src_btn_row.addWidget(rem_src_btn)
+        src_btn_row.addStretch(1)
+        layout.addLayout(src_btn_row)
+
         self.message = QLabel('')
         self.message.setWordWrap(True)
         layout.addWidget(self.message)
