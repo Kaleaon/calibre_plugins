@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ "main" ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     name: Build & Test
@@ -34,6 +38,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Run static code linting and formatting check
+        run: |
+          ruff check .
+          ruff format --check .
 
       - name: Build plugin packages in strict mode
         run: |
@@ -65,4 +74,5 @@ jobs:
 
       - name: Run unit test suite
         run: |
-          python -m unittest discover -s tests -p "test_*.py" -v
+          python -m pytest tests/
+
