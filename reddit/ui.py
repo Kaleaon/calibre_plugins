@@ -176,7 +176,7 @@ class FollowDialog(QDialog):
 
         primary_src = self.sources[0] if self.sources else (follow['source'] if follow and follow.get('source') else None)
         self.source = QLineEdit(core.source_text(primary_src) if primary_src else '')
-        self.source.setPlaceholderText(_('r/HFY   or   u/author   or a Reddit search address'))
+        self.source.setPlaceholderText(_('r/HFY, r/sub1+sub2, u/author, u/auth1+auth2, or a Reddit search address'))
         self.source.textChanged.connect(self.check_source)
         form.addRow(_('Where to look'), self.source)
 
@@ -187,14 +187,13 @@ class FollowDialog(QDialog):
 
         primary_af = self.sources[0].get('author_filter', '') if self.sources else (follow.get('author_filter', '') if follow else '')
         self.author_filter = QLineEdit(primary_af)
-        self.author_filter.setPlaceholderText(_('Only posts by this user (optional)'))
+        self.author_filter.setPlaceholderText(_('Only posts by these users, separated by commas or pipes (e.g. Author1, Author2) (optional)'))
         form.addRow(_('Posted by'), self.author_filter)
 
         primary_ff = self.sources[0].get('flair_filter', '') if self.sources else (follow.get('flair_filter', '') if follow else '')
         self.flair_filter = QLineEdit(primary_ff)
         self.flair_filter.setPlaceholderText(_('Only posts with this flair (optional)'))
         form.addRow(_('Flair contains'), self.flair_filter)
-
         self.index_url = QLineEdit(follow.get('index_url', '') if follow else '')
         self.index_url.setPlaceholderText(_('Optional: a public Google Sheet listing the chapters'))
         form.addRow(_('Chapter index'), self.index_url)

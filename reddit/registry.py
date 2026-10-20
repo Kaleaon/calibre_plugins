@@ -315,6 +315,49 @@ class SeriesRegistry:
             self._update_manifest_unlocked(conn, series_id)
             conn.commit()
 
+    def save_chapters_batch(self, series_id, posts):
+        """Save multiple posts into chapters in a single transaction, then update manifest once."""
+        if not posts:
+            return
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.cursor()
+            for post in posts:
+                post_id = post['id']
+                author = (post.get('author') or 'Unknown').strip()
+                cursor.execute("""
+                INSERT INTO chapters (id, series_id, title, author, created, link, html, flair, note, sequence_number, added_to_lib)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    title = excluded.title,
+                    author = excluded.author,
+                    created = excluded.created,
+                    link = excluded.link,
+                    html = excluded.html,
+                    flair = excluded.flair,
+                    note = CASE WHEN excluded.note != '' THEN excluded.note ELSE chapters.note END,
+                    sequence_number = excluded.sequence_number,
+                    added_to_lib = excluded.added_to_lib;
+                """, (
+                    post_id,
+                    series_id,
+                    post['title'],
+                    author,
+                    float(post['created']),
+                    post.get('link', ''),
+                    post.get('html', ''),
+                    post.get('flair', ''),
+                    post.get('note', ''),
+                    float(post.get('sequence_number', 0.0)),
+                    1 if post.get('added') else 0
+                ))
+                if author:
+                    cursor.execute("""
+                    INSERT OR IGNORE INTO authors (series_id, author_name)
+                    VALUES (?, ?);
+                    """, (series_id, author))
+            self._update_manifest_unlocked(conn, series_id)
+            conn.commit()
+
     def _update_manifest_unlocked(self, conn, series_id):
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC", (series_id,))
