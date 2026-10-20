@@ -289,3 +289,146 @@ class TagSelectionState:
                 active_assignments += len(book_active)
         return active_assignments, affected_books
 
+
+RULE_SET_SCHEMA_VERSION = 1
+
+
+def export_rule_set_data(rules_text, sites_text, title="Exported Rule Set", description=""):
+    """Serializes rules and extra sites multiline text into a versioned JSON-compatible dictionary."""
+    from datetime import datetime, timezone
+    parsed_rules, _ = parse_rules(rules_text)
+    parsed_sites, _ = parse_sites(sites_text)
+
+    rules_list = []
+    for r in parsed_rules:
+        field_prefix = f"{r.field}:" if r.field else ""
+        raw = f"{field_prefix}{r.pattern} => {', '.join(r.tags)}"
+        rules_list.append({
+            "field": r.field,
+            "pattern": r.pattern,
+            "tags": r.tags,
+            "raw": raw
+        })
+
+    sites_list = []
+    for name, hosts, _ in parsed_sites:
+        raw = f"{', '.join(hosts)} => {name}"
+        sites_list.append({
+            "name": name,
+            "hosts": hosts,
+            "raw": raw
+        })
+
+    return {
+        "version": RULE_SET_SCHEMA_VERSION,
+        "metadata": {
+            "title": title,
+            "description": description,
+            "exported_at": datetime.now(timezone.utc).isoformat()
+        },
+        "rules": rules_list,
+        "sites": sites_list,
+        "raw_rules": rules_text or "",
+        "raw_sites": sites_text or ""
+    }
+
+
+def import_rule_set_data(data):
+    """Parses a versioned rule set JSON dictionary and validates syntax.
+    Returns (rules, sites, errors).
+    """
+    if not isinstance(data, dict):
+        return [], [], ["Invalid rule set data: expected a JSON object"]
+
+    version = data.get("version")
+    if version != RULE_SET_SCHEMA_VERSION:
+        return [], [], [f"Unsupported schema version '{version}'. Expected version {RULE_SET_SCHEMA_VERSION}."]
+
+    rule_lines = []
+    if "rules" in data and isinstance(data["rules"], list):
+        for idx, item in enumerate(data["rules"], 1):
+            if isinstance(item, str):
+                rule_lines.append(item)
+            elif isinstance(item, dict):
+                if item.get("raw"):
+                    rule_lines.append(str(item["raw"]))
+                elif "pattern" in item and "tags" in item:
+                    fld = item.get("field")
+                    field_prefix = f"{fld}:" if fld else ""
+                    tags_val = item["tags"]
+                    tags_str = ", ".join(tags_val) if isinstance(tags_val, list) else str(tags_val)
+                    rule_lines.append(f"{field_prefix}{item['pattern']} => {tags_str}")
+                else:
+                    return [], [], [f"Rule item {idx} in JSON is missing 'pattern' or 'tags'"]
+            else:
+                return [], [], [f"Invalid rule item at index {idx}"]
+    elif "raw_rules" in data and isinstance(data["raw_rules"], str):
+        rule_lines = [line for line in data["raw_rules"].splitlines() if line.strip()]
+
+    site_lines = []
+    if "sites" in data and isinstance(data["sites"], list):
+        for idx, item in enumerate(data["sites"], 1):
+            if isinstance(item, str):
+                site_lines.append(item)
+            elif isinstance(item, dict):
+                if item.get("raw"):
+                    site_lines.append(str(item["raw"]))
+                elif "name" in item and "hosts" in item:
+                    hosts_val = item["hosts"]
+                    hosts_str = ", ".join(hosts_val) if isinstance(hosts_val, list) else str(hosts_val)
+                    site_lines.append(f"{hosts_str} => {item['name']}")
+                else:
+                    return [], [], [f"Site item {idx} in JSON is missing 'name' or 'hosts'"]
+            else:
+                return [], [], [f"Invalid site item at index {idx}"]
+    elif "raw_sites" in data and isinstance(data["raw_sites"], str):
+        site_lines = [line for line in data["raw_sites"].splitlines() if line.strip()]
+
+    rules_text = "\n".join(rule_lines)
+    sites_text = "\n".join(site_lines)
+
+    parsed_rules, rule_errors = parse_rules(rules_text)
+    parsed_sites, site_errors = parse_sites(sites_text)
+
+    all_errors = rule_errors + site_errors
+    if all_errors:
+        return [], [], all_errors
+
+    return parsed_rules, parsed_sites, []
+
+
+def classify_rule(incoming_rule, local_rules):
+    """Returns 'Duplicate', 'Conflict', or 'New' for incoming_rule compared against local_rules."""
+    inc_fld = (incoming_rule.field or 'default').casefold()
+    inc_pat = incoming_rule.pattern.casefold()
+    inc_tags = sorted([t.casefold() for t in incoming_rule.tags])
+
+    for loc in local_rules:
+        loc_fld = (loc.field or 'default').casefold()
+        loc_pat = loc.pattern.casefold()
+        if inc_fld == loc_fld and inc_pat == loc_pat:
+            loc_tags = sorted([t.casefold() for t in loc.tags])
+            if inc_tags == loc_tags:
+                return 'Duplicate'
+            else:
+                return 'Conflict'
+    return 'New'
+
+
+def classify_site(incoming_site, local_sites):
+    """incoming_site: (name, hosts, keys)
+    local_sites: list of (name, hosts, keys)
+    Returns 'Duplicate', 'Conflict', or 'New'.
+    """
+    inc_name, inc_hosts, _ = incoming_site
+    inc_hosts_set = {h.casefold() for h in inc_hosts if h}
+
+    for loc_name, loc_hosts, _ in local_sites:
+        loc_hosts_set = {h.casefold() for h in loc_hosts if h}
+        if inc_hosts_set & loc_hosts_set:
+            if inc_name.casefold() == loc_name.casefold():
+                return 'Duplicate'
+            else:
+                return 'Conflict'
+    return 'New'
+
