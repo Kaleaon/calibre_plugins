@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import tempfile
 import zipfile
 from calibre.customize.ui import find_plugin
-from calibre.db.legacy import LibraryDatabase
+from calibre.library import db as calibre_db
 from qt.core import QApplication, QMainWindow, QAction, QDialog
 app = QApplication([])
 plugin = find_plugin('Takeout Book Fixer')
@@ -25,7 +25,7 @@ with plugin:
         files, rows, report = recover(source, root / 'out')
         assert len(files) == 1
         assert Path(files[0]).suffix == '.epub'
-        db = LibraryDatabase(str(root / 'library'))
+        db = calibre_db(str(root / 'library'))
         gui = SimpleNamespace(current_db=db, library_view=SimpleNamespace(model=lambda: SimpleNamespace(refresh=lambda: None)), tags_view=SimpleNamespace(recount=lambda: None))
         ids, errors = import_books(gui, rows)
         assert not errors, errors
