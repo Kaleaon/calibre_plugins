@@ -159,9 +159,11 @@ class MediaDialogTests(QtCase):
             bar = dialog.findChild(QtWidgets.QProgressBar)
             seen['bar'] = (bar.value(), bar.maximum())
             T = QtCore.Qt.CheckState
-            seen['rows'] = {tree.topLevelItem(i).text(0): (tree.topLevelItem(i).checkState(0), tree.topLevelItem(i).text(1),
-                                                           [tree.topLevelItem(i).child(j).text(0) for j in range(tree.topLevelItem(i).childCount())])
-                            for i in range(tree.topLevelItemCount())}
+            seen['rows'] = {tree.topLevelItem(i).text(0): (
+                tree.topLevelItem(i).checkState(0),
+                f"{tree.topLevelItem(i).text(3)}: {tree.topLevelItem(i).text(2)}",
+                [f"{tree.topLevelItem(i).child(j).text(0)}:  {tree.topLevelItem(i).child(j).text(1)}  →  {tree.topLevelItem(i).child(j).text(2)}" if tree.topLevelItem(i).child(j).text(0) != 'Cover' else f"Cover:  {tree.topLevelItem(i).child(j).text(2)}" for j in range(tree.topLevelItem(i).childCount())]
+            ) for i in range(tree.topLevelItemCount())}
             seen['T'] = T
             self.assertTrue(b['Apply ticked changes'].isEnabled())
             b['Apply ticked changes'].click()
@@ -185,7 +187,8 @@ class MediaDialogTests(QtCase):
         self.assertEqual(set(rows), {'yesterday', 'Dune', 'dune'})
         T = seen['T']
         state, summary, children = rows['yesterday']
-        self.assertIn('MusicBrainz: Yesterday — The Beatles / Help!', summary)
+        self.assertIn('MusicBrainz', summary)
+        self.assertIn('Yesterday — The Beatles / Help!', summary)
         self.assertIn('Title:  yesterday  →  Yesterday', children)
         self.assertIn('Album:  (none)  →  Help! #13', children)
         self.assertTrue(any(c.startswith('Cover:  front cover from Cover Art Archive') for c in children))

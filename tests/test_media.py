@@ -946,5 +946,54 @@ class AudiobookEndToEndTests(unittest.TestCase):
         self.assertIn('title=Dune', fetch.calls[0][0])
 
 
+class MatchInspectorAndSingleBookTests(unittest.TestCase):
+    def test_plan_matches_populates_candidates_list(self):
+        books = [library_book(id=1, title='Yesterday', authors=['Beatles'], series='Help!', formats=['MP3'])]
+        routes = {'musicbrainz.org': [{'recordings': MB}]}
+        http, fetch, _ = make_http(routes=routes)
+        found, _ = matching.plan_matches(books, http, {})
+        self.assertEqual(len(found), 1)
+        self.assertIn('candidates', found[0])
+        self.assertIsInstance(found[0]['candidates'], list)
+        self.assertGreater(len(found[0]['candidates']), 0)
+        self.assertEqual(found[0]['candidates'][0]['recording_id'], found[0]['candidate']['recording_id'])
+
+    def test_search_single_book_with_query_overrides_music(self):
+        book = library_book(id=1, title='Wrong Title', authors=['Wrong Artist'], series='', formats=['MP3'])
+        routes = {'musicbrainz.org': [{'recordings': MB}]}
+        http, fetch, _ = make_http(routes=routes)
+        cands = matching.search_single_book(
+            book, http, options={'kind': 'music'},
+            title='Yesterday', artist='The Beatles', album='Help!'
+        )
+        self.assertGreater(len(cands), 0)
+        self.assertEqual(cands[0]['title'], 'Yesterday')
+        self.assertIn('query=recording%3A%22Yesterday%22', fetch.calls[0][0])
+
+    def test_search_single_book_with_mbid_override(self):
+        book = library_book(id=1, title='Wrong Title', authors=['Wrong Artist'], series='', formats=['MP3'])
+        routes = {'musicbrainz.org': [{'recordings': [MB[0]]}, {'recordings': []}]}
+        http, fetch, _ = make_http(routes=routes)
+        mbid = MB[0]['id']
+        cands = matching.search_single_book(
+            book, http, options={'kind': 'music'},
+            identifier=mbid
+        )
+        self.assertGreater(len(cands), 0)
+        self.assertEqual(cands[0]['recording_id'], mbid)
+        self.assertIn(f'rid%3A{mbid}', fetch.calls[0][0])
+
+    def test_search_single_book_with_query_overrides_openlibrary(self):
+        book = library_book(id=2, title='Wrong Title', authors=['Wrong Author'], series='', formats=['EPUB'])
+        routes = {'openlibrary.org': [{'docs': OL}]}
+        http, fetch, _ = make_http(routes=routes)
+        cands = matching.search_single_book(
+            book, http, options={'kind': 'book'},
+            query_overrides={'title': 'Dune', 'artist': 'Frank Herbert'}
+        )
+        self.assertGreater(len(cands), 0)
+        self.assertEqual(cands[0]['title'], 'Dune')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -114,18 +114,18 @@ def release_rank(release, want):
     return rank
 
 
-def score_recording(rec, want, acoustid_score=None):
+def score_recording(rec, want, acoustid_score=None, exact_ids=()):
     """Candidate dict for one MusicBrainz recording against what we know, or None if it is not a plausible match."""
     title, credit = rec.get('title', ''), rec.get('artist-credit')
     names = credit_names(credit)
     want_title = (want.get('title') or '').strip()
     if want_title:
         title_sim = similarity(want_title, title)
-        if title_sim < MIN_TITLE_SIM and acoustid_score is None:
+        if title_sim < MIN_TITLE_SIM and acoustid_score is None and rec.get('id') not in exact_ids:
             return None  # same artist and album but a different song is not a match, however well the rest agrees
         parts = [(0.1 if acoustid_score is not None else 0.4, title_sim)]  # a fingerprint outweighs a library title that may be junk
     else:
-        if acoustid_score is None:
+        if acoustid_score is None and rec.get('id') not in exact_ids:
             return None
         parts = []
     if want.get('artist'):
@@ -162,15 +162,10 @@ def score_recording(rec, want, acoustid_score=None):
 AMBIGUOUS_MARGIN = 0.03
 
 
-def best_music_candidate(recordings, want, acoustid_scores=None, exact_ids=()):
-    """The best candidate of a search result, or None. acoustid_scores: {recording id: fingerprint score}. exact_ids:
-    recordings whose id is in the file's own tags, which counts as a strong (not independent) match.
-
-    The winner is marked 'ambiguous' when a different recording scores almost as well and nothing (the file's own ids, a
-    fingerprint) singles it out: with only a title and artist, a popular song has hundreds of near-identical recordings."""
+def top_music_candidates(recordings, want, acoustid_scores=None, exact_ids=(), limit=5):
     scored = []
     for rec in recordings:
-        cand = score_recording(rec, want, (acoustid_scores or {}).get(rec.get('id')))
+        cand = score_recording(rec, want, (acoustid_scores or {}).get(rec.get('id')), exact_ids=exact_ids)
         if cand is None:
             continue
         if rec.get('id') in exact_ids:
@@ -178,7 +173,7 @@ def best_music_candidate(recordings, want, acoustid_scores=None, exact_ids=()):
             cand['by_id'] = True
         scored.append(cand)
     if not scored:
-        return None
+        return []
     scored.sort(key=lambda c: (-round(c['score'], 3), -round(c['rank'], 2), c['year'] or 9999))  # ties: the better-fitting, then the earliest, release
     best = scored[0]
     outcome = lambda c: (norm(c['title']), norm(c['artist_credit']), norm(c['album']))
@@ -186,7 +181,17 @@ def best_music_candidate(recordings, want, acoustid_scores=None, exact_ids=()):
               and outcome(c) != outcome(best)]  # a rival that would change nothing (same song on the same album) is no doubt
     best['ambiguous'] = bool(rivals) and not best.get('by_id') and not (acoustid_scores or {}).get(best['recording_id'])
     best['rivals'] = len(rivals)
-    return best
+    return scored[:limit] if limit is not None else scored
+
+
+def best_music_candidate(recordings, want, acoustid_scores=None, exact_ids=()):
+    """The best candidate of a search result, or None. acoustid_scores: {recording id: fingerprint score}. exact_ids:
+    recordings whose id is in the file's own tags, which counts as a strong (not independent) match.
+
+    The winner is marked 'ambiguous' when a different recording scores almost as well and nothing (the file's own ids, a
+    fingerprint) singles it out: with only a title and artist, a popular song has hundreds of near-identical recordings."""
+    cands = top_music_candidates(recordings, want, acoustid_scores, exact_ids, limit=None)
+    return cands[0] if cands else None
 
 
 # -- Open Library candidates ---------------------------------------------------------------------------------------------
@@ -208,9 +213,17 @@ def score_book(doc, want):
     }
 
 
-def best_book_candidate(docs, want):
+def top_book_candidates(docs, want, limit=5):
     scored = [c for c in (score_book(d, want) for d in docs) if c]
-    return max(scored, key=lambda c: c['score']) if scored else None
+    if not scored:
+        return []
+    scored.sort(key=lambda c: -c['score'])
+    return scored[:limit] if limit is not None else scored
+
+
+def best_book_candidate(docs, want):
+    cands = top_book_candidates(docs, want, limit=None)
+    return cands[0] if cands else None
 
 
 # -- turning a candidate into changes --------------------------------------------------------------------------------------
@@ -309,7 +322,7 @@ def plan_matches(books, http, options, cancelled=lambda: False, on_event=lambda 
     """books: record dicts (id, title, authors, series, series_index, tags, formats, identifiers, pubdate, publisher,
     has_cover, path). options: kind ('auto'|'music'|'audiobook'|'book'), fields, min_score, acoustid_key, fpcalc, fingerprint.
 
-    Returns (suggestions, skipped). A suggestion: {id, title, kind, score, candidate, changes, big, ambiguous}. skipped: [text]."""
+    Returns (suggestions, skipped). A suggestion: {id, title, kind, score, candidate, candidates, changes, big, ambiguous}. skipped: [text]."""
     fields = set(options.get('fields', DEFAULT_FIELDS))
     min_score = options.get('min_score', MIN_SCORE)
     suggestions, skipped = [], []
@@ -325,9 +338,10 @@ def plan_matches(books, http, options, cancelled=lambda: False, on_event=lambda 
                 file_tags = audio.read_tags(book['path'])
             want = want_for(book, kind, file_tags)
             if kind == 'music':
-                cand = _match_music(want, book, http, options, on_event, name)
+                candidates = _match_music(want, book, http, options, on_event, name)
             else:
-                cand = _match_book(want, http, on_event, name)
+                candidates = _match_book(want, http, on_event, name)
+            cand = candidates[0] if candidates else None
         except sources.Cancelled:
             break
         except sources.HttpStatus as exc:
@@ -351,11 +365,54 @@ def plan_matches(books, http, options, cancelled=lambda: False, on_event=lambda 
         on_event('match', name=name, candidate=cand, changes=changes, media=kind)
         if changes:
             suggestions.append({'id': book['id'], 'title': book.get('title', ''), 'kind': kind, 'score': cand['score'],
-                                'candidate': cand, 'changes': changes, 'big': big, 'ambiguous': bool(cand.get('ambiguous'))})
+                                'candidate': cand, 'candidates': candidates, 'changes': changes, 'big': big,
+                                'ambiguous': bool(cand.get('ambiguous'))})
     return suggestions, skipped
 
 
-def _match_music(want, book, http, options, on_event, name):
+def search_single_book(book, http, options=None, title=None, artist=None, album=None, identifier=None, query_overrides=None, on_event=lambda kind, **info: None):
+    """Executes a single-item match search using optional search field overrides.
+    Returns a list of scored candidate match dictionaries (top N)."""
+    options = options or {}
+    overrides = dict(query_overrides or {})
+    if title is not None:
+        overrides['title'] = title
+    if artist is not None:
+        overrides['artist'] = artist
+    if album is not None:
+        overrides['album'] = album
+    if identifier is not None:
+        overrides['identifier'] = identifier
+
+    kind = classify(book, options.get('kind', 'auto'))
+    file_tags = {}
+    if kind != 'book' and book.get('path'):
+        try:
+            file_tags = audio.read_tags(book['path'])
+        except Exception:
+            file_tags = {}
+    want = want_for(book, kind, file_tags)
+
+    if 'title' in overrides and overrides['title'] is not None:
+        want['title'] = overrides['title'].strip()
+    if 'artist' in overrides and overrides['artist'] is not None:
+        want['artist'] = overrides['artist'].strip()
+    if 'album' in overrides and overrides['album'] is not None:
+        want['album'] = overrides['album'].strip()
+
+    override_id = (overrides.get('identifier') or overrides.get('mbid') or overrides.get('recording_id') or overrides.get('olid') or '').strip()
+    name = describe(book)
+
+    if kind == 'music':
+        return _match_music(want, book, http, options, on_event, name, recording_id=override_id)
+    else:
+        if override_id:
+            docs = sources.ol_search(http, want.get('title', '') or override_id, want.get('artist', ''))
+            return top_book_candidates(docs, want, limit=5)
+        return _match_book(want, http, on_event, name)
+
+
+def _match_music(want, book, http, options, on_event, name, recording_id=None):
     recs, acoustid_scores = {}, {}
     key, fpcalc = options.get('acoustid_key', ''), options.get('fpcalc', '')
     if options.get('fingerprint') and key and fpcalc and book.get('path'):
@@ -369,31 +426,37 @@ def _match_music(want, book, http, options, on_event, name):
                         acoustid_scores.setdefault(rid, score)
         except sources.FingerprintError as exc:
             on_event('notice', text=f'{name}: fingerprint not used ({exc})')
-    exact = tuple(want.get('ids') or ())
+    exact = tuple(dict.fromkeys(list(want.get('ids') or ()) + ([recording_id] if recording_id else [])))
 
     def add(found):
+        if not found:
+            return
+        if isinstance(found, dict):
+            found = [found]
         for rec in found:
-            recs.setdefault(rec.get('id'), rec)
+            if isinstance(rec, dict) and rec.get('id'):
+                recs.setdefault(rec.get('id'), rec)
 
-    candidate_ids = list(dict.fromkeys(list(exact) + list(acoustid_scores)))[:4]
-    if candidate_ids:
-        add(sources.mb_search_recordings(http, recording_id=candidate_ids, limit=len(candidate_ids)))
+    rids = list(dict.fromkeys(([recording_id] if recording_id else []) + list(exact) + list(acoustid_scores)))[:4]
+    if rids:
+        add(sources.mb_search_recordings(http, recording_id=rids, limit=len(rids)))
     want_title = (want.get('title') or '').strip()
     if want_title:
         on_event('searching', name=name, query=f"{want_title} / {want.get('artist', '')} / {want.get('album', '')}")
         add(sources.mb_search_recordings(http, want_title, want.get('artist', ''), want.get('album', '')))
-        cand = best_music_candidate(recs.values(), want, acoustid_scores, exact)
+        cands = top_music_candidates(recs.values(), want, acoustid_scores, exact, limit=5)
+        cand = cands[0] if cands else None
         if want.get('album') and (cand is None or cand['score'] < TICK_SCORE):
             # the album name may be spelled differently on MusicBrainz, or the track may be on other releases only
             add(sources.mb_search_recordings(http, want_title, want.get('artist', '')))
     elif not (options.get('fingerprint') and key and fpcalc):
         on_event('notice', text=f'{name}: text metadata missing and acoustic fingerprinting is unconfigured')
 
-    return best_music_candidate(recs.values(), want, acoustid_scores, exact)
+    return top_music_candidates(recs.values(), want, acoustid_scores, exact, limit=5)
 
 
 def _match_book(want, http, on_event, name):
     if not want.get('title'):
-        return None
+        return []
     on_event('searching', name=name, query=f"{want['title']} / {want.get('artist', '')}")
-    return best_book_candidate(sources.ol_search(http, want['title'], want.get('artist', '')), want)
+    return top_book_candidates(sources.ol_search(http, want['title'], want.get('artist', '')), want, limit=5)
