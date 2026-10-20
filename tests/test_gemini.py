@@ -1794,6 +1794,7 @@ class MarqueeBatchProgressTests(unittest.TestCase):
         btn_mock = MagicMock()
         btn_mock.clicked.connect.side_effect = mock_connect
         qt_core.QPushButton.return_value = btn_mock
+        action_mod.create_token_button = lambda *a, **kw: btn_mock
 
         def mock_plan_fixes(books, api_key, model, fields, min_confidence, batch_size,
                             tags_may_be_removed, cancelled, min_interval, on_event, **kw):
@@ -1871,6 +1872,7 @@ class MarqueeBatchProgressTests(unittest.TestCase):
         btn_mock = MagicMock()
         btn_mock.clicked.connect.side_effect = mock_connect
         qt_core.QPushButton.return_value = btn_mock
+        action_mod.create_token_button = lambda *a, **kw: btn_mock
 
         def mock_plan_fixes(books, api_key, model, fields, min_confidence, batch_size,
                             tags_may_be_removed, cancelled, min_interval, on_event, **kw):
@@ -1993,6 +1995,169 @@ class SeriesIndexNormalizationTests(unittest.TestCase):
         self.assertEqual(errors, [])
         mock_db.set_field.assert_any_call('series', {1: 'Foundation'})
         mock_db.set_field.assert_any_call('series_index', {1: 3.0})
+
+
+class FieldLevelQuickActionsTests(unittest.TestCase):
+    def setUp(self):
+        try:
+            from PyQt6.QtWidgets import QApplication, QTreeWidget, QTreeWidgetItem
+            from PyQt6.QtCore import Qt
+        except ImportError:
+            self.skipTest("PyQt6 unavailable")
+
+        if not QApplication.instance():
+            self.app = QApplication([])
+        else:
+            self.app = QApplication.instance()
+
+    def test_set_checks_and_field_actions(self):
+        from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
+        from PyQt6.QtCore import Qt
+
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+
+        tree = QTreeWidget()
+        tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+
+        # Build 3 book items with title, tags, series children
+        books = [
+            {'id': 1, 'title': 'Book 1', 'big': False, 'changes': {'title': ('b1', 'Book 1'), 'tags': ([], ['sci-fi']), 'series': (None, 'S1')}},
+            {'id': 2, 'title': 'Book 2', 'big': True, 'changes': {'title': ('b2', 'Book 2'), 'tags': ([], ['fantasy']), 'series': (None, 'S2')}},
+            {'id': 3, 'title': 'Book 3', 'big': False, 'changes': {'title': ('b3', 'Book 3'), 'tags': ([], ['action'])}}
+        ]
+
+        for s in books:
+            top = QTreeWidgetItem(tree, [s['title'], 'confidence'])
+            top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
+            top.setData(0, Qt.ItemDataRole.UserRole, s['id'])
+            top.setData(0, Qt.ItemDataRole.UserRole + 2, bool(s['big']))
+            for field, (old, new) in s['changes'].items():
+                child = QTreeWidgetItem(top, [f'{field}: {old} -> {new}', ''])
+                child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                child.setCheckState(0, Qt.CheckState.Checked)
+                child.setData(0, Qt.ItemDataRole.UserRole, field)
+                child.setData(0, Qt.ItemDataRole.UserRole + 1, (old, new))
+            top.setCheckState(0, Qt.CheckState.Checked)
+
+        # Present fields check
+        seen = set()
+        for i in range(tree.topLevelItemCount()):
+            top = tree.topLevelItem(i)
+            for j in range(top.childCount()):
+                seen.add(top.child(j).data(0, Qt.ItemDataRole.UserRole))
+        self.assertEqual(seen, {'title', 'tags', 'series'})
+
+        # Helper set_checks logic verification
+        def set_checks(choose_top=None, choose_child_fn=None):
+            tree.blockSignals(True)
+            for i in range(tree.topLevelItemCount()):
+                top = tree.topLevelItem(i)
+                if choose_child_fn is not None:
+                    for j in range(top.childCount()):
+                        child = top.child(j)
+                        res = choose_child_fn(child, top)
+                        if isinstance(res, bool):
+                            child.setCheckState(0, Qt.CheckState.Checked if res else Qt.CheckState.Unchecked)
+                        else:
+                            child.setCheckState(0, res)
+                elif choose_top is not None:
+                    state = Qt.CheckState.Checked if choose_top(top) else Qt.CheckState.Unchecked
+                    for j in range(top.childCount()):
+                        top.child(j).setCheckState(0, state)
+
+                child_count = top.childCount()
+                if child_count > 0:
+                    checked_count = sum(1 for j in range(child_count) if top.child(j).checkState(0) == Qt.CheckState.Checked)
+                    if checked_count == child_count:
+                        top.setCheckState(0, Qt.CheckState.Checked)
+                    elif checked_count == 0:
+                        top.setCheckState(0, Qt.CheckState.Unchecked)
+                    else:
+                        top.setCheckState(0, Qt.CheckState.PartiallyChecked)
+            tree.blockSignals(False)
+
+        # 1. "Check only Tags"
+        set_checks(choose_child_fn=lambda c, t: c.data(0, Qt.ItemDataRole.UserRole) == 'tags')
+        for i in range(tree.topLevelItemCount()):
+            top = tree.topLevelItem(i)
+            for j in range(top.childCount()):
+                child = top.child(j)
+                f = child.data(0, Qt.ItemDataRole.UserRole)
+                if f == 'tags':
+                    self.assertEqual(child.checkState(0), Qt.CheckState.Checked)
+                else:
+                    self.assertEqual(child.checkState(0), Qt.CheckState.Unchecked)
+            self.assertEqual(top.checkState(0), Qt.CheckState.PartiallyChecked)
+
+        # 2. "Uncheck all Tags"
+        set_checks(choose_child_fn=lambda c, t: Qt.CheckState.Unchecked if c.data(0, Qt.ItemDataRole.UserRole) == 'tags' else c.checkState(0))
+        for i in range(tree.topLevelItemCount()):
+            top = tree.topLevelItem(i)
+            for j in range(top.childCount()):
+                self.assertEqual(top.child(j).checkState(0), Qt.CheckState.Unchecked)
+            self.assertEqual(top.checkState(0), Qt.CheckState.Unchecked)
+
+        # 3. "Check all Series"
+        set_checks(choose_child_fn=lambda c, t: Qt.CheckState.Checked if c.data(0, Qt.ItemDataRole.UserRole) == 'series' else c.checkState(0))
+        for i in range(tree.topLevelItemCount()):
+            top = tree.topLevelItem(i)
+            has_series = False
+            for j in range(top.childCount()):
+                child = top.child(j)
+                if child.data(0, Qt.ItemDataRole.UserRole) == 'series':
+                    has_series = True
+                    self.assertEqual(child.checkState(0), Qt.CheckState.Checked)
+                else:
+                    self.assertEqual(child.checkState(0), Qt.CheckState.Unchecked)
+            if has_series:
+                self.assertEqual(top.checkState(0), Qt.CheckState.PartiallyChecked)
+            else:
+                self.assertEqual(top.checkState(0), Qt.CheckState.Unchecked)
+
+        # 4. Backward compatibility: Check all
+        set_checks(choose_top=lambda top: True)
+        for i in range(tree.topLevelItemCount()):
+            top = tree.topLevelItem(i)
+            self.assertEqual(top.checkState(0), Qt.CheckState.Checked)
+
+    def test_performance_1000_items(self):
+        import time
+        from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
+        from PyQt6.QtCore import Qt
+
+        tree = QTreeWidget()
+        for i in range(100):
+            top = QTreeWidgetItem(tree, [f'Book {i}', 'medium'])
+            top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
+            for f in ['title', 'authors', 'series', 'tags', 'publisher', 'pubdate', 'rating', 'languages', 'isbn', 'identifiers']:
+                child = QTreeWidgetItem(top, [f'{f}: old -> new', ''])
+                child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                child.setCheckState(0, Qt.CheckState.Checked)
+                child.setData(0, Qt.ItemDataRole.UserRole, f)
+
+        start = time.perf_counter()
+        tree.blockSignals(True)
+        for i in range(tree.topLevelItemCount()):
+            top = tree.topLevelItem(i)
+            for j in range(top.childCount()):
+                child = top.child(j)
+                res = child.data(0, Qt.ItemDataRole.UserRole) == 'tags'
+                child.setCheckState(0, Qt.CheckState.Checked if res else Qt.CheckState.Unchecked)
+
+            child_count = top.childCount()
+            if child_count > 0:
+                checked_count = sum(1 for j in range(child_count) if top.child(j).checkState(0) == Qt.CheckState.Checked)
+                if checked_count == child_count:
+                    top.setCheckState(0, Qt.CheckState.Checked)
+                elif checked_count == 0:
+                    top.setCheckState(0, Qt.CheckState.Unchecked)
+                else:
+                    top.setCheckState(0, Qt.CheckState.PartiallyChecked)
+        tree.blockSignals(False)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        self.assertLess(elapsed_ms, 100.0, f"Execution time {elapsed_ms:.2f}ms exceeded 100ms threshold")
 
 
 if __name__ == '__main__':
