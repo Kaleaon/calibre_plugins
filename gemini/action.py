@@ -575,7 +575,7 @@ class GeminiFixerAction(DialogAction):
                         db.set_field('languages', {book_id: tuple(new)})
                     elif field == 'isbn':
                         db.set_field('identifiers', {book_id: dict(db.field_for('identifiers', book_id) or {}, isbn=new)})
-                    saved[field] = [old[0], old[1]] if field == 'series' else old
+                    saved[field] = [old[0], old[1] if old[1] is not None else 1.0] if field == 'series' else old
                 done.append(book_id)
             except Exception as exc:
                 errors.append(f'{changes.get("title", ("", ""))[0] or book_id}: {exc}')
