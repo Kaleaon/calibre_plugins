@@ -30,15 +30,6 @@ ADVANCED_HELP = '''# FanFicFare personal.ini settings, optional. Examples (remov
 '''
 
 
-def guide_text():
-    """The Royal Road / FlareSolverr guide, shipped inside the plugin zip."""
-    try:
-        data = get_resources('royalroad-flaresolverr.md')  # noqa: F821  injected by Calibre's plugin loader
-    except NameError:
-        data = None
-    return data.decode('utf-8') if data else _('The setup guide is missing from this copy of the plugin.')
-
-
 class StartupMethodPage(QWizardPage):
     """Step 1: Choose startup method."""
 

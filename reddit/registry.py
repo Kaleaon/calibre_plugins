@@ -379,10 +379,3 @@ class SeriesRegistry:
             cursor = conn.cursor()
             cursor.execute("SELECT id FROM chapters WHERE series_id = ? AND added_to_lib = 1", (series_id,))
             return {r['id'] for r in cursor.fetchall()}
-
-    def get_chapter_count(self, series_id):
-        with self._lock, self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) as cnt FROM chapters WHERE series_id = ?", (series_id,))
-            row = cursor.fetchone()
-            return row['cnt'] if row else 0

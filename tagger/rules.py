@@ -54,10 +54,6 @@ def _key_covered(key, claimed_hosts, claimed_keys):
     return False
 
 
-def _covered(host, claimed):
-    return any(host == c or host.endswith('.' + c) for c in claimed)
-
-
 def merge_sites(core, extra):
     """Curated entries win; extra/generated entries only add hosts/keys not already covered (subdomains count)."""
     claimed_hosts = {str(h).strip().lower() for _, hosts, _ in core for h in hosts if h and str(h).strip()}

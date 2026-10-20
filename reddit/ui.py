@@ -240,15 +240,6 @@ class FollowDialog(QDialog):
             self.sources.append(dialog.result_source())
             self.refresh_sources_table()
 
-    def remove_source(self):
-        rows = {i.row() for i in self.sources_table.selectedItems()}
-        if not rows:
-            return
-        for r in sorted(rows, reverse=True):
-            if r < len(self.sources):
-                self.sources.pop(r)
-        self.refresh_sources_table()
-
     def use_preset(self, index):
         if index <= 0:
             return
