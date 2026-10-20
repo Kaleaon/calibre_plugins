@@ -37,8 +37,6 @@ def guide_text():
     except NameError:
         data = None
     return data.decode('utf-8') if data else 'The setup guide is missing from this copy of the plugin.'
-
-
 class StartupMethodPage(QWizardPage):
     """Step 1: Choose startup method."""
 

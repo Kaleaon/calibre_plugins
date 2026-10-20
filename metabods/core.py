@@ -161,6 +161,8 @@ def search_tags(fetcher, tag_ids, progress=None, max_workers=5):
             raise
 
     return results
+
+
 def combine_tag_results(results, match_all):
     """Union or intersection of per-tag story lists, ordered by title."""
     sets = [{r['id'] for r in rows} for rows in results.values()]
