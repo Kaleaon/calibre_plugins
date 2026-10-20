@@ -8,9 +8,9 @@ import threading
 from urllib.parse import parse_qs, urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
-    from .storykit import Cancelled, Fetcher, build_epub as _build_epub, strip_tags
+    from .storykit import Cancelled, Fetcher, build_epub as _build_epub, clean_fragment, decode, epub_builder, parse_chapter_range, strip_tags  # noqa: F401
 except ImportError:  # tests load this file directly with common/ on sys.path
-    from storykit import Cancelled, Fetcher, build_epub as _build_epub, strip_tags
+    from storykit import Cancelled, Fetcher, build_epub as _build_epub, clean_fragment, decode, epub_builder, parse_chapter_range, strip_tags  # noqa: F401
 
 SITE = 'https://metabods.com/mbxy/site/'
 PUBLISHER = 'Metabods'
@@ -202,7 +202,7 @@ def parse_story_page(page):
     return info
 
 
-def parse_print_page(page):
+def parse_print_page(page, chapter_range=None):
     """Title, author and the ordered (heading, html) sections of story_print.php."""
     m = re.search(r'<h1[^>]*>(.*?)</h1>', page, re.S)
     if not m:
@@ -222,12 +222,21 @@ def parse_print_page(page):
         sections.append((strip_tags(h.group(1)) if h else '', body))
     if not sections:
         raise ValueError('Print page has no story text')
+    if chapter_range is not None:
+        total_sections = len(sections)
+        if isinstance(chapter_range, str):
+            indices = parse_chapter_range(chapter_range, total_sections)
+        else:
+            indices = set(chapter_range)
+        sections = [sec for i, sec in enumerate(sections) if i in indices]
+        if not sections:
+            raise ValueError(f'No chapters match range "{chapter_range}" (story has {total_sections} chapter(s))')
     return {'title': title, 'author': author, 'copyright': copyright_holder, 'sections': sections}
 
 
-def fetch_story(fetcher, story_id):
+def fetch_story(fetcher, story_id, chapter_range=None):
     """Download one story (all parts) and merge print-page text with story-page metadata."""
-    story = parse_print_page(fetcher.get(print_url(story_id)))
+    story = parse_print_page(fetcher.get(print_url(story_id)), chapter_range=chapter_range)
     story['id'] = story_id
     story['url'] = story_url(story_id)
     try:

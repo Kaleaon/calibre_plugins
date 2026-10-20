@@ -8,9 +8,9 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
-    from .storykit import Cancelled, Fetcher, build_epub as _build_epub, clean_fragment, escape, sort_by_posting_order, strip_tags
+    from .storykit import Cancelled, Fetcher, RateLimited, build_epub as _build_epub, clean_fragment, escape, epub_builder, parse_chapter_range, sort_by_posting_order, strip_tags  # noqa: F401
 except ImportError:  # tests load this file directly with common/ on sys.path
-    from storykit import Cancelled, Fetcher, build_epub as _build_epub, clean_fragment, escape, sort_by_posting_order, strip_tags
+    from storykit import Cancelled, Fetcher, RateLimited, build_epub as _build_epub, clean_fragment, escape, epub_builder, parse_chapter_range, sort_by_posting_order, strip_tags  # noqa: F401
 
 SITE = 'https://www.nifty.org/nifty/'
 PUBLISHER = 'Nifty'
@@ -417,70 +417,6 @@ def clean_title(subject, fallback):
     title = re.sub(r'\s*\([^()]*[/,][^()]*\)\s*$', '', title)    # "(Gay/Adult/College)" category list
     title = re.sub(r'[\s#:;,\-]*\d+\s*$', '', title).strip(' \t:;,-')
     return title or fallback
-
-
-def parse_chapter_range(range_str, total_chapters):
-    """Convert range syntax (e.g. '1-5', '8', '10+', '5-') into 0-based chapter indices.
-
-    Invalid or empty range strings default to including all chapters.
-    Out-of-bound indices are safely ignored.
-    """
-    if total_chapters <= 0:
-        return set()
-    all_indices = set(range(total_chapters))
-    if not range_str or not str(range_str).strip():
-        return all_indices
-
-    tokens = [t for t in re.split(r'[,;\s]+', str(range_str).strip()) if t]
-    indices = set()
-    has_valid_syntax = False
-
-    for token in tokens:
-        # Match '10+' or '10-'
-        m = re.match(r'^(\d+)[+-]$', token)
-        if m:
-            start = int(m.group(1))
-            has_valid_syntax = True
-            for idx in range(start - 1, total_chapters):
-                if 0 <= idx < total_chapters:
-                    indices.add(idx)
-            continue
-
-        # Match '1-5'
-        m = re.match(r'^(\d+)-(\d+)$', token)
-        if m:
-            start, end = int(m.group(1)), int(m.group(2))
-            has_valid_syntax = True
-            if start <= end:
-                for idx in range(start - 1, end):
-                    if 0 <= idx < total_chapters:
-                        indices.add(idx)
-            continue
-
-        # Match '-5'
-        m = re.match(r'^-(\d+)$', token)
-        if m:
-            end = int(m.group(1))
-            has_valid_syntax = True
-            for idx in range(0, end):
-                if 0 <= idx < total_chapters:
-                    indices.add(idx)
-            continue
-
-        # Match single chapter number '8'
-        m = re.match(r'^(\d+)$', token)
-        if m:
-            num = int(m.group(1))
-            has_valid_syntax = True
-            idx = num - 1
-            if 0 <= idx < total_chapters:
-                indices.add(idx)
-            continue
-
-    if not has_valid_syntax:
-        return all_indices
-
-    return indices
 
 
 def fetch_book(fetcher, ref, progress=lambda msg: None, chapter_range=None):

@@ -32,7 +32,7 @@ class MetabodsAction(libkit.DownloaderAction):
         lines = dialog.lines()
         if not lines:
             return
-        skip, combine, title = dialog.options.values()[:3]
+        skip, combine, title, chapter_range = dialog.options.values()
 
         def expand(task):
             task.status = 'Reading links…'
@@ -48,18 +48,18 @@ class MetabodsAction(libkit.DownloaderAction):
         if skip:
             have = self.existing_ids()
             ids = [i for i in ids if i not in have]
-        self.download(ids, combine, title, problems, len(rows) - len(ids))
+        self.download(ids, combine, title, problems, len(rows) - len(ids), chapter_range=chapter_range)
 
     def search_by_tag(self):
         dialog = TagSearchDialog(self.gui, self.existing_ids())
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
         ids = dialog.selected_ids()
-        _, combine, title = dialog.options.values()[:3]
-        self.download(ids, combine, title, [], 0)
+        _, combine, title, chapter_range = dialog.options.values()
+        self.download(ids, combine, title, [], 0, chapter_range=chapter_range)
 
     # -- download + import
-    def download(self, ids, combine, title, problems, skipped):
+    def download(self, ids, combine, title, problems, skipped, chapter_range=None):
         if not ids:
             return info_dialog(self.gui, 'Metabods', 'Nothing to download.' + (f' {skipped} already in your library.' if skipped else '') +
                                ''.join('\n' + p for p in problems), show=True)
@@ -73,7 +73,7 @@ class MetabodsAction(libkit.DownloaderAction):
             for n, sid in enumerate(ids, 1):
                 task.status = f'Downloading {n} of {len(ids)}: {sid}'
                 try:
-                    stories.append(core.fetch_story(fetcher, sid))
+                    stories.append(core.fetch_story(fetcher, sid, chapter_range=chapter_range))
                 except core.Cancelled:
                     raise
                 except Exception as exc:
