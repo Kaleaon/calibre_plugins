@@ -4,7 +4,9 @@ import importlib.util
 from pathlib import Path
 import re
 import sys
+from types import SimpleNamespace
 import unittest
+from unittest.mock import MagicMock, patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -154,6 +156,216 @@ class PackagingTests(unittest.TestCase):
         text = self.zip.read('THIRD_PARTY_LICENSES.txt').decode('utf-8')
         for needle in ('Apache License', 'cloudscraper', 'requests-file', 'pyparsing', 'brotlidecpy', 'Modifications for bundling'):
             self.assertIn(needle, text)
+
+
+class Meta:
+    def __init__(self, title, authors):
+        self.title, self.authors, self.ids = title, authors, {}
+        self.publisher = None
+        self.tags = []
+        self.comments = None
+        self.series = None
+        self.series_index = None
+        self.languages = []
+        self.pubdate = None
+
+    def set_identifier(self, key, value):
+        self.ids[key] = value
+
+
+class ActionUpdateTests(unittest.TestCase):
+    def setUp(self):
+        for mod in ['calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config',
+                    'calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.book', 'calibre.ebooks.metadata.book.base']:
+            if mod not in sys.modules:
+                sys.modules[mod] = MagicMock()
+        sys.modules['calibre.gui2.actions'].InterfaceAction = object
+        sys.modules['calibre.customize'].InterfaceActionBase = object
+        sys.modules['calibre.ebooks.metadata.book.base'].Metadata = Meta
+
+        import types
+        if 'qt.core' not in sys.modules:
+            try:
+                from PyQt6 import QtCore, QtGui, QtWidgets
+                qtcore = types.ModuleType('qt.core')
+                for m in (QtCore, QtGui, QtWidgets):
+                    for attr in dir(m):
+                        if not attr.startswith('_'):
+                            setattr(qtcore, attr, getattr(m, attr))
+                sys.modules['qt'] = types.ModuleType('qt')
+                sys.modules['qt'].core = qtcore
+                sys.modules['qt.core'] = qtcore
+            except ImportError:
+                qt = types.ModuleType('qt')
+                qt.core = MagicMock()
+                sys.modules['qt'] = qt
+                sys.modules['qt.core'] = qt.core
+
+        from qt.core import QApplication
+        if not QApplication.instance():
+            self._app = QApplication([])
+
+        import fanfic.engine as f_engine
+        import fanfic.flaresolverr as f_flaresolverr
+        import fanfic.config as f_config
+        import common.guikit as f_guikit
+        import common.libkit as f_libkit
+
+        if 'calibre_plugins' not in sys.modules:
+            sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+
+        fd = types.ModuleType('calibre_plugins.fanfic_downloader')
+        fd.engine = f_engine
+        fd.flaresolverr = f_flaresolverr
+        fd.config = f_config
+        fd.guikit = f_guikit
+        fd.libkit = f_libkit
+        sys.modules['calibre_plugins.fanfic_downloader'] = fd
+        sys.modules['calibre_plugins.fanfic_downloader.config'] = f_config
+        sys.modules['calibre_plugins.fanfic_downloader.guikit'] = f_guikit
+        sys.modules['calibre_plugins.fanfic_downloader.engine'] = f_engine
+        sys.modules['calibre_plugins.fanfic_downloader.flaresolverr'] = f_flaresolverr
+        sys.modules['calibre_plugins.fanfic_downloader.libkit'] = f_libkit
+
+    def test_find_book_colon_pipe_normalization(self):
+        from common.libkit import find_book
+        db_data = {
+            101: {'url': 'https|//www.royalroad.com/fiction/12345'},
+            102: {'url': 'https://archiveofourown.org/works/99999'}
+        }
+        mock_db = MagicMock()
+        mock_db.all_book_ids.return_value = [101, 102]
+        mock_db.all_field_for.return_value = db_data
+        gui = SimpleNamespace(current_db=SimpleNamespace(new_api=mock_db))
+
+        # Lookup with colon matching pipe in DB
+        self.assertEqual(find_book(gui, 'url', 'https://www.royalroad.com/fiction/12345'), 101)
+        # Lookup with pipe matching pipe in DB
+        self.assertEqual(find_book(gui, 'url', 'https|//www.royalroad.com/fiction/12345'), 101)
+        # Lookup with pipe matching colon in DB
+        self.assertEqual(find_book(gui, 'url', 'https|//archiveofourown.org/works/99999'), 102)
+
+    def test_genesis_sets_split_menu_and_actions(self):
+        from fanfic.action import FanficAction
+        from qt.core import QWidget
+        action = FanficAction()
+        action.gui = QWidget()
+        action.qaction = MagicMock()
+
+        action.genesis()
+
+        action.qaction.setMenu.assert_called_once()
+        menu = action.qaction.setMenu.call_args[0][0]
+        actions = menu.actions()
+        self.assertEqual(len(actions), 2)
+        self.assertEqual(actions[0].text(), 'Download stories by address…')
+        self.assertEqual(actions[1].text(), 'Update selected book(s)')
+
+    def test_update_selected_no_selection_shows_info_dialog(self):
+        from fanfic.action import FanficAction
+        from qt.core import QWidget
+        action = FanficAction()
+        gui = QWidget()
+        gui.library_view = MagicMock()
+        gui.library_view.selectionModel().selectedRows.return_value = []
+        action.gui = gui
+
+        with patch('fanfic.action.info_dialog') as mock_info:
+            action.update_selected()
+            mock_info.assert_called_once()
+            self.assertIn('select one or more fanfiction books', mock_info.call_args[0][2])
+
+    def test_update_selected_non_fanfic_shows_info_dialog(self):
+        from fanfic.action import FanficAction
+        from qt.core import QWidget
+        action = FanficAction()
+        gui = QWidget()
+        gui.library_view = MagicMock()
+
+        row = MagicMock()
+        gui.library_view.selectionModel().selectedRows.return_value = [row]
+        gui.library_view.model().id.return_value = 10
+
+        mock_db = MagicMock()
+        mock_db.all_book_ids.return_value = [10]
+        mock_db.all_field_for.return_value = {10: {'isbn': '1234'}}
+        mi = MagicMock(title='My Non Fanfic Book')
+        mock_db.get_metadata.return_value = mi
+        gui.current_db = MagicMock(new_api=mock_db)
+        action.gui = gui
+
+        with patch('fanfic.action.info_dialog') as mock_info:
+            action.update_selected()
+            mock_info.assert_called_once()
+            self.assertIn('No valid fanfiction books selected', mock_info.call_args[0][2])
+
+    def test_update_selected_valid_fanfic_upserts_in_place(self):
+        from fanfic.action import FanficAction
+        from qt.core import QWidget
+        action = FanficAction()
+        gui = QWidget()
+        gui.library_view = MagicMock()
+
+        row = MagicMock()
+        gui.library_view.selectionModel().selectedRows.return_value = [row]
+        gui.library_view.model().id.return_value = 42
+
+        mock_db = MagicMock()
+        mock_db.all_book_ids.return_value = [42]
+        mock_db.all_field_for.return_value = {42: {'url': 'https|//www.royalroad.com/fiction/21220'}}
+        gui.current_db = MagicMock(new_api=mock_db)
+        action.gui = gui
+
+        mock_story_result = {
+            'epub': b'EPUBBYTES',
+            'url': 'https://www.royalroad.com/fiction/21220',
+            'title': 'Test Story',
+            'authors': ['Test Author'],
+            'description': 'Description',
+            'tags': ['Fantasy'],
+            'series': None,
+            'series_index': None,
+            'site': 'www.royalroad.com',
+            'published': None,
+            'language': 'en',
+            'chapters': 10,
+            'status': 'Completed',
+            'chapter_errors': 0,
+        }
+
+        def fake_run_task(gui, title, func):
+            task = MagicMock()
+            task.cancelled = lambda: False
+            task.error = None
+            task.result = func(task)
+            return task
+
+        with patch('fanfic.action.run_task', side_effect=fake_run_task), \
+             patch('fanfic.action.FlareSolverrSetupWizard') as mock_wizard, \
+             patch('fanfic.action.engine.inspect_url') as mock_inspect, \
+             patch('fanfic.action.engine.download_story', return_value=mock_story_result) as mock_download, \
+             patch('fanfic.action.libkit.upsert_epub', return_value=(42, False)) as mock_upsert, \
+             patch('fanfic.action.info_dialog') as mock_info:
+
+            mock_wizard.return_value.exec.return_value = 1  # Accepted
+
+            mock_inspect.return_value = {
+                'url': 'https://www.royalroad.com/fiction/21220',
+                'domain': 'www.royalroad.com',
+                'adult': False,
+                'begin': None,
+                'end': None,
+            }
+
+            action.update_selected()
+
+            mock_inspect.assert_called_once()
+            self.assertEqual(mock_inspect.call_args[0][0], 'https://www.royalroad.com/fiction/21220')
+            mock_download.assert_called_once()
+            mock_upsert.assert_called_once()
+            self.assertEqual(mock_upsert.call_args[0][4], 'https://www.royalroad.com/fiction/21220')
+            mock_info.assert_called_once()
+            self.assertIn('1 book(s) updated.', mock_info.call_args[0][2])
 
 
 if __name__ == '__main__':
