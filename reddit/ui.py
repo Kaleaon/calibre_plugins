@@ -223,6 +223,8 @@ class FollowDialog(QDialog):
         self.check_source()
 
     def refresh_sources_table(self):
+        if not hasattr(self, 'sources_table') or self.sources_table is None:
+            return
         self.sources_table.setRowCount(len(self.sources))
         for row, src in enumerate(self.sources):
             cells = [
@@ -241,6 +243,8 @@ class FollowDialog(QDialog):
             self.refresh_sources_table()
 
     def remove_source(self):
+        if not hasattr(self, 'sources_table') or self.sources_table is None:
+            return
         rows = {i.row() for i in self.sources_table.selectedItems()}
         if not rows:
             return

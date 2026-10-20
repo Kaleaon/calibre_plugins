@@ -473,6 +473,14 @@ class GeminiFixerAction(InterfaceAction):
         row.addStretch(1)
         layout.addLayout(row)
 
+        row_tpl = QHBoxLayout()
+        row_tpl.addWidget(QLabel(_('Instruction Template:')))
+        template_combo = QComboBox()
+        row_tpl.addWidget(template_combo, 1)
+        manage_templates_btn = QPushButton(_('Manage Templates...'))
+        row_tpl.addWidget(manage_templates_btn)
+        layout.addLayout(row_tpl)
+
         layout = main
         row = QHBoxLayout()
         settings_btn = QPushButton(_('Hide settings'))
