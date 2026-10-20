@@ -751,7 +751,6 @@ class GeminiFixerAction(DialogAction):
         custom_instructions_edit.setPlaceholderText('e.g. Always prefix genre tags with "Genre: " or preserve custom series names.')
         custom_instructions_edit.setPlainText(prefs.get('custom_system_instructions', ''))
         layout.addWidget(custom_instructions_edit)
-
         layout = main
         row = QHBoxLayout()
         settings_btn = QPushButton(_('Hide settings'))

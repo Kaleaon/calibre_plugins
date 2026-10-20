@@ -48,9 +48,10 @@ class Scripted:
     def __call__(self, url, headers, body, timeout):
         self.calls.append((url, headers, body))
         item = self.script.pop(0)
-        if isinstance(item, Exception):
-            raise item
-        return item(body) if callable(item) else item
+        res = item(body) if callable(item) else item
+        if isinstance(res, Exception):
+            raise res
+        return res
 
 
 class SanitizeTests(unittest.TestCase):
@@ -286,18 +287,62 @@ class FreeTierTests(unittest.TestCase):
         self.assertIn('resets once a day', str(cm.exception))
 
     def test_daily_limit_midway_keeps_what_was_found(self):
-        daily = http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
-                                                         'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
+        def daily():
+            return http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                                                             'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
         events = []
-        t = Scripted(reply([{'id': 1, 'title': 'One', 'confidence': 'high'}]), daily)
-        with self.assertRaises(engine.GeminiBatchPausedError) as cm:
-            engine.plan_fixes([book(1), book(2), book(3)], 'k', batch_size=1, transport=t, sleep=lambda s: None,
-                              on_event=lambda kind, **i: events.append(kind))
-        err = cm.exception
-        self.assertEqual([s['id'] for s in err.suggestions], [1])
-        self.assertEqual([b['id'] for b in err.state.pending_books], [2, 3])
-        self.assertEqual(len(t.calls), 2, 'it stops asking once the daily limit is hit')
+        t = Scripted(reply([{'id': 1, 'title': 'One', 'confidence': 'high'}]), daily(), daily())
+        out, skipped = engine.plan_fixes([book(1), book(2), book(3)], 'k', batch_size=1, transport=t, sleep=lambda s: None,
+                                         on_event=lambda kind, **i: events.append(kind), pause_on_quota=False)
+        self.assertEqual([s['id'] for s in out], [1])
+        self.assertEqual(skipped, ['2 book(s) not checked: request limit used up'])
+        self.assertEqual(len(t.calls), 3, 'it stops asking once all models in fallback chain hit daily limit')
         self.assertIn('notice', events)
+
+    def test_plan_fixes_falls_back_to_flash_lite_on_quota_error(self):
+        def daily():
+            return http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                                                             'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
+        notices = []
+        t = Scripted(daily(), reply([{'id': 1, 'title': 'Fixed Title', 'confidence': 'high'}]))
+        out, skipped = engine.plan_fixes([book(1)], 'k', model='gemini-2.5-flash', transport=t, sleep=lambda s: None,
+                                         on_event=lambda kind, **i: notices.append(i.get('text')) if kind == 'notice' else None)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]['changes']['title'], ('Book 1', 'Fixed Title'))
+        self.assertEqual(skipped, [])
+        self.assertEqual(len(t.calls), 2)
+        self.assertTrue(t.calls[0][0].endswith('/models/gemini-2.5-flash:generateContent'))
+        self.assertTrue(t.calls[1][0].endswith('/models/gemini-2.5-flash-lite:generateContent'))
+        self.assertTrue(any('falling back to lighter model gemini-2.5-flash-lite' in (n or '') for n in notices))
+
+    def test_plan_fixes_chained_fallback(self):
+        def daily():
+            return http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                                                             'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
+        notices = []
+        t = Scripted(daily(), daily(), reply([{'id': 1, 'title': 'Fixed Title', 'confidence': 'high'}]))
+        out, skipped = engine.plan_fixes([book(1)], 'k', model='gemini-2.5-pro', transport=t, sleep=lambda s: None,
+                                         on_event=lambda kind, **i: notices.append(i.get('text')) if kind == 'notice' else None)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(skipped, [])
+        self.assertEqual(len(t.calls), 3)
+        self.assertTrue(t.calls[0][0].endswith('/models/gemini-2.5-pro:generateContent'))
+        self.assertTrue(t.calls[1][0].endswith('/models/gemini-2.5-flash:generateContent'))
+        self.assertTrue(t.calls[2][0].endswith('/models/gemini-2.5-flash-lite:generateContent'))
+
+    def test_plan_fixes_exhausted_fallback_marks_skipped(self):
+        def daily():
+            return http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                                                             'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
+        notices = []
+        t = Scripted(daily(), daily())
+        out, skipped = engine.plan_fixes([book(1)], 'k', model='gemini-2.5-flash', transport=t, sleep=lambda s: None,
+                                         on_event=lambda kind, **i: notices.append(i.get('text')) if kind == 'notice' else None,
+                                         pause_on_quota=False)
+        self.assertEqual(out, [])
+        self.assertEqual(skipped, ['1 book(s) not checked: request limit used up'])
+        self.assertEqual(len(t.calls), 2)
+        self.assertTrue(any('resets once a day' in (n or '') for n in notices))
 
     def test_requests_are_spaced_out(self):
         now = [100.0]
@@ -929,10 +974,11 @@ class ResumableBatchStateTests(unittest.TestCase):
         self.assertNotIn('api_key', restored.model_config)
 
     def test_rate_limit_raises_batch_paused_error_with_state(self):
-        daily = http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
-                                                         'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
+        def daily(*a):
+            return http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                                                             'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
         events = []
-        t = Scripted(reply([{'id': 1, 'title': 'One', 'confidence': 'high'}]), daily)
+        t = Scripted(reply([{'id': 1, 'title': 'One', 'confidence': 'high'}]), daily, daily)
         books = [book(1), book(2), book(3)]
 
         with self.assertRaises(engine.GeminiBatchPausedError) as cm:
@@ -948,10 +994,11 @@ class ResumableBatchStateTests(unittest.TestCase):
 
     def test_resume_scanning_from_pending_item_without_re_evaluating_completed(self):
         b1, b2, b3 = book(1), book(2), book(3)
-        daily = http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
-                                                         'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
+        def daily(*a):
+            return http_error_with(429, 'Quota exceeded', [{'@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+                                                             'violations': [{'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'}]}])
         # First attempt: book 1 succeeds, book 2 fails with 429
-        t1 = Scripted(reply([{'id': 1, 'title': 'One', 'confidence': 'high'}]), daily)
+        t1 = Scripted(reply([{'id': 1, 'title': 'One', 'confidence': 'high'}]), daily, daily)
         with self.assertRaises(engine.GeminiBatchPausedError) as cm:
             engine.plan_fixes([b1, b2, b3], 'k', batch_size=1, transport=t1, sleep=lambda s: None)
 
