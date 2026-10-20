@@ -473,6 +473,15 @@ class GeminiFixerAction(InterfaceAction):
         row.addStretch(1)
         layout.addLayout(row)
 
+        row = QHBoxLayout()
+        row.addWidget(QLabel(_('Prompt template:')))
+        template_combo = QComboBox()
+        row.addWidget(template_combo, 1)
+        manage_templates_btn = QPushButton(_('Manage templates…'))
+        manage_templates_btn.setToolTip(_('Create, edit, or delete custom prompt templates'))
+        row.addWidget(manage_templates_btn)
+        layout.addLayout(row)
+
         layout = main
         row = QHBoxLayout()
         settings_btn = QPushButton(_('Hide settings'))

@@ -32,6 +32,13 @@ MODEL_COST_PER_1M = {
     'gemini-1.5-pro': 1.25,
 }
 
+MODEL_FALLBACKS = {
+    'gemini-2.5-flash': 'gemini-2.5-flash-lite',
+    'gemini-1.5-flash': 'gemini-1.5-flash-lite',
+    'gemini-2.5-pro': 'gemini-2.5-flash',
+    'gemini-1.5-pro': 'gemini-1.5-flash',
+}
+
 INSTRUCTIONS = '''You clean up the metadata of ebooks in a personal Calibre library. You get a JSON list of books; for each you may suggest corrections.
 
 Rules:
@@ -661,6 +668,7 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
 
     on_event(kind, **info) reports the work as it happens: 'sending' (books=batch), 'received' (count), 'answer' (book, changes,
     confidence, reason, kept, dropped_why), 'notice' (text), 'skipped' (text), 'progress' (done, total)."""
+    active_model = model or DEFAULT_MODEL
     suggestions, skipped = [], []
     state = {'done': 0, 'last': None}
     threshold = CONFIDENCE.get(min_confidence, 1)
@@ -675,7 +683,7 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
             min_confidence=min_confidence,
             tags_remove=tags_may_be_removed,
             batch_size=batch_size,
-            model=model,
+            model=active_model,
         )
 
     compiled_inst = compile_instructions(instructions, template_vars, notify=lambda msg: on_event('notice', text=msg))
@@ -702,7 +710,7 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
             return
         on_event('sending', books=batch)
         try:
-            answers = generate(api_key, model, build_parts(batch), cancelled=cancelled, sleep=sleep,
+            answers = generate(api_key, active_model, build_parts(batch), cancelled=cancelled, sleep=sleep,
                                notify=lambda t: on_event('notice', text=t), **kw)
         except Blocked as exc:
             if len(batch) == 1:
@@ -743,21 +751,31 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
     for start in range(0, len(books), size):
         if cancelled():
             break
+        current_batch = books[start:start + size]
         progress(f'Asking Gemini… {min(start + size, len(books))} of {len(books)} books')
-        try:
-            ask(books[start:start + size])
-        except QuotaExhausted as exc:
-            left = total - state['done']
-            skipped.append(f'{left} book(s) not checked: request limit used up')
-            on_event('notice', text=str(exc))
-            on_event('skipped', text=skipped[-1])
-            break
-        except GeminiError as exc:
-            if str(exc) == 'Cancelled':
+        while True:
+            try:
+                ask(current_batch)
                 break
-            msg = sanitize_error_message(exc, api_key)
-            raise GeminiPartialError(msg, suggestions=suggestions, skipped=skipped, original_error=exc) from exc
-        except Exception as exc:
-            msg = sanitize_error_message(exc, api_key)
-            raise GeminiPartialError(msg, suggestions=suggestions, skipped=skipped, original_error=exc) from exc
+            except QuotaExhausted as exc:
+                fallback_model = MODEL_FALLBACKS.get(active_model) or MODEL_FALLBACKS.get((active_model or '').strip().lower())
+                if fallback_model and fallback_model != active_model:
+                    on_event('notice', text=f'Quota limit reached for {active_model}; falling back to lighter model {fallback_model}.')
+                    active_model = fallback_model
+                    continue
+                left = total - state['done']
+                skipped.append(f'{left} book(s) not checked: request limit used up')
+                on_event('notice', text=str(exc))
+                on_event('skipped', text=skipped[-1])
+                break
+            except GeminiError as exc:
+                if str(exc) == 'Cancelled':
+                    break
+                msg = sanitize_error_message(exc, api_key)
+                raise GeminiPartialError(msg, suggestions=suggestions, skipped=skipped, original_error=exc) from exc
+            except Exception as exc:
+                msg = sanitize_error_message(exc, api_key)
+                raise GeminiPartialError(msg, suggestions=suggestions, skipped=skipped, original_error=exc) from exc
+        if skipped and skipped[-1].endswith('request limit used up'):
+            break
     return suggestions, skipped
