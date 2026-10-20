@@ -65,7 +65,7 @@ class PluginImportTests(unittest.TestCase):
             package = self.load(import_name)
             modules = {'takeout_book_fixer': ['config', 'action', 'ui', 'core', 'importer', 'queue_db', 'daemon', 'watcher', 'guikit'],
                        'epub_promo_scrubber': ['action', 'ui', 'core', 'guikit'],
-                       'story_collection_tagger': ['config', 'action', 'rules', 'ui', 'guikit'],
+                       'story_collection_tagger': ['config', 'action', 'rules', 'presets', 'ui', 'guikit'],
                        'gemini_library_fixer': ['config', 'action', 'engine', 'guikit'],
                        'media_matcher': ['config', 'action', 'tags', 'sources', 'matching', 'guikit'],
                        'fanfic_downloader': ['config', 'action', 'ui', 'engine', 'flaresolverr', 'guikit']}.get(import_name, ['config', 'action', 'ui', 'core', 'guikit'])

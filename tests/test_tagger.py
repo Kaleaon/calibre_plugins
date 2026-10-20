@@ -175,7 +175,21 @@ class TaggerDialogTests(unittest.TestCase):
         action.show_dialog()
 
         qt_core = sys.modules['qt.core']
-        self.assertGreaterEqual(qt_core.QLabel.return_value.setWordWrap.call_count, 4)
+        self.assertGreaterEqual(qt_core.QLabel.return_value.setWordWrap.call_count, 1)
+
+    def test_show_dialog_creates_tabs_and_preset_widgets(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+        action.show_dialog()
+
+        qt_core = sys.modules['qt.core']
+        self.assertGreaterEqual(qt_core.QTabWidget.return_value.addTab.call_count, 3)
+        self.assertGreaterEqual(qt_core.QTableWidget.call_count, 2)
 
     def _load_action_mod(self):
         spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
@@ -193,26 +207,27 @@ class TaggerDialogTests(unittest.TestCase):
         qt_core = sys.modules['qt.core']
         widgets = {}
 
-        def mock_widget(cls_name):
+        def mock_widget(cls_name, *a, **k):
             m = MagicMock()
+            m._args = a
             widgets.setdefault(cls_name, []).append(m)
             return m
 
-        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget('QPlainTextEdit')
-        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget('QLineEdit')
-        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget('QCheckBox')
-        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget('QRadioButton')
-        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget('QPushButton')
-        qt_core.QTreeWidget.side_effect = lambda *a, **k: mock_widget('QTreeWidget')
-        qt_core.QTreeWidgetItem.side_effect = lambda *a, **k: mock_widget('QTreeWidgetItem')
-        qt_core.QSplitter.side_effect = lambda *a, **k: mock_widget('QSplitter')
-        qt_core.QWidget.side_effect = lambda *a, **k: mock_widget('QWidget')
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget('QPlainTextEdit', *a, **k)
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget('QLineEdit', *a, **k)
+        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget('QCheckBox', *a, **k)
+        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget('QRadioButton', *a, **k)
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget('QPushButton', *a, **k)
+        qt_core.QTreeWidget.side_effect = lambda *a, **k: mock_widget('QTreeWidget', *a, **k)
+        qt_core.QTreeWidgetItem.side_effect = lambda *a, **k: mock_widget('QTreeWidgetItem', *a, **k)
+        qt_core.QSplitter.side_effect = lambda *a, **k: mock_widget('QSplitter', *a, **k)
+        qt_core.QWidget.side_effect = lambda *a, **k: mock_widget('QWidget', *a, **k)
 
         action.show_dialog()
 
-        rules_edit = widgets['QPlainTextEdit'][0]
-        preview_btn = widgets['QPushButton'][0]
-        apply_btn = widgets['QPushButton'][1]
+        rules_edit = next(w for w in widgets['QPlainTextEdit'] if w._args and w._args[0] == action_mod.prefs['rules'])
+        preview_btn = next(w for w in widgets['QPushButton'] if w._args and w._args[0] == 'Preview')
+        apply_btn = next(w for w in widgets['QPushButton'] if w._args and w._args[0] == 'Apply')
         global_tree = widgets['QTreeWidget'][0]
         books_tree = widgets['QTreeWidget'][1]
 
@@ -249,24 +264,25 @@ class TaggerDialogTests(unittest.TestCase):
         qt_core = sys.modules['qt.core']
         widgets = {}
 
-        def mock_widget(cls_name):
+        def mock_widget(cls_name, *a, **k):
             m = MagicMock()
+            m._args = a
             widgets.setdefault(cls_name, []).append(m)
             return m
 
-        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget('QPlainTextEdit')
-        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget('QLineEdit')
-        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget('QCheckBox')
-        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget('QRadioButton')
-        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget('QPushButton')
-        qt_core.QTreeWidget.side_effect = lambda *a, **k: mock_widget('QTreeWidget')
-        qt_core.QTreeWidgetItem.side_effect = lambda *a, **k: mock_widget('QTreeWidgetItem')
-        qt_core.QSplitter.side_effect = lambda *a, **k: mock_widget('QSplitter')
-        qt_core.QWidget.side_effect = lambda *a, **k: mock_widget('QWidget')
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget('QPlainTextEdit', *a, **k)
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget('QLineEdit', *a, **k)
+        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget('QCheckBox', *a, **k)
+        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget('QRadioButton', *a, **k)
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget('QPushButton', *a, **k)
+        qt_core.QTreeWidget.side_effect = lambda *a, **k: mock_widget('QTreeWidget', *a, **k)
+        qt_core.QTreeWidgetItem.side_effect = lambda *a, **k: mock_widget('QTreeWidgetItem', *a, **k)
+        qt_core.QSplitter.side_effect = lambda *a, **k: mock_widget('QSplitter', *a, **k)
+        qt_core.QWidget.side_effect = lambda *a, **k: mock_widget('QWidget', *a, **k)
 
         action.show_dialog()
 
-        rules_edit = widgets['QPlainTextEdit'][0]
+        rules_edit = next(w for w in widgets['QPlainTextEdit'] if w._args and w._args[0] == action_mod.prefs['rules'])
         global_tree = widgets['QTreeWidget'][0]
         books_tree = widgets['QTreeWidget'][1]
         invalidate_preview = rules_edit.textChanged.connect.call_args[0][0]
@@ -289,23 +305,24 @@ class TaggerDialogTests(unittest.TestCase):
         qt_core = sys.modules['qt.core']
         widgets = {}
 
-        def mock_widget(cls_name):
+        def mock_widget(cls_name, *a, **k):
             m = MagicMock()
+            m._args = a
             widgets.setdefault(cls_name, []).append(m)
             return m
 
-        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget('QPlainTextEdit')
-        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget('QLineEdit')
-        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget('QCheckBox')
-        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget('QRadioButton')
-        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget('QPushButton')
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget('QPlainTextEdit', *a, **k)
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget('QLineEdit', *a, **k)
+        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget('QCheckBox', *a, **k)
+        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget('QRadioButton', *a, **k)
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget('QPushButton', *a, **k)
 
         action.show_dialog()
 
-        rules_edit = widgets['QPlainTextEdit'][0]
-        sites_edit = widgets['QPlainTextEdit'][1]
-        prefix = widgets['QLineEdit'][0]
-        series_prefix = widgets['QLineEdit'][1]
+        rules_edit = next(w for w in widgets['QPlainTextEdit'] if w._args and w._args[0] == action_mod.prefs['rules'])
+        sites_edit = next(w for w in widgets['QPlainTextEdit'] if w._args and w._args[0] == action_mod.prefs['sites'])
+        prefix = next(w for w in widgets['QLineEdit'] if w._args and w._args[0] == action_mod.prefs['source_prefix'])
+        series_prefix = next(w for w in widgets['QLineEdit'] if w._args and w._args[0] == action_mod.prefs['series_prefix'])
         add_source = widgets['QCheckBox'][0]
         scan = widgets['QCheckBox'][1]
         scope_selected = widgets['QRadioButton'][0]
