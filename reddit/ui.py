@@ -196,6 +196,26 @@ class FollowDialog(QDialog):
             self.layout_box.setCurrentIndex(1)
         form.addRow(_('Make'), self.layout_box)
         layout.addLayout(form)
+
+        # Multi-source section
+        layout.addWidget(QLabel(_('Additional Feed Sources (for multi-author or multi-subreddit series):')))
+        self.sources_table = QTableWidget(0, 4)
+        self.sources_table.setHorizontalHeaderLabels([_('Where'), _('Title filter'), _('Author filter'), _('Flair filter')])
+        self.sources_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.sources_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.sources_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.sources_table)
+
+        src_btn_row = QHBoxLayout()
+        add_src_btn = QPushButton(_('Add feed source…'))
+        add_src_btn.clicked.connect(self.add_source)
+        rem_src_btn = QPushButton(_('Remove feed source'))
+        rem_src_btn.clicked.connect(self.remove_source)
+        src_btn_row.addWidget(add_src_btn)
+        src_btn_row.addWidget(rem_src_btn)
+        src_btn_row.addStretch(1)
+        layout.addLayout(src_btn_row)
+
         self.title_from_body = QCheckBox(_('The first line of each post is its chapter title (use it to name the chapter)'))
         self.title_from_body.setToolTip(_('For authors who open every post with a short title line. The line becomes the chapter name and is taken out of the text; '
                                         'a note in brackets next to it becomes a boxed author\'s note; posts that do not open that way keep their own title.'))
@@ -235,6 +255,7 @@ class FollowDialog(QDialog):
                 self.sources_table.setItem(row, col, QTableWidgetItem(text))
 
     def add_source(self):
+        self.sync_primary_source()
         dialog = SourceEditDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.sources.append(dialog.result_source())
@@ -310,13 +331,14 @@ class FollowDialog(QDialog):
 
     def result_follow(self):
         """A new follow, or the edited existing one (keeping its id and history)."""
+        self.sync_primary_source()
         if self.follow is None:
             return core.new_follow(self.name.text(), self.source.text(), self.title_filter.text(), self.author_filter.text(), self.author_note.isChecked(),
                                   self.layout_box.currentData(), self.flair_filter.text(), self.index_url.text(),
-                                  self.title_from_body.isChecked())
+                                  self.title_from_body.isChecked(), sources=self.sources)
         updated = core.new_follow(self.name.text() or self.follow['name'], self.source.text(), self.title_filter.text(), self.author_filter.text(), self.author_note.isChecked(),
                                   self.layout_box.currentData(), self.flair_filter.text(), self.index_url.text(),
-                                  self.title_from_body.isChecked())
+                                  self.title_from_body.isChecked(), sources=self.sources)
         updated.update(id=self.follow['id'], last_checked=0.0, last_status=_('changed; will be checked again'))
         return updated
 

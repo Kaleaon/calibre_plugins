@@ -569,6 +569,62 @@ class RedditPluginTests(QtCase):
         edit = self.ui.FollowDialog(None, follow)
         self.assertFalse(hasattr(edit, 'preset'), 'editing an existing follow offers no presets')
 
+    def test_multisource_follow_dialog_saves_to_registry(self):
+        reg_module = importlib.import_module(self.package + '.registry')
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        db_file = os.path.join(tmp.name, 'series_registry.db')
+        reg = reg_module.SeriesRegistry(db_file)
+
+        dialog = self.ui.FollowDialog(None)
+        dialog.name.setText('Multi-Source Aggregated Series')
+        dialog.source.setText('r/HFY')
+        dialog.title_filter.setText('Part')
+        dialog.sync_primary_source()
+
+        # Add secondary source rule
+        secondary_rule = {
+            'kind': 'user',
+            'subreddit': '',
+            'user': 'KyleKKent',
+            'query': '',
+            'title_filter': 'OOCS',
+            'author_filter': 'KyleKKent',
+            'flair_filter': ''
+        }
+        dialog.sources.append(secondary_rule)
+        dialog.refresh_sources_table()
+        self.assertEqual(dialog.sources_table.rowCount(), 2)
+
+        dialog.try_accept()
+        self.assertEqual(dialog.result(), 1)
+
+        follow = dialog.result_follow()
+        self.assertEqual(len(follow['sources']), 2)
+        self.assertEqual(follow['sources'][1]['user'], 'KyleKKent')
+
+        # Persist to SQLite registry
+        reg.save_series(follow)
+        saved = reg.get_series(follow['id'])
+        self.assertIsNotNone(saved)
+        self.assertEqual(len(saved['sources']), 2)
+        self.assertEqual(saved['sources'][1]['user'], 'KyleKKent')
+
+        # Edit existing multi-source series
+        edit_dialog = self.ui.FollowDialog(None, follow)
+        self.assertEqual(edit_dialog.sources_table.rowCount(), 2)
+        edit_dialog.author_filter.setText('UpdatedPrimaryAuthor')
+        edited_follow = edit_dialog.result_follow()
+
+        self.assertEqual(len(edited_follow['sources']), 2)
+        self.assertEqual(edited_follow['sources'][0]['author_filter'], 'UpdatedPrimaryAuthor')
+        self.assertEqual(edited_follow['sources'][1]['user'], 'KyleKKent')
+
+        reg.save_series(edited_follow)
+        retrieved_updated = reg.get_series(follow['id'])
+        self.assertEqual(len(retrieved_updated['sources']), 2)
+        self.assertEqual(retrieved_updated['sources'][0]['author_filter'], 'UpdatedPrimaryAuthor')
+
     def test_settings_dialog_requires_a_client_id_for_the_api_and_clamps_the_interval(self):
         dialog = self.ui.SettingsDialog(None)
         dialog.api.setChecked(True)
