@@ -173,22 +173,32 @@ class FollowDialog(QDialog):
         self.name = QLineEdit(follow['name'] if follow else '')
         self.name.setPlaceholderText(_('Book title, for example Out of Cruel Space'))
         form.addRow(_('Book title'), self.name)
-        self.source = QLineEdit(core.source_text(follow['source']) if follow else '')
+
+        primary_src = self.sources[0] if self.sources else (follow['source'] if follow and follow.get('source') else None)
+        self.source = QLineEdit(core.source_text(primary_src) if primary_src else '')
         self.source.setPlaceholderText(_('r/HFY   or   u/author   or a Reddit search address'))
         self.source.textChanged.connect(self.check_source)
         form.addRow(_('Where to look'), self.source)
-        self.title_filter = QLineEdit(follow['title_filter'] if follow else '')
+
+        primary_tf = self.sources[0].get('title_filter', '') if self.sources else (follow.get('title_filter', '') if follow else '')
+        self.title_filter = QLineEdit(primary_tf)
         self.title_filter.setPlaceholderText(_('Only posts whose title contains this (or re:regular expression)'))
         form.addRow(_('Title contains'), self.title_filter)
-        self.author_filter = QLineEdit(follow['author_filter'] if follow else '')
+
+        primary_af = self.sources[0].get('author_filter', '') if self.sources else (follow.get('author_filter', '') if follow else '')
+        self.author_filter = QLineEdit(primary_af)
         self.author_filter.setPlaceholderText(_('Only posts by this user (optional)'))
         form.addRow(_('Posted by'), self.author_filter)
-        self.flair_filter = QLineEdit(follow.get('flair_filter', '') if follow else '')
+
+        primary_ff = self.sources[0].get('flair_filter', '') if self.sources else (follow.get('flair_filter', '') if follow else '')
+        self.flair_filter = QLineEdit(primary_ff)
         self.flair_filter.setPlaceholderText(_('Only posts with this flair, for example FICTION (official API only; optional)'))
         form.addRow(_('Flair contains'), self.flair_filter)
+
         self.index_url = QLineEdit(follow.get('index_url', '') if follow else '')
         self.index_url.setPlaceholderText(_('Optional: a public Google Sheet listing the chapters (Date, Author, Chapter, Note)'))
         form.addRow(_('Chapter index'), self.index_url)
+
         self.layout_box = QComboBox()
         self.layout_box.addItem(_('One book that grows, one chapter per post (a series)'), 'series')
         self.layout_box.addItem(_('A separate book for each post (many authors, one story per post)'), 'each')
@@ -196,6 +206,25 @@ class FollowDialog(QDialog):
             self.layout_box.setCurrentIndex(1)
         form.addRow(_('Make'), self.layout_box)
         layout.addLayout(form)
+
+        # Multi-source section
+        layout.addWidget(QLabel(_('Additional Feed Sources (for multi-author or multi-subreddit series):')))
+        self.sources_table = QTableWidget(0, 4)
+        self.sources_table.setHorizontalHeaderLabels([_('Where'), _('Title filter'), _('Author filter'), _('Flair filter')])
+        self.sources_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.sources_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.sources_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.sources_table)
+
+        src_btn_row = QHBoxLayout()
+        add_src_btn = QPushButton(_('Add feed source…'))
+        add_src_btn.clicked.connect(self.add_source)
+        rem_src_btn = QPushButton(_('Remove feed source'))
+        rem_src_btn.clicked.connect(self.remove_source)
+        src_btn_row.addWidget(add_src_btn)
+        src_btn_row.addWidget(rem_src_btn)
+        src_btn_row.addStretch(1)
+        layout.addLayout(src_btn_row)
         self.title_from_body = QCheckBox(_('The first line of each post is its chapter title (use it to name the chapter)'))
         self.title_from_body.setToolTip(_('For authors who open every post with a short title line. The line becomes the chapter name and is taken out of the text; '
                                         'a note in brackets next to it becomes a boxed author\'s note; posts that do not open that way keep their own title.'))
@@ -310,15 +339,24 @@ class FollowDialog(QDialog):
 
     def result_follow(self):
         """A new follow, or the edited existing one (keeping its id and history)."""
-        if self.follow is None:
-            return core.new_follow(self.name.text(), self.source.text(), self.title_filter.text(), self.author_filter.text(), self.author_note.isChecked(),
-                                  self.layout_box.currentData(), self.flair_filter.text(), self.index_url.text(),
-                                  self.title_from_body.isChecked())
-        updated = core.new_follow(self.name.text() or self.follow['name'], self.source.text(), self.title_filter.text(), self.author_filter.text(), self.author_note.isChecked(),
-                                  self.layout_box.currentData(), self.flair_filter.text(), self.index_url.text(),
-                                  self.title_from_body.isChecked())
-        updated.update(id=self.follow['id'], last_checked=0.0, last_status=_('changed; will be checked again'))
-        return updated
+        self.sync_primary_source()
+        res = core.new_follow(
+            self.name.text(),
+            self.source.text(),
+            self.title_filter.text(),
+            self.author_filter.text(),
+            self.author_note.isChecked(),
+            self.layout_box.currentData(),
+            self.flair_filter.text(),
+            self.index_url.text(),
+            self.title_from_body.isChecked(),
+            sources=self.sources
+        )
+        if self.follow and self.follow.get('id'):
+            res['id'] = self.follow['id']
+            res['last_checked'] = 0.0
+            res['last_status'] = _('changed; will be checked again')
+        return res
 
 
 class SettingsDialog(QDialog):
@@ -639,7 +677,7 @@ class ManageDialog(QDialog):
         self.mode_label = QLabel('')
         layout.addWidget(self.mode_label)
         row = QHBoxLayout()
-        for label, slot in ((_('Find stories…'), self.find), (_('Add…'), self.add), (_('Edit…'), self.edit), (_('Remove'), self.remove), (_('Queue manager…'), self.open_queue_manager), (_('Test selected'), self.test_selected), (_('Check selected now'), self.check_selected),
+        for label, slot in ((_('Find stories…'), self.find), (_('Add…'), self.add), (_('Edit…'), self.edit), (_('Manifest…'), self.manifest), (_('Remove'), self.remove), (_('Queue manager…'), self.open_queue_manager), (_('Test selected'), self.test_selected), (_('Check selected now'), self.check_selected),
                             (_('Check all now'), self.check_all), (_('Settings…'), self.settings)):
             button = QPushButton(label)
             button.clicked.connect(slot)
@@ -664,7 +702,18 @@ class ManageDialog(QDialog):
         self.table.setRowCount(len(follows))
         for r, follow in enumerate(follows):
             checked = time.strftime('%Y-%m-%d %H:%M', time.localtime(follow['last_checked'])) if follow.get('last_checked') else _('never')
-            cells = [follow['name'], core.describe_source(follow['source']) + core.describe_filters(follow), str(self.action.chapter_count(follow)), checked, follow.get('last_status', '')]
+            sources = follow.get('sources') or ([follow.get('source')] if follow.get('source') else [])
+            if len(sources) > 1:
+                source_desc = _('{count} source(s) ({preview}{more})').format(
+                    count=len(sources),
+                    preview=", ".join(core.describe_source(s) for s in sources[:2]),
+                    more=", …" if len(sources) > 2 else ""
+                )
+            elif sources:
+                source_desc = core.describe_source(sources[0])
+            else:
+                source_desc = core.describe_source(follow.get('source', {}))
+            cells = [follow['name'], source_desc + core.describe_filters(follow), str(self.action.chapter_count(follow)), checked, follow.get('last_status', '')]
             for c, text in enumerate(cells):
                 item = QTableWidgetItem(text)
                 item.setData(Qt.ItemDataRole.UserRole, follow['id'])
