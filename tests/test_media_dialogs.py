@@ -332,6 +332,75 @@ class MediaDialogTests(QtCase):
         self.assertTrue(any('AcoustID key' in t for t in shown))
         self.assertEqual(fetch.calls, [], 'nothing is sent')
 
+    def test_match_dialog_has_split_pane_and_preview_panel(self):
+        self.services()
+        db = MediaDb({1: dict(title='yesterday', authors=['Beatles'], series='', series_index=1.0, tags=[], identifiers={}, formats=['MP3'])})
+        action = self.action_mod.MediaMatcherAction()
+        action.gui = make_gui(db, [1])
+
+        seen = {}
+        def drive(dialog):
+            splitter = dialog.findChild(QtWidgets.QSplitter)
+            seen['splitter'] = splitter
+            labels = [lbl.text() for lbl in dialog.findChildren(QtWidgets.QLabel)]
+            seen['labels'] = labels
+
+        run_dialog(action.match_dialog, drive)
+        self.assertIsNotNone(seen['splitter'], 'dialog has split view QSplitter layout')
+        self.assertIn('Current Library Cover', seen['labels'])
+        self.assertIn('Candidate Cover', seen['labels'])
+
+    def test_artwork_preview_prefetches_and_reuses_cover_without_extra_fetch(self):
+        fetch = self.services()
+        old_cover_bytes = JPEG
+        db = MediaDb({1: dict(title='yesterday', authors=['Beatles'], series='', series_index=1.0, tags=['Rock'], identifiers={'x': '1'}, formats=['MP3'])})
+        db.covers[1] = old_cover_bytes
+        gui = make_gui(db, [1])
+        action = self.action_mod.MediaMatcherAction()
+        action.gui = gui
+
+        seen = {}
+        def drive(dialog):
+            b = buttons(dialog)
+            tree = dialog.findChild(QtWidgets.QTreeWidget)
+            b['Look up'].click()
+
+            # Process events so prefetch worker completes
+            import time
+            for _ in range(10):
+                QtWidgets.QApplication.processEvents()
+                time.sleep(0.05)
+
+            top = tree.topLevelItem(0)
+            top.setCheckState(0, QtCore.Qt.CheckState.Checked)
+
+            # Find cover child item
+            cover_item = None
+            for i in range(top.childCount()):
+                child = top.child(i)
+                if child.data(0, QtCore.Qt.ItemDataRole.UserRole) == 'cover':
+                    cover_item = child
+
+            seen['cover_item'] = cover_item
+            if cover_item:
+                seen['icon_null'] = cover_item.icon(0).isNull()
+                tree.setCurrentItem(cover_item)
+                QtWidgets.QApplication.processEvents()
+
+            calls_before_apply = len(fetch.calls)
+            b['Apply ticked changes'].click()
+            calls_after_apply = len(fetch.calls)
+
+            seen['calls_diff'] = calls_after_apply - calls_before_apply
+            seen['covers_written'] = dict(db.covers)
+
+        run_dialog(action.match_dialog, drive)
+
+        self.assertIsNotNone(seen['cover_item'], 'Cover change child item exists in tree')
+        self.assertFalse(seen['icon_null'], 'Cover change item displays a thumbnail QIcon after pre-fetch')
+        self.assertEqual(seen['calls_diff'], 0, 'No extra network calls were executed during apply because pre-fetched cover was reused')
+        self.assertEqual(seen['covers_written'][1], JPEG, 'Candidate cover was written to library')
+
     def test_apply_saves_metadata_when_cover_download_fails_due_to_http_error(self):
         import urllib.error
         fetch = self.services()
