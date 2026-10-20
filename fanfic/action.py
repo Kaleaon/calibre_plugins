@@ -114,11 +114,7 @@ class FanficAction(InterfaceAction):
             elif dl_task.result:
                 results.append(dl_task.result)
         if opts.get('combine') and len(results) > 1:
-            try:
-                from .storykit import merge_epubs
-            except ImportError:
-                from storykit import merge_epubs
-            merged_epub = merge_epubs([r['epub'] for r in results])
+            merged_epub = libkit.merge_epubs([r['epub'] for r in results])
             merged_title = f"{results[0]['title']} and {len(results) - 1} more"
             merged_authors = list(dict.fromkeys(a for r in results for a in r['authors']))
             from calibre.ebooks.metadata.book.base import Metadata

@@ -6,12 +6,12 @@ from io import BytesIO
 from pathlib import PosixPath
 
 try:
-    from .storykit import build_epub, extract_epub_story, sort_by_posting_order
+    from .storykit import build_epub, extract_epub_story, merge_epubs, sort_by_posting_order
 except (ImportError, ValueError):
     try:
-        from storykit import build_epub, extract_epub_story, sort_by_posting_order
+        from storykit import build_epub, extract_epub_story, merge_epubs, sort_by_posting_order
     except ImportError:
-        from common.storykit import build_epub, extract_epub_story, sort_by_posting_order
+        from common.storykit import build_epub, extract_epub_story, merge_epubs, sort_by_posting_order
 
 
 def extract_epub_cover(epub_bytes):
@@ -262,12 +262,12 @@ def merge_library_books(gui, book_ids, title=None, author=None, publisher=None):
     if not book_ids:
         return None, ['No books selected']
     try:
-        from .storykit import build_epub, extract_epub_story
+        from .storykit import build_epub, extract_epub_story, merge_epubs
     except (ImportError, ValueError):
         try:
-            from storykit import build_epub, extract_epub_story
+            from storykit import build_epub, extract_epub_story, merge_epubs
         except ImportError:
-            from common.storykit import build_epub, extract_epub_story
+            from common.storykit import build_epub, extract_epub_story, merge_epubs
 
     db = gui.current_db.new_api
     stories = []

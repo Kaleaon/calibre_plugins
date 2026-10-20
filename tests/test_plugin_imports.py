@@ -122,6 +122,13 @@ class PluginImportTests(unittest.TestCase):
             self.assertTrue(hasattr(storykit, 'epub_builder'))
             self.assertTrue(callable(core.build_epub))
 
+    def test_libkit_reexports_merge_epubs(self):
+        for plugin in ('fanfic_downloader', 'metabods_downloader', 'nifty_downloader'):
+            package = self.load(plugin)
+            libkit = importlib.import_module(package + '.libkit')
+            self.assertTrue(hasattr(libkit, 'merge_epubs'), f"{plugin} libkit missing merge_epubs")
+            self.assertTrue(callable(libkit.merge_epubs), f"{plugin} libkit merge_epubs is not callable")
+
     def test_import_books_chunked_duplicate_checking(self):
         from plugin import importer
 
