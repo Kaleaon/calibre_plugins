@@ -468,6 +468,10 @@ class RecordingBox:
     def warning(*args, **kwargs):
         RecordingBox.warnings.append(args[2] if len(args) > 2 else '')
 
+    @staticmethod
+    def information(*args, **kwargs):
+        pass
+
 
 class FakeDb(BaseMockDb):
     """The part of Calibre's library API the plugin uses, keeping books in memory."""
@@ -1750,6 +1754,50 @@ class ScrubberPluginTests(QtCase):
             action.scrub_selected()
             mock_q.assert_called_once()
         self.assertNotIn('ORIGINAL_EPUB', db.formats(1))
+
+
+@unittest.skipUnless(HAVE_QT, 'PyQt6 (with its system libraries) is not installed')
+class RedditDialogTests(QtCase):
+    def setUp(self):
+        super().setUp()
+        package = self.load('reddit_follower')
+        self.ui = importlib.import_module(package + '.ui')
+        self.core = importlib.import_module(package + '.core')
+        self.subscription = importlib.import_module(package + '.subscription')
+        self.ui.QMessageBox = RecordingBox
+        self.ui.prefs['follows'] = [
+            self.core.new_follow('Out of Cruel Space', 'u/KyleKKent', 'Out of Cruel Space', 'KyleKKent'),
+            self.core.new_follow('r/HFY', 'r/HFY')
+        ]
+
+    def test_subscription_exchange_dialog_import_and_export(self):
+        dialog = self.ui.SubscriptionExchangeDialog(None)
+        self.assertEqual(dialog.tabs.count(), 2)
+        self.assertEqual(dialog.export_table.rowCount(), 2)
+
+        # Create temporary OPML file
+        opml_text = """<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <body>
+    <outline text="New Series" title="New Series" type="rss" xmlUrl="https://www.reddit.com/r/HFY/search.rss?q=New"/>
+    <outline text="Out of Cruel Space" title="Out of Cruel Space" type="rss" xmlUrl="https://www.reddit.com/user/KyleKKent/submitted.rss"/>
+  </body>
+</opml>"""
+        tmp_opml = tempfile.NamedTemporaryFile(suffix='.opml', delete=False)
+        try:
+            tmp_opml.write(opml_text.encode('utf-8'))
+            tmp_opml.close()
+
+            dialog.load_import_file(tmp_opml.name)
+            self.assertEqual(dialog.import_table.rowCount(), 2)
+            self.assertEqual(dialog.import_table.item(0, 4).text(), 'New')
+            self.assertIn('Duplicate', dialog.import_table.item(1, 4).text())
+
+            # Execute import
+            dialog.execute_import()
+            self.assertGreaterEqual(len(self.ui.prefs['follows']), 3)
+        finally:
+            os.unlink(tmp_opml.name)
 
 
 if __name__ == '__main__':

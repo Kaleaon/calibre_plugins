@@ -17,7 +17,7 @@ except ImportError:
         from .error_handler import show_friendly_error_dialog
     except ImportError:
         from error_handler import show_friendly_error_dialog
-from calibre_plugins.reddit_follower.ui import DiscoverDialog, ManageDialog, SettingsDialog
+from calibre_plugins.reddit_follower.ui import DiscoverDialog, ManageDialog, SettingsDialog, SubscriptionExchangeDialog
 
 IDENTIFIER = 'redditfollow'
 TICK_MS = 15 * 60 * 1000       # how often we look at which stories are due; looking costs nothing
@@ -32,7 +32,7 @@ class FollowerAction(InterfaceAction):
     def genesis(self):
         menu = QMenu(self.gui)
         self.qaction.setMenu(menu)
-        for title, slot in (('Followed stories…', self.manage), ('Find stories…', self.discover), ('Queue manager…', self.open_queue_manager), ('Check for new chapters now', self.check_all_now), ('Settings…', self.settings)):
+        for title, slot in (('Followed stories…', self.manage), ('Find stories…', self.discover), ('Import / Export subscriptions…', self.subscription_exchange), ('Queue manager…', self.open_queue_manager), ('Check for new chapters now', self.check_all_now), ('Settings…', self.settings)):
             action = QAction(title, self.gui)
             action.triggered.connect(slot)
             menu.addAction(action)
@@ -129,6 +129,9 @@ class FollowerAction(InterfaceAction):
     # -- entry points
     def manage(self):
         ManageDialog(self.gui, self).exec()
+
+    def subscription_exchange(self):
+        SubscriptionExchangeDialog(self.gui, self).exec()
 
     def discover(self):
         """Search or browse a subreddit for stories and whole series; a chosen series is added and collected at once."""

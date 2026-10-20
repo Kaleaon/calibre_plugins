@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import xml.dom.minidom
@@ -19,6 +20,10 @@ from reddit_samples import entry, feed, md  # noqa: E402
 spec = importlib.util.spec_from_file_location('rcore', Path(__file__).resolve().parents[1] / 'reddit/core.py')
 core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'reddit'))
+spec_sub = importlib.util.spec_from_file_location('subscription', Path(__file__).resolve().parents[1] / 'reddit/subscription.py')
+subscription = importlib.util.module_from_spec(spec_sub)
+spec_sub.loader.exec_module(subscription)
 
 
 class SourceTests(unittest.TestCase):
@@ -1166,6 +1171,133 @@ class OpmlTests(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             core.import_opml("<html>Not an OPML file</html>", existing=[])
         self.assertIn('Not a valid OPML file', str(cm.exception))
+
+
+class SubscriptionTests(unittest.TestCase):
+    def setUp(self):
+        self.follow1 = core.new_follow('Out of Cruel Space', 'u/KyleKKent', 'Out of Cruel Space', 'KyleKKent')
+        self.follow1['categories'] = ['Sci-Fi', 'Reddit Series']
+        self.follow2 = core.new_follow('r/HFY', 'r/HFY')
+        self.follow2['categories'] = ['Subreddits']
+
+    def test_opml_parsing_nested_and_filtering(self):
+        opml_text = """<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head><title>Feedly Export</title></head>
+  <body>
+    <outline text="Fiction Folder" title="Fiction Folder">
+      <outline text="Sci-Fi Subfolder" title="Sci-Fi Subfolder">
+        <outline text="Out of Cruel Space" title="Out of Cruel Space" type="rss"
+                 xmlUrl="https://www.reddit.com/user/KyleKKent/submitted.rss"
+                 titleFilter="Out of Cruel Space" authorFilter="KyleKKent"/>
+      </outline>
+    </outline>
+    <outline text="Tech Blogs" title="Tech Blogs">
+      <outline text="Hacker News" title="Hacker News" type="rss" xmlUrl="https://news.ycombinator.com/rss"/>
+    </outline>
+    <outline text="r/HFY" title="r/HFY" type="rss" xmlUrl="https://www.reddit.com/r/HFY/.rss"/>
+  </body>
+</opml>"""
+        subs = subscription.parse_opml(opml_text)
+        self.assertEqual(len(subs), 2, "Non-reddit Hacker News feed should be filtered out")
+        self.assertEqual(subs[0]['name'], 'Out of Cruel Space')
+        self.assertEqual(subs[0]['categories'], ['Fiction Folder', 'Sci-Fi Subfolder'])
+        self.assertEqual(subs[0]['title_filter'], 'Out of Cruel Space')
+        self.assertEqual(subs[1]['name'], 'r/HFY')
+        self.assertEqual(subs[1]['categories'], [])
+
+    def test_opml_large_file_performance(self):
+        outlines = []
+        for i in range(1000):
+            outlines.append(f'<outline text="Sub {i}" title="Sub {i}" type="rss" xmlUrl="https://www.reddit.com/r/sub_{i}/.rss"/>')
+        xml_text = f'<opml version="2.0"><body><outline text="Folder">{"".join(outlines)}</outline></body></opml>'
+        t0 = time.time()
+        subs = subscription.parse_opml(xml_text)
+        duration = time.time() - t0
+        self.assertEqual(len(subs), 1000)
+        self.assertLess(duration, 1.5, "Parsing 1,000 OPML entries should take under 1.5 seconds")
+
+    def test_opml_malformed_xml(self):
+        with self.assertRaises(ValueError):
+            subscription.parse_opml("<<not xml>>")
+
+    def test_json_parsing_and_schema_validation(self):
+        json_data = json.dumps({
+            "version": 1,
+            "subscriptions": [
+                {
+                    "name": "Out of Cruel Space",
+                    "source_text": "u/KyleKKent",
+                    "title_filter": "Out of Cruel Space",
+                    "categories": ["Sci-Fi"]
+                },
+                {
+                    "name": "Non-Reddit Feed",
+                    "source_text": "https://example.com/rss"
+                }
+            ]
+        })
+        subs = subscription.parse_json(json_data)
+        self.assertEqual(len(subs), 1, "Non-reddit item should be filtered out")
+        self.assertEqual(subs[0]['name'], 'Out of Cruel Space')
+        self.assertEqual(subs[0]['categories'], ['Sci-Fi'])
+
+        with self.assertRaises(ValueError):
+            subscription.parse_json("{invalid json")
+
+    def test_serialization_round_trip(self):
+        follows = [self.follow1, self.follow2]
+
+        # OPML Roundtrip
+        opml_out = subscription.generate_opml(follows)
+        reimported_opml = subscription.parse_opml(opml_out)
+        self.assertEqual(len(reimported_opml), 2)
+        self.assertEqual(reimported_opml[0]['name'], 'Out of Cruel Space')
+        self.assertEqual(reimported_opml[0]['categories'], ['Sci-Fi', 'Reddit Series'])
+
+        # JSON Roundtrip
+        json_out = subscription.generate_json(follows)
+        reimported_json = subscription.parse_json(json_out)
+        self.assertEqual(len(reimported_json), 2)
+        self.assertEqual(reimported_json[0]['name'], 'Out of Cruel Space')
+        self.assertEqual(reimported_json[0]['categories'], ['Sci-Fi', 'Reddit Series'])
+
+    def test_merge_strategies(self):
+        existing = [self.follow1]
+        imported_sub = {
+            'name': 'Out of Cruel Space',
+            'source_text': 'u/KyleKKent',
+            'source': core.parse_source('u/KyleKKent'),
+            'title_filter': 'UPDATED FILTER',
+            'author_filter': 'KyleKKent',
+            'categories': ['Updated Category']
+        }
+        new_sub = {
+            'name': 'New Series',
+            'source_text': 'r/HFY',
+            'source': core.parse_source('r/HFY'),
+            'categories': ['New Category']
+        }
+
+        # Strategy 1: Skip
+        merged, stats = subscription.merge_subscriptions(existing, [imported_sub, new_sub], strategy='skip')
+        self.assertEqual(len(merged), 2)
+        self.assertEqual(stats, {'added': 1, 'updated': 0, 'skipped': 1})
+        self.assertEqual(merged[0]['title_filter'], 'Out of Cruel Space', "Existing item unchanged")
+
+        # Strategy 2: Overwrite
+        merged_ow, stats_ow = subscription.merge_subscriptions(existing, [imported_sub, new_sub], strategy='overwrite')
+        self.assertEqual(len(merged_ow), 2)
+        self.assertEqual(stats_ow, {'added': 1, 'updated': 1, 'skipped': 0})
+        self.assertEqual(merged_ow[0]['title_filter'], 'UPDATED FILTER')
+        self.assertEqual(merged_ow[0]['id'], self.follow1['id'], "ID preserved on overwrite")
+
+        # Strategy 3: Add Suffix / Prefix
+        merged_sfx, stats_sfx = subscription.merge_subscriptions(existing, [imported_sub, new_sub], strategy='add_suffix', prefix='', suffix=' (Imported)')
+        self.assertEqual(len(merged_sfx), 3)
+        self.assertEqual(stats_sfx, {'added': 2, 'updated': 0, 'skipped': 0})
+        self.assertEqual(merged_sfx[1]['name'], 'Out of Cruel Space (Imported)')
+        self.assertNotEqual(merged_sfx[1]['id'], self.follow1['id'], "New unique ID assigned")
 
 
 if __name__ == '__main__':
