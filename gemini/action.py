@@ -665,14 +665,18 @@ class GeminiFixerAction(DialogAction):
         row.addWidget(models_btn)
         layout.addLayout(row)
 
-        row = QHBoxLayout()
-        row.addWidget(QLabel(_('Instruction Template:')))
-        template_combo = QComboBox()
-        manage_templates_btn = QPushButton(_('Manage Templates...'))
-        manage_templates_btn.setToolTip(_('Create, edit, or delete instruction templates and presets'))
-        row.addWidget(template_combo, 1)
-        row.addWidget(manage_templates_btn)
-        layout.addLayout(row)
+        def _create_template_row(settings_layout, settings_prefs):
+            row = QHBoxLayout()
+            row.addWidget(QLabel(_('Instruction template:')))
+            template_combo = QComboBox()
+            row.addWidget(template_combo, 1)
+            manage_templates_btn = QPushButton(_('Manage templates...'))
+            manage_templates_btn.setToolTip(_('Create, edit, or delete instruction templates and presets'))
+            row.addWidget(manage_templates_btn)
+            settings_layout.addLayout(row)
+            return template_combo, manage_templates_btn
+
+        template_combo, manage_templates_btn = _create_template_row(layout, prefs)
 
         row = QHBoxLayout()
         enable_fallback = QCheckBox(_('Enable dynamic fallback on rate limit'))
