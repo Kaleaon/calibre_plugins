@@ -3,7 +3,8 @@ import collections
 import json
 from pathlib import Path
 import sys
-from types import SimpleNamespace
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from harness_utils import create_test_gui
 from calibre.customize.ui import find_plugin
 from calibre.db.legacy import LibraryDatabase
 source = Path(sys.argv[1]); target = Path(sys.argv[2]); target.mkdir(parents=True, exist_ok=True)
@@ -16,7 +17,7 @@ with plugin:
     print('Formats:',dict(collections.Counter(r.get('format') for r in rows if 'output' in r)),flush=True)
     print('Extension corrections:',sum(Path(r['source']).suffix.lower() != '.'+r['format'] for r in rows if 'output' in r),flush=True)
     db = LibraryDatabase(str(target / 'library'))
-    gui = SimpleNamespace(current_db=db, library_view=SimpleNamespace(model=lambda: SimpleNamespace(refresh=lambda: None)), tags_view=SimpleNamespace(recount=lambda: None))
+    gui = create_test_gui(db)
     ids, errors = import_books(gui, rows)
     validated = 0
     known_authors = 0

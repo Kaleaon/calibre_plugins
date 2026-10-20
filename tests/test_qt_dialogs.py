@@ -29,6 +29,7 @@ except ImportError:  # also raised when system libraries such as libEGL are miss
     QtCore = QtGui = QtWidgets = None
 import build_plugins  # noqa: E402
 sys.path.insert(0, str(ROOT / 'tests'))
+from harness_utils import BaseMockDb  # noqa: E402
 from reddit_samples import entry, feed  # noqa: E402
 
 TAG_INDEX = ('<p class="xy23R-sectionheaders">A</p>'
@@ -457,17 +458,13 @@ class RecordingBox:
         RecordingBox.warnings.append(args[2] if len(args) > 2 else '')
 
 
-class FakeDb:
+class FakeDb(BaseMockDb):
     """The part of Calibre's library API the plugin uses, keeping books in memory."""
 
     def __init__(self):
-        self.books, self.next_id, self.writes = {}, 1, 0
-
-    def all_book_ids(self):
-        return set(self.books)
-
-    def all_field_for(self, field, ids, default=None):
-        return {i: dict(self.books[i]['mi'].ids) for i in ids}
+        super().__init__()
+        self.next_id = 1
+        self.writes = 0
 
     def add_books(self, items, **kwargs):
         ids = []
@@ -975,43 +972,17 @@ class RedditPluginTests(QtCase):
         self.assertEqual(len([n for n in z.namelist() if n.startswith('OEBPS/s001_')]), 3)
 
 
-class GeminiDb:
+class GeminiDb(BaseMockDb):
     """Just enough of Calibre's db.new_api for the Gemini fixer: books in memory, every write recorded."""
 
     def __init__(self):
-        self.books = {
+        books = {
             1: dict(title='dune messiah [epub]', authors=['Herbert, Frank'], series='', series_index=1.0, tags=['Sci-Fi'], languages=[]),
             2: dict(title='Fine Book', authors=['A B'], series='', series_index=1.0, tags=[], languages=['eng']),
             3: dict(title='Cooking Today', authors=['C D'], series='', series_index=1.0, tags=[], languages=['eng']),
         }
-        self.writes = []
-        self.identifiers = {}
+        super().__init__(books=books)
         self.cover_bytes = None
-        self.paths = {}
-
-    def get_metadata(self, book_id, get_cover=False):
-        return types.SimpleNamespace(publisher='', identifiers=dict(self.identifiers.get(book_id, {})), **self.books[book_id])
-
-    def field_for(self, name, book_id):
-        return dict(self.identifiers.get(book_id, {}))
-
-    def cover(self, book_id):
-        return self.cover_bytes if book_id == 1 else None
-
-    def formats(self, book_id):
-        return ['EPUB']
-
-    def format_abspath(self, book_id, fmt):
-        return self.paths.get(book_id, f'/lib/{book_id}.epub')
-
-    def all_book_ids(self):
-        return set(self.books)
-
-    def has_id(self, book_id):
-        return book_id in self.books
-
-    def set_field(self, name, mapping):
-        self.writes.append((name, dict(mapping)))
 
 
 @unittest.skipUnless(HAVE_QT, 'PyQt6 (with its system libraries) is not installed')
