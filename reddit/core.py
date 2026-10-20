@@ -943,7 +943,10 @@ def check_follow(source, follow, cache, max_pages=None, cancelled=lambda: False,
 
     pending = fetch_notes(source, follow, cache, cancelled, progress)
     refresh_index(source, follow, cache)
-    return {'new': new, 'changed': changed, 'pages': total_pages, 'notes_pending': pending}
+    res = {'new': new, 'changed': changed, 'pages': total_pages, 'notes_pending': pending}
+    if follow.get('author_note') and not hasattr(source, 'author_comment'):
+        res['warning'] = 'author comments need the official API'
+    return res
 
 
 def fetch_notes(source, follow, cache, cancelled=lambda: False, progress=lambda msg: None, batch=None):
@@ -1144,13 +1147,15 @@ def run_follows(source, follows, cache_dir, cancelled=lambda: False, progress=la
         try:
             outcome = check_follow(source, follow, cache, cancelled=cancelled, progress=progress)
             result['new'], result['changed'] = outcome['new'], outcome['changed']
+            if outcome.get('warning'):
+                result['warning'] = outcome['warning']
             follow['last_checked'] = now()
             follow['notes_pending'] = bool(outcome['notes_pending'])
             follow['last_status'] = (f"{len(outcome['new'])} new chapter(s)" if outcome['new'] else 'up to date')
             if outcome['notes_pending']:
                 follow['last_status'] += f"; {outcome['notes_pending']} author comment(s) still to fetch"
-            elif follow.get('author_note') and not hasattr(source, 'author_comment'):
-                follow['last_status'] += '; author comments need the official API'
+            elif outcome.get('warning'):
+                follow['last_status'] += f"; {outcome['warning']}"
             if follow.get('index_url'):
                 report = index_report(follow, cache)
                 if report['error']:

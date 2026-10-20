@@ -206,6 +206,11 @@ class FollowDialog(QDialog):
                                     'so a long series takes a while on the first pass; reader comments are not included.'))
         self.author_note.setChecked(bool(follow and follow.get('author_note')))
         layout.addWidget(self.author_note)
+        self.author_note_warning = QLabel(_('Author comments require the official API with a client ID configured in Settings.'))
+        self.author_note_warning.setWordWrap(True)
+        layout.addWidget(self.author_note_warning)
+        self.author_note.toggled.connect(self.update_author_note_warning)
+        self.update_author_note_warning()
 
         self.message = QLabel('')
         self.message.setWordWrap(True)
@@ -222,7 +227,16 @@ class FollowDialog(QDialog):
         self.refresh_sources_table()
         self.check_source()
 
+    def update_author_note_warning(self, *args):
+        needs_credentials = prefs.get('mode') != 'api' or not (prefs.get('client_id') or '').strip()
+        if self.author_note.isChecked() and needs_credentials:
+            self.author_note_warning.setVisible(True)
+        else:
+            self.author_note_warning.setVisible(False)
+
     def refresh_sources_table(self):
+        if not hasattr(self, 'sources_table'):
+            return
         self.sources_table.setRowCount(len(self.sources))
         for row, src in enumerate(self.sources):
             cells = [

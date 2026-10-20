@@ -290,6 +290,22 @@ class AuthorNoteTests(unittest.TestCase):
         self.assertTrue(core.due(follow, 6, now=1000.0 + 1000))
         self.assertFalse(core.due(dict(follow, notes_pending=False), 6, now=1000.0 + 1000))
 
+    def test_warning_payload_when_author_note_set_on_feedsource(self):
+        cache = core.ChapterCache(self.tmp.name, self.follow['id'])
+        res = core.check_follow(FakeSource([post(1, author='KyleKKent')]), self.follow, cache)
+        self.assertEqual(res.get('warning'), 'author comments need the official API')
+
+        plain = core.new_follow('S', 'u/writer', author_note=False)
+        cache_plain = core.ChapterCache(self.tmp.name, plain['id'])
+        res_plain = core.check_follow(FakeSource([post(1, author='writer')]), plain, cache_plain)
+        self.assertNotIn('warning', res_plain)
+
+        class NotedSource(FakeSource):
+            def author_comment(self, entry):
+                return ''
+        res_noted = core.check_follow(NotedSource([post(1, author='KyleKKent')]), self.follow, cache)
+        self.assertNotIn('warning', res_noted)
+
 
 class OpeningTests(unittest.TestCase):
     """How HFY's Out of Cruel Space opens its posts: a title line, sometimes a ~First~ marker and a note in brackets."""
@@ -866,6 +882,13 @@ class RunFollowsTests(unittest.TestCase):
         self.assertIn('slow down', self.b['last_status'])
         self.assertEqual(self.a['last_status'], '1 new chapter(s)', 'work done before the limit stands')
 
+    def test_run_follows_propagates_warning_for_author_note_without_api(self):
+        noted_follow = core.new_follow('Series N', 'u/alice', 'Chapter', author_note=True)
+        source = self.BySource({'alice': [post(1, 'Chapter 1')]})
+        results = core.run_follows(source, [noted_follow], self.tmp.name)
+        self.assertEqual(results[0].get('warning'), 'author comments need the official API')
+        self.assertIn('author comments need the official API', noted_follow['last_status'])
+
 
 class FakeResponse(io.BytesIO):
     headers = type('H', (), {'get': lambda self, k, d=None: d, 'get_content_charset': lambda self: 'utf-8'})()
@@ -994,6 +1017,163 @@ class ApiSourceTests(unittest.TestCase):
         with self.assertRaises(core.RateLimited) as caught:
             self.api().page(core.parse_source('r/HFY'))
         self.assertEqual(caught.exception.retry_after, 45)
+
+
+def ensure_qt():
+    if 'qt.core' in sys.modules:
+        return
+    import types
+    from unittest.mock import MagicMock
+
+    try:
+        from PyQt6 import QtCore, QtGui, QtWidgets
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        qtcore = types.ModuleType('qt.core')
+        for module in (QtWidgets, QtGui, QtCore):
+            for name in dir(module):
+                setattr(qtcore, name, getattr(module, name))
+        qtcore._ = lambda s: s
+        sys.modules['qt'] = types.ModuleType('qt')
+        sys.modules['qt.core'] = qtcore
+    except ImportError:
+        class MockSignal:
+            def __init__(self):
+                self._callbacks = []
+            def connect(self, cb):
+                self._callbacks.append(cb)
+            def emit(self, *args):
+                for cb in self._callbacks:
+                    cb(*args)
+
+        class MockWidget:
+            StandardButton = MagicMock()
+            def __init__(self, *args, **kwargs):
+                self._visible = True
+                self._text = args[0] if args and isinstance(args[0], str) else ''
+                self.textChanged = MockSignal()
+                self.accepted = MockSignal()
+                self.rejected = MockSignal()
+            def accept(self): pass
+            def reject(self): pass
+            def setWordWrap(self, b): pass
+            def setToolTip(self, t): pass
+            def setPlaceholderText(self, t): pass
+            def addWidget(self, w, *a): pass
+            def addLayout(self, l, *a): pass
+            def addRow(self, *a): pass
+            def setVisible(self, v): self._visible = bool(v)
+            def isVisible(self): return self._visible
+            def show(self): self._visible = True
+            def hide(self): self._visible = False
+            def setText(self, t):
+                self._text = t
+                self.textChanged.emit(t)
+            def text(self): return self._text
+            def setWindowTitle(self, *a): pass
+            def resize(self, *a): pass
+            def setHorizontalHeaderLabels(self, *a): pass
+            def setSelectionBehavior(self, *a): pass
+            def setEditTriggers(self, *a): pass
+            def horizontalHeader(self): return self
+            def setStretchLastSection(self, *a): pass
+            def setRowCount(self, *a): pass
+            def setItem(self, *a): pass
+
+        class MockCheckBox(MockWidget):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self._checked = False
+                self.toggled = MockSignal()
+            def setChecked(self, c):
+                self._checked = bool(c)
+                self.toggled.emit(self._checked)
+            def isChecked(self): return self._checked
+
+        class MockComboBox(MockWidget):
+            def addItem(self, *a): pass
+            def setCurrentIndex(self, i): pass
+            def currentData(self): return 'series'
+            currentIndexChanged = MockSignal()
+
+        qtcore = types.ModuleType('qt.core')
+        for name in ['QAbstractItemView', 'QDialog', 'QDialogButtonBox', 'QDoubleSpinBox', 'QFormLayout', 'QHBoxLayout', 'QLineEdit', 'QMessageBox', 'QPushButton', 'QRadioButton', 'QSpinBox', 'QTableWidget', 'QTableWidgetItem', 'QVBoxLayout']:
+            setattr(qtcore, name, MockWidget)
+        qtcore.QCheckBox = MockCheckBox
+        qtcore.QLabel = MockWidget
+        qtcore.QComboBox = MockComboBox
+        qtcore.Qt = MagicMock()
+        qtcore._ = lambda s: s
+
+        sys.modules['qt'] = types.ModuleType('qt')
+        sys.modules['qt.core'] = qtcore
+
+    class StubPrefs(dict):
+        def __init__(self):
+            super().__init__()
+            self.defaults = {'mode': 'rss', 'client_id': ''}
+        def __getitem__(self, key):
+            try:
+                return dict.__getitem__(self, key)
+            except KeyError:
+                return self.defaults.get(key, '')
+
+    if 'calibre' not in sys.modules:
+        sys.modules['calibre'] = MagicMock()
+        sys.modules['calibre.utils'] = MagicMock()
+        sys.modules['calibre.utils.config'] = MagicMock()
+        sys.modules['calibre.utils.config'].JSONConfig = lambda name: StubPrefs()
+
+    calibre_plugins_mod = sys.modules.get('calibre_plugins') or types.ModuleType('calibre_plugins')
+    sys.modules['calibre_plugins'] = calibre_plugins_mod
+    pkg = types.ModuleType('calibre_plugins.reddit_follower')
+    pkg.core = core
+    setattr(calibre_plugins_mod, 'reddit_follower', pkg)
+    sys.modules['calibre_plugins.reddit_follower'] = pkg
+    sys.modules['calibre_plugins.reddit_follower.core'] = core
+    sys.modules['calibre_plugins.reddit_follower.login'] = MagicMock()
+    sys.modules['calibre_plugins.reddit_follower.guikit'] = MagicMock()
+    sys.modules['calibre_plugins.reddit_follower.storykit'] = MagicMock()
+    spec_cfg = importlib.util.spec_from_file_location('config', Path(__file__).resolve().parents[1] / 'reddit/config.py')
+    cfg = importlib.util.module_from_spec(spec_cfg)
+    spec_cfg.loader.exec_module(cfg)
+    sys.modules['calibre_plugins.reddit_follower.config'] = cfg
+
+
+class FollowDialogWarningTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        ensure_qt()
+        spec_ui = importlib.util.spec_from_file_location('rui', Path(__file__).resolve().parents[1] / 'reddit/ui.py')
+        cls.rui = importlib.util.module_from_spec(spec_ui)
+        spec_ui.loader.exec_module(cls.rui)
+
+    def test_author_note_warning_banner_toggle(self):
+        # 1. RSS mode (no API credentials): checking author_note shows warning
+        self.rui.prefs['mode'] = 'rss'
+        self.rui.prefs['client_id'] = ''
+        dialog = self.rui.FollowDialog(None)
+        self.assertFalse(dialog.author_note.isChecked())
+        self.assertFalse(dialog.author_note_warning.isVisible())
+
+        dialog.author_note.setChecked(True)
+        self.assertTrue(dialog.author_note_warning.isVisible())
+
+        dialog.author_note.setChecked(False)
+        self.assertFalse(dialog.author_note_warning.isVisible())
+
+        # 2. API mode but client_id empty: checking author_note shows warning
+        self.rui.prefs['mode'] = 'api'
+        self.rui.prefs['client_id'] = ''
+        dialog2 = self.rui.FollowDialog(None)
+        dialog2.author_note.setChecked(True)
+        self.assertTrue(dialog2.author_note_warning.isVisible())
+
+        # 3. API mode and client_id provided: checking author_note does not show warning
+        self.rui.prefs['mode'] = 'api'
+        self.rui.prefs['client_id'] = 'my_client_id'
+        dialog3 = self.rui.FollowDialog(None)
+        dialog3.author_note.setChecked(True)
+        self.assertFalse(dialog3.author_note_warning.isVisible())
 
 
 if __name__ == '__main__':
