@@ -15,7 +15,10 @@ try:
 except ImportError:
     import core, login, subscription
 from calibre_plugins.reddit_follower.config import prefs
-from calibre_plugins.reddit_follower.guikit import EmptyStateOverlay, run_task
+try:
+    from calibre_plugins.reddit_follower.guikit import EmptyStateOverlay, ThemeTokenEngine, create_token_button, create_token_table, run_task
+except ImportError:
+    from common.guikit import EmptyStateOverlay, ThemeTokenEngine, create_token_button, create_token_table, run_task
 try:
     from calibre_plugins.reddit_follower.error_handler import show_friendly_error_dialog
 except ImportError:
@@ -146,6 +149,7 @@ class FollowDialog(QDialog):
 
     def __init__(self, parent, follow=None):
         super().__init__(parent)
+        ThemeTokenEngine.register_widget(self)
         self.setWindowTitle(_('Follow a Reddit story') if follow is None else _('Edit followed story'))
         self.resize(640, 480)
         self.follow = follow
@@ -356,6 +360,7 @@ class FollowDialog(QDialog):
 class SettingsDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
+        ThemeTokenEngine.register_widget(self)
         self.setWindowTitle('Reddit Story Follower settings')
         self.resize(640, 560)
         layout = QVBoxLayout(self)
@@ -380,10 +385,9 @@ class SettingsDialog(QDialog):
         layout.addLayout(form)
         self.refresh_token, self.account_name = prefs['refresh_token'], prefs['account_name']
         row = QHBoxLayout()
-        self.login_button = QPushButton('Log in with Reddit…')
-        self.login_button.setToolTip('Opens Reddit in your browser to approve read access. Your password never reaches this plugin.')
+        self.login_button = create_token_button('Log in with Reddit…', tool_tip='Opens Reddit in your browser to approve read access. Your password never reaches this plugin.')
         self.login_button.clicked.connect(self.log_in)
-        self.logout_button = QPushButton('Log out')
+        self.logout_button = create_token_button('Log out')
         self.logout_button.clicked.connect(self.log_out)
         self.login_status = QLabel('')
         row.addWidget(self.login_button)
@@ -411,8 +415,7 @@ class SettingsDialog(QDialog):
         layout.addLayout(row)
         layout.addWidget(QLabel('Checks only run while Calibre is open (there is no background service), and the interval is never shorter than one hour.'))
         row = QHBoxLayout()
-        test = QPushButton('Test connection')
-        test.setToolTip('Makes one request to r/HFY with the settings above (nothing is saved or changed)')
+        test = create_token_button('Test connection', tool_tip='Makes one request to r/HFY with the settings above (nothing is saved or changed)')
         test.clicked.connect(self.test_connection)
         row.addWidget(test)
         self.switch_api_button = QPushButton('Switch to Official API')
@@ -521,6 +524,7 @@ class DiscoverDialog(QDialog):
 
     def __init__(self, parent, action):
         super().__init__(parent)
+        ThemeTokenEngine.register_widget(self)
         self.action = action
         self.chosen = None
         self.chosen_many = []
@@ -550,15 +554,14 @@ class DiscoverDialog(QDialog):
         form.addRow('Flair contains', self.flair)
         layout.addLayout(form)
         row = QHBoxLayout()
-        go = QPushButton('Search')
+        go = create_token_button('Search')
         go.clicked.connect(self.search)
         row.addWidget(go)
         self.message = QLabel('Series are guessed from the author and the part numbers in the titles (Part 3, 14, VIII).')
         self.message.setWordWrap(True)
         row.addWidget(self.message, 1)
         layout.addLayout(row)
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(['Series or story', 'Author', 'Posts found', 'Parts seen', 'Rating', 'Flair'])
+        self.table = create_token_table(0, 6, header_labels=['Series or story', 'Author', 'Posts found', 'Parts seen', 'Rating', 'Flair'])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -566,8 +569,7 @@ class DiscoverDialog(QDialog):
         self.table.doubleClicked.connect(lambda *_: self.follow_selected())
         layout.addWidget(self.table, 1)
         row = QHBoxLayout()
-        self.follow_button = QPushButton('Follow the whole series…')
-        self.follow_button.setToolTip('Looks through the author\'s posts for every part, shows what it found, then lets you adjust and follow it')
+        self.follow_button = create_token_button('Follow the whole series…', tool_tip='Looks through the author\'s posts for every part, shows what it found, then lets you adjust and follow it')
         self.follow_button.clicked.connect(self.follow_selected)
         row.addWidget(self.follow_button)
         row.addSpacing(24)
@@ -582,9 +584,7 @@ class DiscoverDialog(QDialog):
         self.min_parts.setValue(3)
         row.addWidget(self.min_parts)
         row.addWidget(QLabel('parts found'))
-        self.top_button = QPushButton('Add top rated…')
-        self.top_button.setToolTip('Picks the highest rated series in the list above (the rating is the total score of the posts found; '
-                                   'it needs the official API) and follows them all, skipping any you already follow')
+        self.top_button = create_token_button('Add top rated…', tool_tip='Picks the highest rated series in the list above (the rating is the total score of the posts found; it needs the official API) and follows them all, skipping any you already follow')
         self.top_button.clicked.connect(self.add_top)
         row.addWidget(self.top_button)
         row.addStretch(1)
@@ -985,6 +985,7 @@ class ManageDialog(QDialog):
 
     def __init__(self, parent, action):
         super().__init__(parent)
+        ThemeTokenEngine.register_widget(self)
         self.action = action
         self.setWindowTitle(_('Followed Reddit stories'))
         self.resize(880, 460)
@@ -1018,8 +1019,7 @@ class ManageDialog(QDialog):
         layout.addWidget(self.backoff_banner)
         self.backoff_banner.setVisible(False)
 
-        self.table = QTableWidget(0, len(self.COLUMNS))
-        self.table.setHorizontalHeaderLabels(self.COLUMNS)
+        self.table = create_token_table(0, len(self.COLUMNS), header_labels=self.COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -1028,14 +1028,14 @@ class ManageDialog(QDialog):
         layout.addWidget(self.mode_label)
         row1 = QHBoxLayout()
         for label, slot in ((_('Find stories…'), self.find), (_('Add…'), self.add), (_('Edit…'), self.edit), (_('Manifest…'), self.manifest), (_('Remove'), self.remove), (_('Queue manager…'), self.open_queue_manager), (_('Test selected'), self.test_selected)):
-            button = QPushButton(label)
+            button = create_token_button(label)
             button.clicked.connect(slot)
             row1.addWidget(button)
         layout.addLayout(row1)
 
         row2 = QHBoxLayout()
         for label, slot in ((_('Check selected now'), self.check_selected), (_('Check all now'), self.check_all), (_('Import / Export…'), self.subscription_exchange), (_('Export OPML…'), self.export_opml), (_('Import OPML…'), self.import_opml), (_('Settings…'), self.settings)):
-            button = QPushButton(label)
+            button = create_token_button(label)
             button.clicked.connect(slot)
             row2.addWidget(button)
         layout.addLayout(row2)
