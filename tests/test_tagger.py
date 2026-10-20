@@ -121,10 +121,12 @@ class TaggerDialogTests(unittest.TestCase):
         tagger_pkg = types.ModuleType('calibre_plugins.story_collection_tagger')
         tagger_pkg.config = MagicMock(prefs={'add_source': True, 'source_prefix': 'Source.', 'series_prefix': 'Series.', 'scan_comments': False, 'rules': '', 'sites': ''})
         tagger_pkg.rules = rules
+        tagger_pkg.error_handler = MagicMock()
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins.story_collection_tagger'] = tagger_pkg
         sys.modules['calibre_plugins.story_collection_tagger.config'] = tagger_pkg.config
         sys.modules['calibre_plugins.story_collection_tagger.rules'] = tagger_pkg.rules
+        sys.modules['calibre_plugins.story_collection_tagger.error_handler'] = tagger_pkg.error_handler
 
     def tearDown(self):
         for k in list(sys.modules.keys()):
@@ -144,6 +146,137 @@ class TaggerDialogTests(unittest.TestCase):
 
         qt_core = sys.modules['qt.core']
         self.assertGreaterEqual(qt_core.QLabel.return_value.setWordWrap.call_count, 4)
+
+    def _load_action_mod(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+        return action_mod
+
+    def test_invalidate_preview_clears_plan_and_disables_apply(self):
+        action_mod = self._load_action_mod()
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+        action.books_for = MagicMock(return_value=[book(1, identifiers={'nifty': 'a'})])
+
+        qt_core = sys.modules['qt.core']
+        widgets = {}
+
+        def mock_widget(cls_name):
+            m = MagicMock()
+            widgets.setdefault(cls_name, []).append(m)
+            return m
+
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget('QPlainTextEdit')
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget('QLineEdit')
+        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget('QCheckBox')
+        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget('QRadioButton')
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget('QPushButton')
+
+        action.show_dialog()
+
+        rules_edit = widgets['QPlainTextEdit'][0]
+        preview = widgets['QPlainTextEdit'][2]
+        preview_btn = widgets['QPushButton'][0]
+        apply_btn = widgets['QPushButton'][1]
+
+        do_preview = preview_btn.clicked.connect.call_args[0][0]
+        invalidate_preview = rules_edit.textChanged.connect.call_args[0][0]
+        do_apply = apply_btn.clicked.connect.call_args[0][0]
+
+        # First run preview
+        do_preview()
+        apply_btn.setEnabled.assert_called_with(True)
+
+        # Trigger invalidation
+        preview.clear.reset_mock()
+        apply_btn.setEnabled.reset_mock()
+        invalidate_preview()
+
+        # Verify plan was cleared and apply button disabled
+        apply_btn.setEnabled.assert_called_with(False)
+        preview.clear.assert_called_once()
+
+        # Verify do_apply now does nothing because plan is cleared
+        action.gui.current_db.new_api.set_field.reset_mock()
+        do_apply()
+        action.gui.current_db.new_api.set_field.assert_not_called()
+
+    def test_invalidate_preview_preserves_placeholder_when_plan_empty(self):
+        action_mod = self._load_action_mod()
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+
+        qt_core = sys.modules['qt.core']
+        widgets = {}
+
+        def mock_widget(cls_name):
+            m = MagicMock()
+            widgets.setdefault(cls_name, []).append(m)
+            return m
+
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget('QPlainTextEdit')
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget('QLineEdit')
+        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget('QCheckBox')
+        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget('QRadioButton')
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget('QPushButton')
+
+        action.show_dialog()
+
+        rules_edit = widgets['QPlainTextEdit'][0]
+        preview = widgets['QPlainTextEdit'][2]
+        invalidate_preview = rules_edit.textChanged.connect.call_args[0][0]
+
+        # Call invalidate_preview when state['plan'] is empty
+        preview.clear.reset_mock()
+        invalidate_preview()
+
+        # preview.clear should NOT be called when state['plan'] is already empty
+        preview.clear.assert_not_called()
+
+    def test_all_control_signals_connected_to_invalidate_preview(self):
+        action_mod = self._load_action_mod()
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+
+        qt_core = sys.modules['qt.core']
+        widgets = {}
+
+        def mock_widget(cls_name):
+            m = MagicMock()
+            widgets.setdefault(cls_name, []).append(m)
+            return m
+
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget('QPlainTextEdit')
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget('QLineEdit')
+        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget('QCheckBox')
+        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget('QRadioButton')
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget('QPushButton')
+
+        action.show_dialog()
+
+        rules_edit = widgets['QPlainTextEdit'][0]
+        sites_edit = widgets['QPlainTextEdit'][1]
+        prefix = widgets['QLineEdit'][0]
+        series_prefix = widgets['QLineEdit'][1]
+        add_source = widgets['QCheckBox'][0]
+        scan = widgets['QCheckBox'][1]
+        scope_selected = widgets['QRadioButton'][0]
+        scope_all = widgets['QRadioButton'][1]
+
+        handler = rules_edit.textChanged.connect.call_args[0][0]
+
+        rules_edit.textChanged.connect.assert_called_with(handler)
+        sites_edit.textChanged.connect.assert_called_with(handler)
+        prefix.textChanged.connect.assert_called_with(handler)
+        series_prefix.textChanged.connect.assert_called_with(handler)
+        add_source.toggled.connect.assert_called_with(handler)
+        scan.toggled.connect.assert_called_with(handler)
+        scope_selected.toggled.connect.assert_called_with(handler)
+        scope_all.toggled.connect.assert_called_with(handler)
 
 
 if __name__ == '__main__':
