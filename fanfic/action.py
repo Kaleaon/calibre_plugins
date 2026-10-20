@@ -117,7 +117,10 @@ class FanficAction(InterfaceAction):
             try:
                 from .storykit import merge_epubs
             except ImportError:
-                from storykit import merge_epubs
+                try:
+                    from common.storykit import merge_epubs
+                except ImportError:
+                    from storykit import merge_epubs
             merged_epub = merge_epubs([r['epub'] for r in results])
             merged_title = f"{results[0]['title']} and {len(results) - 1} more"
             merged_authors = list(dict.fromkeys(a for r in results for a in r['authors']))

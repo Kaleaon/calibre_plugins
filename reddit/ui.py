@@ -219,6 +219,10 @@ class FollowDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+        self.sources_table = QTableWidget(0, 4)
+        self.sources_table.setHorizontalHeaderLabels([_('Source'), _('Title filter'), _('Author filter'), _('Flair filter')])
+        self.sources_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+
         self.refresh_sources_table()
         self.check_source()
 
@@ -313,10 +317,10 @@ class FollowDialog(QDialog):
         if self.follow is None:
             return core.new_follow(self.name.text(), self.source.text(), self.title_filter.text(), self.author_filter.text(), self.author_note.isChecked(),
                                   self.layout_box.currentData(), self.flair_filter.text(), self.index_url.text(),
-                                  self.title_from_body.isChecked())
+                                  self.title_from_body.isChecked(), sources=self.sources)
         updated = core.new_follow(self.name.text() or self.follow['name'], self.source.text(), self.title_filter.text(), self.author_filter.text(), self.author_note.isChecked(),
                                   self.layout_box.currentData(), self.flair_filter.text(), self.index_url.text(),
-                                  self.title_from_body.isChecked())
+                                  self.title_from_body.isChecked(), sources=self.sources)
         updated.update(id=self.follow['id'], last_checked=0.0, last_status=_('changed; will be checked again'))
         return updated
 
