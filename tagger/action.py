@@ -10,6 +10,14 @@ except ImportError:
     except ImportError:
         from error_handler import show_friendly_error_dialog
 
+try:
+    from calibre_plugins.story_collection_tagger.ui import TaggerPreviewDialog
+except ImportError:
+    try:
+        from .ui import TaggerPreviewDialog
+    except ImportError:
+        from ui import TaggerPreviewDialog
+
 from calibre_plugins.story_collection_tagger import rules as rules_mod
 from calibre_plugins.story_collection_tagger.config import prefs
 
@@ -130,8 +138,15 @@ class TaggerAction(InterfaceAction):
             preview.setPlainText(f'{len(plan)} of {len(ids)} book(s) would change.\n\n' + '\n'.join(shown) + more)
             apply_btn.setEnabled(bool(plan))
 
-        def do_apply():
-            plan = state['plan']
+            if plan:
+                preview_dlg = TaggerPreviewDialog(dialog, plan)
+                if preview_dlg.exec():
+                    selected_plan = preview_dlg.get_selected_plan()
+                    if selected_plan:
+                        do_apply(selected_plan)
+
+        def do_apply(plan_to_apply=None):
+            plan = plan_to_apply if plan_to_apply is not None else state['plan']
             if not plan:
                 return
             try:

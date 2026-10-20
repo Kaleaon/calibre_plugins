@@ -63,7 +63,7 @@ class PluginImportTests(unittest.TestCase):
         self.load('metabods_downloader')  # builds everything that can be built in this environment
         for import_name in self.built:
             package = self.load(import_name)
-            modules = {'story_collection_tagger': ['config', 'action', 'rules'],
+            modules = {'story_collection_tagger': ['config', 'action', 'rules', 'ui'],
                        'gemini_library_fixer': ['config', 'action', 'engine'],
                        'media_matcher': ['config', 'action', 'tags', 'sources', 'matching'],
                        'epub_promo_scrubber': ['action', 'ui', 'core'],
