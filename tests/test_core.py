@@ -57,10 +57,7 @@ class RecoveryTests(unittest.TestCase):
         try:
             import pymupdf as fitz
         except ImportError:
-            try:
-                import fitz
-            except ImportError:
-                self.skipTest('PyMuPDF is not installed (pip install pymupdf)')
+            self.skipTest('PyMuPDF is not installed (pip install pymupdf)')
         with fitz.open() as doc:
             page = doc.new_page(); page.insert_text((72, 72), 'Readable book text')
             self.assertIsNone(core.image_pdf_to_cbz(doc.tobytes()))
