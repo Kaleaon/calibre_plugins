@@ -75,13 +75,16 @@ def alive(pid):
                 return True
         try:
             import subprocess
-            res = subprocess.run(['ps', '-p', str(pid), '-o', 'state='], capture_output=True, text=True)
+            res = subprocess.run(['ps', '-p', str(pid), '-o', 'stat'], capture_output=True, text=True)
             if res.returncode != 0:
                 return False
-            out = res.stdout.strip()
-            if not out or 'Z' in out:
+            lines = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+            if not lines:
                 return False
-            return True
+            state_line = lines[-1] if len(lines) > 1 else lines[0]
+            if state_line.upper().startswith(('STAT', 'STATE')):
+                return False
+            return 'Z' not in state_line.upper()
         except Exception:
             return True
 
