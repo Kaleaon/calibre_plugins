@@ -1019,93 +1019,96 @@ class ApiSourceTests(unittest.TestCase):
         self.assertEqual(caught.exception.retry_after, 45)
 
 
+_app_instance = None
+
+
 def ensure_qt():
-    if 'qt.core' in sys.modules:
-        return
+    global _app_instance
     import types
     from unittest.mock import MagicMock
 
-    try:
-        from PyQt6 import QtCore, QtGui, QtWidgets
-        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-        qtcore = types.ModuleType('qt.core')
-        for module in (QtWidgets, QtGui, QtCore):
-            for name in dir(module):
-                setattr(qtcore, name, getattr(module, name))
-        qtcore._ = lambda s: s
-        sys.modules['qt'] = types.ModuleType('qt')
-        sys.modules['qt.core'] = qtcore
-    except ImportError:
-        class MockSignal:
-            def __init__(self):
-                self._callbacks = []
-            def connect(self, cb):
-                self._callbacks.append(cb)
-            def emit(self, *args):
-                for cb in self._callbacks:
-                    cb(*args)
+    if 'qt.core' not in sys.modules:
+        try:
+            from PyQt6 import QtCore, QtGui, QtWidgets
+            _app_instance = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+            qtcore = types.ModuleType('qt.core')
+            for module in (QtWidgets, QtGui, QtCore):
+                for name in dir(module):
+                    setattr(qtcore, name, getattr(module, name))
+            qtcore._ = lambda s: s
+            sys.modules['qt'] = types.ModuleType('qt')
+            sys.modules['qt.core'] = qtcore
+        except ImportError:
+            class MockSignal:
+                def __init__(self):
+                    self._callbacks = []
+                def connect(self, cb):
+                    self._callbacks.append(cb)
+                def emit(self, *args):
+                    for cb in self._callbacks:
+                        cb(*args)
 
-        class MockWidget:
-            StandardButton = MagicMock()
-            def __init__(self, *args, **kwargs):
-                self._visible = True
-                self._text = args[0] if args and isinstance(args[0], str) else ''
-                self.textChanged = MockSignal()
-                self.accepted = MockSignal()
-                self.rejected = MockSignal()
-            def accept(self): pass
-            def reject(self): pass
-            def setWordWrap(self, b): pass
-            def setToolTip(self, t): pass
-            def setPlaceholderText(self, t): pass
-            def addWidget(self, w, *a): pass
-            def addLayout(self, l, *a): pass
-            def addRow(self, *a): pass
-            def setVisible(self, v): self._visible = bool(v)
-            def isVisible(self): return self._visible
-            def show(self): self._visible = True
-            def hide(self): self._visible = False
-            def setText(self, t):
-                self._text = t
-                self.textChanged.emit(t)
-            def text(self): return self._text
-            def setWindowTitle(self, *a): pass
-            def resize(self, *a): pass
-            def setHorizontalHeaderLabels(self, *a): pass
-            def setSelectionBehavior(self, *a): pass
-            def setEditTriggers(self, *a): pass
-            def horizontalHeader(self): return self
-            def setStretchLastSection(self, *a): pass
-            def setRowCount(self, *a): pass
-            def setItem(self, *a): pass
+            class MockWidget:
+                StandardButton = MagicMock()
+                def __init__(self, *args, **kwargs):
+                    self._visible = True
+                    self._text = args[0] if args and isinstance(args[0], str) else ''
+                    self.textChanged = MockSignal()
+                    self.accepted = MockSignal()
+                    self.rejected = MockSignal()
+                def accept(self): pass
+                def reject(self): pass
+                def setWordWrap(self, b): pass
+                def setToolTip(self, t): pass
+                def setPlaceholderText(self, t): pass
+                def addWidget(self, w, *a): pass
+                def addLayout(self, l, *a): pass
+                def addRow(self, *a): pass
+                def setVisible(self, v): self._visible = bool(v)
+                def isVisible(self): return self._visible
+                def show(self): self._visible = True
+                def hide(self): self._visible = False
+                def setText(self, t):
+                    self._text = t
+                    self.textChanged.emit(t)
+                def text(self): return self._text
+                def setWindowTitle(self, *a): pass
+                def resize(self, *a): pass
+                def setHorizontalHeaderLabels(self, *a): pass
+                def setSelectionBehavior(self, *a): pass
+                def setEditTriggers(self, *a): pass
+                def horizontalHeader(self): return self
+                def setStretchLastSection(self, *a): pass
+                def setRowCount(self, *a): pass
+                def setItem(self, *a): pass
 
-        class MockCheckBox(MockWidget):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                self._checked = False
-                self.toggled = MockSignal()
-            def setChecked(self, c):
-                self._checked = bool(c)
-                self.toggled.emit(self._checked)
-            def isChecked(self): return self._checked
+            class MockCheckBox(MockWidget):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    self._checked = False
+                    self.toggled = MockSignal()
+                def setChecked(self, c):
+                    self._checked = bool(c)
+                    self.toggled.emit(self._checked)
+                def isChecked(self): return self._checked
 
-        class MockComboBox(MockWidget):
-            def addItem(self, *a): pass
-            def setCurrentIndex(self, i): pass
-            def currentData(self): return 'series'
-            currentIndexChanged = MockSignal()
+            class MockComboBox(MockWidget):
+                def addItem(self, *a): pass
+                def setCurrentIndex(self, i): pass
+                def currentData(self): return 'series'
+                currentIndexChanged = MockSignal()
 
-        qtcore = types.ModuleType('qt.core')
-        for name in ['QAbstractItemView', 'QDialog', 'QDialogButtonBox', 'QDoubleSpinBox', 'QFormLayout', 'QHBoxLayout', 'QLineEdit', 'QMessageBox', 'QPushButton', 'QRadioButton', 'QSpinBox', 'QTableWidget', 'QTableWidgetItem', 'QVBoxLayout']:
-            setattr(qtcore, name, MockWidget)
-        qtcore.QCheckBox = MockCheckBox
-        qtcore.QLabel = MockWidget
-        qtcore.QComboBox = MockComboBox
-        qtcore.Qt = MagicMock()
-        qtcore._ = lambda s: s
+            qtcore = types.ModuleType('qt.core')
+            for name in ['QAbstractItemView', 'QDialog', 'QDialogButtonBox', 'QDoubleSpinBox', 'QFormLayout', 'QHBoxLayout', 'QLineEdit', 'QMessageBox', 'QPushButton', 'QRadioButton', 'QSpinBox', 'QTableWidget', 'QTableWidgetItem', 'QVBoxLayout']:
+                setattr(qtcore, name, MockWidget)
+            qtcore.QCheckBox = MockCheckBox
+            qtcore.QLabel = MockWidget
+            qtcore.QComboBox = MockComboBox
+            qtcore.Qt = MagicMock()
+            qtcore._ = lambda s: s
 
-        sys.modules['qt'] = types.ModuleType('qt')
-        sys.modules['qt.core'] = qtcore
+            sys.modules['qt'] = types.ModuleType('qt')
+            sys.modules['qt.core'] = qtcore
 
     class StubPrefs(dict):
         def __init__(self):
@@ -1116,6 +1119,12 @@ def ensure_qt():
                 return dict.__getitem__(self, key)
             except KeyError:
                 return self.defaults.get(key, '')
+        def get(self, key, default=None):
+            if key in self:
+                return self[key]
+            if key in self.defaults:
+                return self.defaults[key]
+            return default
 
     if 'calibre' not in sys.modules:
         sys.modules['calibre'] = MagicMock()
@@ -1124,8 +1133,12 @@ def ensure_qt():
         sys.modules['calibre.utils.config'].JSONConfig = lambda name: StubPrefs()
 
     calibre_plugins_mod = sys.modules.get('calibre_plugins') or types.ModuleType('calibre_plugins')
+    if not hasattr(calibre_plugins_mod, '__path__'):
+        calibre_plugins_mod.__path__ = []
     sys.modules['calibre_plugins'] = calibre_plugins_mod
     pkg = types.ModuleType('calibre_plugins.reddit_follower')
+    if not hasattr(pkg, '__path__'):
+        pkg.__path__ = []
     pkg.core = core
     setattr(calibre_plugins_mod, 'reddit_follower', pkg)
     sys.modules['calibre_plugins.reddit_follower'] = pkg
@@ -1146,6 +1159,7 @@ class FollowDialogWarningTests(unittest.TestCase):
         spec_ui = importlib.util.spec_from_file_location('rui', Path(__file__).resolve().parents[1] / 'reddit/ui.py')
         cls.rui = importlib.util.module_from_spec(spec_ui)
         spec_ui.loader.exec_module(cls.rui)
+        cls.rui.prefs = sys.modules['calibre_plugins.reddit_follower.config'].prefs
 
     def test_author_note_warning_banner_toggle(self):
         # 1. RSS mode (no API credentials): checking author_note shows warning
@@ -1153,27 +1167,27 @@ class FollowDialogWarningTests(unittest.TestCase):
         self.rui.prefs['client_id'] = ''
         dialog = self.rui.FollowDialog(None)
         self.assertFalse(dialog.author_note.isChecked())
-        self.assertFalse(dialog.author_note_warning.isVisible())
+        self.assertTrue(dialog.author_note_warning.isHidden())
 
         dialog.author_note.setChecked(True)
-        self.assertTrue(dialog.author_note_warning.isVisible())
+        self.assertFalse(dialog.author_note_warning.isHidden())
 
         dialog.author_note.setChecked(False)
-        self.assertFalse(dialog.author_note_warning.isVisible())
+        self.assertTrue(dialog.author_note_warning.isHidden())
 
         # 2. API mode but client_id empty: checking author_note shows warning
         self.rui.prefs['mode'] = 'api'
         self.rui.prefs['client_id'] = ''
         dialog2 = self.rui.FollowDialog(None)
         dialog2.author_note.setChecked(True)
-        self.assertTrue(dialog2.author_note_warning.isVisible())
+        self.assertFalse(dialog2.author_note_warning.isHidden())
 
         # 3. API mode and client_id provided: checking author_note does not show warning
         self.rui.prefs['mode'] = 'api'
         self.rui.prefs['client_id'] = 'my_client_id'
         dialog3 = self.rui.FollowDialog(None)
         dialog3.author_note.setChecked(True)
-        self.assertFalse(dialog3.author_note_warning.isVisible())
+        self.assertTrue(dialog3.author_note_warning.isHidden())
 
 
 if __name__ == '__main__':
