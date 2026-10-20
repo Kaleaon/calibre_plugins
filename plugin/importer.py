@@ -5,6 +5,139 @@ from pathlib import Path
 
 CHUNK_SIZE = 64 * 1024  # 64 KB
 
+try:
+    from qt.core import (
+        QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
+        QTableWidget, QTableWidgetItem, QHeaderView, QPushButton,
+        QDialogButtonBox, Qt
+    )
+except ImportError:
+    try:
+        from PyQt6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
+            QTableWidget, QTableWidgetItem, QHeaderView, QPushButton,
+            QDialogButtonBox
+        )
+        from PyQt6.QtCore import Qt
+    except ImportError:
+        QDialog = object
+
+
+class DuplicateConflictDialog(QDialog):
+    """Interactive Qt modal dialog to resolve duplicate book collisions during import."""
+
+    def __init__(self, parent, conflicts):
+        super().__init__(parent)
+        self.setWindowTitle('Duplicate Book Conflicts')
+        self.resize(750, 400)
+        self.conflicts = conflicts
+
+        layout = QVBoxLayout(self)
+
+        info_label = QLabel(
+            f'Found {len(conflicts)} book(s) in the import batch that match existing items in your Calibre library.\n'
+            'Choose a resolution action for each conflict or apply a single action to all.'
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        self.table = QTableWidget(len(conflicts), 5, self)
+        self.table.setHorizontalHeaderLabels(['Title', 'Author', 'Existing Format(s)', 'Incoming Format', 'Action'])
+        header = self.table.horizontalHeader()
+        if hasattr(header, 'setSectionResizeMode'):
+            try:
+                header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+                header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+                header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+            except Exception:
+                pass
+
+        self.combos = []
+
+        for row_idx, conflict in enumerate(conflicts):
+            title_text = conflict.get('title', '')
+            self.table.setItem(row_idx, 0, QTableWidgetItem(str(title_text)))
+
+            author_text = conflict.get('authors', '')
+            self.table.setItem(row_idx, 1, QTableWidgetItem(str(author_text)))
+
+            ex_fmts = conflict.get('existing_formats', '')
+            self.table.setItem(row_idx, 2, QTableWidgetItem(str(ex_fmts)))
+
+            inc_fmt = conflict.get('incoming_format', '')
+            self.table.setItem(row_idx, 3, QTableWidgetItem(str(inc_fmt)))
+
+            combo = QComboBox()
+            combo.addItem('Merge Format', 'merge')
+            combo.addItem('Overwrite Record', 'overwrite')
+            combo.addItem('Add as New Book', 'keep_both')
+            combo.addItem('Skip Duplicate', 'skip')
+            combo.setCurrentIndex(0)
+            self.table.setCellWidget(row_idx, 4, combo)
+            self.combos.append(combo)
+
+        layout.addWidget(self.table)
+
+        batch_layout = QHBoxLayout()
+        batch_label = QLabel('Apply action to all remaining:')
+        self.batch_combo = QComboBox()
+        self.batch_combo.addItem('Merge Format', 'merge')
+        self.batch_combo.addItem('Overwrite Record', 'overwrite')
+        self.batch_combo.addItem('Add as New Book', 'keep_both')
+        self.batch_combo.addItem('Skip Duplicate', 'skip')
+
+        batch_btn = QPushButton('Apply to All')
+        batch_btn.clicked.connect(self._apply_batch_action)
+
+        batch_layout.addWidget(batch_label)
+        batch_layout.addWidget(self.batch_combo)
+        batch_layout.addWidget(batch_btn)
+        batch_layout.addStretch()
+        layout.addLayout(batch_layout)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _apply_batch_action(self):
+        chosen_data = self.batch_combo.currentData()
+        for combo in self.combos:
+            idx = combo.findData(chosen_data)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+
+    def get_resolutions(self):
+        resolutions = {}
+        for idx, combo in enumerate(self.combos):
+            resolutions[idx] = combo.currentData() or 'skip'
+        return resolutions
+
+
+def _show_conflict_dialog(gui, conflicts):
+    try:
+        from qt.core import QApplication, QDialog
+    except ImportError:
+        try:
+            from PyQt6.QtWidgets import QApplication, QDialog
+        except ImportError:
+            return {idx: 'skip' for idx in range(len(conflicts))}
+
+    try:
+        app = QApplication.instance() if hasattr(QApplication, 'instance') else None
+        if not app or not gui:
+            return {idx: 'skip' for idx in range(len(conflicts))}
+
+        dialog = DuplicateConflictDialog(gui, conflicts)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            return dialog.get_resolutions()
+        else:
+            return {idx: 'skip' for idx in range(len(conflicts))}
+    except Exception:
+        return {idx: 'skip' for idx in range(len(conflicts))}
+
 
 def normalize_isbn(raw_isbn):
     """Normalize ISBN string by removing hyphens/spaces and canonicalizing ISBN-10 to ISBN-13."""
@@ -205,8 +338,7 @@ def repair_library_books(gui, book_ids, comics=False):
         gui.tags_view.recount()
     return repaired, skipped, errors
 
-
-def import_books(gui, rows):
+def import_books(gui, rows, duplicate_policy='prompt'):
     from calibre.ebooks.metadata.meta import get_metadata
     from calibre.ebooks.metadata.book.base import Metadata
     from calibre.utils.date import parse_date
@@ -313,15 +445,21 @@ def import_books(gui, rows):
                 except Exception:
                     pass
 
+    parsed_rows = []
+    conflicts = []
+    tracking_isbns = {k: list(v) for k, v in isbn_to_ids.items()}
+    tracking_titles = {k: list(v) for k, v in title_to_ids.items()}
+
     for row in rows:
         filename = row.get('output')
         if not filename:
+            parsed_rows.append({'row': row, 'status': 'no_file'})
             continue
         if filename in seen:
-            row['import_status'] = 'duplicate skipped'
+            parsed_rows.append({'row': row, 'status': 'seen_duplicate'})
             continue
         seen.add(filename)
-        book_id = None
+
         try:
             path = Path(filename)
             fmt = row['format']
@@ -363,11 +501,8 @@ def import_books(gui, rows):
                     if isinstance(identifier, dict) and str(identifier.get('type', '')).startswith('ISBN') and isinstance(identifier.get('identifier'), str):
                         mi.set_identifier('isbn', identifier['identifier'])
 
-            # Multi-stage duplicate checking:
-            # 1. Exact binary content hash match using pre-indexed format sizes and 64 KB chunked SHA-256
-            # 2. Normalized ISBN identifier match
-            # 3. Case-folded title match fallback with file size and SHA-256 verification
             duplicate = False
+            matched_id = None
             fmt_upper = fmt.upper()
             candidate_size = path.stat().st_size
             candidate_sha256 = None
@@ -384,19 +519,21 @@ def import_books(gui, rows):
                 existing_sha256 = _hash_source(existing_source)
                 if candidate_sha256 == existing_sha256:
                     duplicate = True
+                    matched_id = existing_id
                     break
 
             # Stage 2: Normalized ISBN identifier match
             if not duplicate and candidate_isbns:
                 for norm_isbn in candidate_isbns:
-                    if norm_isbn in isbn_to_ids and isbn_to_ids[norm_isbn]:
+                    if norm_isbn in tracking_isbns and tracking_isbns[norm_isbn]:
                         duplicate = True
+                        matched_id = tracking_isbns[norm_isbn][0]
                         break
 
             # Stage 3: Case-folded title match fallback
             if not duplicate:
                 title_key = mi.title.casefold()
-                candidate_ids = title_to_ids.get(title_key, [])
+                candidate_ids = tracking_titles.get(title_key, [])
                 for existing_id in candidate_ids:
                     existing_size, existing_source = _get_existing_format_info(db, existing_id, fmt_upper, candidate_size=candidate_size)
                     if existing_size is None or existing_size != candidate_size or existing_source is None:
@@ -406,11 +543,144 @@ def import_books(gui, rows):
                     existing_sha256 = _hash_source(existing_source)
                     if candidate_sha256 == existing_sha256:
                         duplicate = True
+                        matched_id = existing_id
                         break
 
+            item_data = {
+                'row': row,
+                'path': path,
+                'fmt': fmt,
+                'fmt_upper': fmt_upper,
+                'mi': mi,
+                'candidate_isbns': candidate_isbns,
+                'candidate_size': candidate_size,
+                'duplicate': duplicate,
+                'matched_id': matched_id,
+                'status': 'valid'
+            }
+
             if duplicate:
-                row['import_status'] = 'duplicate skipped'
-                continue
+                ex_title = ''
+                try:
+                    ex_title = db.field_for('title', matched_id, '') or ''
+                except Exception:
+                    pass
+
+                ex_authors = ''
+                try:
+                    auths = db.field_for('authors', matched_id, ()) or ()
+                    ex_authors = ', '.join(auths) if isinstance(auths, (list, tuple)) else str(auths)
+                except Exception:
+                    pass
+
+                ex_fmts = ''
+                try:
+                    fmts = db.formats(matched_id) or ()
+                    ex_fmts = ', '.join(f.upper() for f in fmts) if fmts else 'None'
+                except Exception:
+                    ex_fmts = 'None'
+
+                conflict_info = {
+                    'parsed_idx': len(parsed_rows),
+                    'title': mi.title,
+                    'authors': ', '.join(mi.authors) if getattr(mi, 'authors', None) else 'Unknown',
+                    'existing_title': ex_title,
+                    'existing_authors': ex_authors,
+                    'existing_formats': ex_fmts,
+                    'incoming_format': fmt_upper,
+                    'matched_id': matched_id
+                }
+                conflicts.append(conflict_info)
+                item_data['conflict_idx'] = len(conflicts) - 1
+            else:
+                fake_id = f"batch_{len(parsed_rows)}"
+                for norm_isbn in candidate_isbns:
+                    tracking_isbns.setdefault(norm_isbn, []).append(fake_id)
+                tracking_titles.setdefault(mi.title.casefold(), []).append(fake_id)
+
+            parsed_rows.append(item_data)
+
+        except Exception as e:
+            parsed_rows.append({'row': row, 'status': 'parse_error', 'error': str(e)})
+
+    conflict_actions = {}
+    if conflicts:
+        if duplicate_policy == 'prompt':
+            conflict_actions = _show_conflict_dialog(gui, conflicts)
+        else:
+            for idx in range(len(conflicts)):
+                conflict_actions[idx] = duplicate_policy
+
+    for item in parsed_rows:
+        status = item.get('status')
+        row = item['row']
+
+        if status == 'no_file':
+            continue
+        if status == 'seen_duplicate':
+            row['import_status'] = 'duplicate skipped'
+            continue
+        if status == 'parse_error':
+            row.update(import_status='error', import_error=item['error'])
+            errors.append(f"{row['source']}: {item['error']}")
+            continue
+
+        book_id = None
+        try:
+            path = item['path']
+            fmt_upper = item['fmt_upper']
+            mi = item['mi']
+            candidate_isbns = item['candidate_isbns']
+            candidate_size = item['candidate_size']
+            duplicate = item['duplicate']
+            matched_id = item['matched_id']
+
+            if duplicate:
+                c_idx = item.get('conflict_idx')
+                action = conflict_actions.get(c_idx, 'skip')
+
+                if action == 'skip':
+                    row['import_status'] = 'duplicate skipped'
+                    continue
+
+                if action == 'merge':
+                    with path.open('rb') as stream:
+                        try:
+                            db.add_format(matched_id, fmt_upper, stream, replace=True)
+                        except TypeError:
+                            stream.seek(0)
+                            db.add_format(matched_id, fmt_upper, stream)
+                    row.update(import_status='merged', calibre_id=matched_id)
+                    imported.append(matched_id)
+                    size_fmt_to_ids.setdefault((candidate_size, fmt_upper), []).append(matched_id)
+                    continue
+
+                if action == 'overwrite':
+                    if hasattr(db, 'set_metadata'):
+                        try:
+                            db.set_metadata(matched_id, mi)
+                        except Exception:
+                            pass
+                    with path.open('rb') as stream:
+                        try:
+                            db.add_format(matched_id, fmt_upper, stream, replace=True)
+                        except TypeError:
+                            stream.seek(0)
+                            db.add_format(matched_id, fmt_upper, stream)
+                    if hasattr(db, 'set_cover'):
+                        try:
+                            cover = getattr(mi, 'cover_data', None)
+                            if cover and cover[1]:
+                                db.set_cover({matched_id: cover[1]})
+                        except Exception:
+                            pass
+                    row.update(import_status='overwritten', calibre_id=matched_id)
+                    imported.append(matched_id)
+                    size_fmt_to_ids.setdefault((candidate_size, fmt_upper), []).append(matched_id)
+                    continue
+
+                # If action == 'keep_both', proceed below to create new entry
+
             book_id = db.create_book_entry(mi)
             if book_id is None:
                 raise ValueError('Calibre did not create a library entry')
@@ -419,15 +689,19 @@ def import_books(gui, rows):
                     raise ValueError('Calibre did not save the book format')
             cover = getattr(mi, 'cover_data', None)
             if cover and cover[1]:
-                db.set_cover({book_id: cover[1]})
+                if hasattr(db, 'set_cover'):
+                    try:
+                        db.set_cover({book_id: cover[1]})
+                    except Exception:
+                        pass
             row.update(import_status='imported', calibre_id=book_id)
             imported.append(book_id)
             title_to_ids.setdefault(mi.title.casefold(), []).append(book_id)
             for norm_isbn in candidate_isbns:
                 isbn_to_ids.setdefault(norm_isbn, []).append(book_id)
             size_fmt_to_ids.setdefault((candidate_size, fmt_upper), []).append(book_id)
+
         except Exception as e:
-            # Remove only the incomplete new record created by this import.
             if book_id is not None:
                 try:
                     db.remove_books({book_id})
@@ -435,8 +709,12 @@ def import_books(gui, rows):
                     row['cleanup_error'] = str(cleanup)
             row.update(import_status='error', import_error=str(e))
             errors.append(f"{row['source']}: {e}")
+
     if imported:
-        gui.library_view.model().refresh()
-        gui.tags_view.recount()
+        try:
+            gui.library_view.model().refresh()
+            gui.tags_view.recount()
+        except Exception:
+            pass
     return imported, errors
 

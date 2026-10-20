@@ -17,9 +17,19 @@ except ImportError:
         QTimer = None
         QApplication = None
 
-from calibre_plugins.takeout_book_fixer.config import prefs
-from calibre_plugins.takeout_book_fixer.core import recover
-from calibre_plugins.takeout_book_fixer.importer import import_books
+try:
+    from calibre_plugins.takeout_book_fixer.config import prefs
+    from calibre_plugins.takeout_book_fixer.core import recover
+    from calibre_plugins.takeout_book_fixer.importer import import_books
+except ImportError:
+    try:
+        from .config import prefs
+        from .core import recover
+        from .importer import import_books
+    except ImportError:
+        from config import prefs
+        from core import recover
+        from importer import import_books
 
 TEMP_EXTENSIONS = {'.tmp', '.part', '.crdownload', '.download', '.partial'}
 

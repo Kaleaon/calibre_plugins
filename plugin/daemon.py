@@ -11,13 +11,31 @@ except ImportError:
         pass
     QTimer = None
 
-from calibre_plugins.takeout_book_fixer.config import prefs
-from calibre_plugins.takeout_book_fixer.core import recover, BOOK_SUFFIXES
-from calibre_plugins.takeout_book_fixer.queue_db import (
-    enqueue_job, get_next_pending_job, update_job_status,
-    mark_job_attempt_failed, reset_processing_jobs_on_startup,
-    get_all_jobs
-)
+try:
+    from calibre_plugins.takeout_book_fixer.config import prefs
+    from calibre_plugins.takeout_book_fixer.core import recover, BOOK_SUFFIXES
+    from calibre_plugins.takeout_book_fixer.queue_db import (
+        enqueue_job, get_next_pending_job, update_job_status,
+        mark_job_attempt_failed, reset_processing_jobs_on_startup,
+        get_all_jobs
+    )
+except ImportError:
+    try:
+        from .config import prefs
+        from .core import recover, BOOK_SUFFIXES
+        from .queue_db import (
+            enqueue_job, get_next_pending_job, update_job_status,
+            mark_job_attempt_failed, reset_processing_jobs_on_startup,
+            get_all_jobs
+        )
+    except ImportError:
+        from config import prefs
+        from core import recover, BOOK_SUFFIXES
+        from queue_db import (
+            enqueue_job, get_next_pending_job, update_job_status,
+            mark_job_attempt_failed, reset_processing_jobs_on_startup,
+            get_all_jobs
+        )
 
 
 class ImportQueueDaemon(QObject):

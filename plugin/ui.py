@@ -72,16 +72,31 @@ except ImportError:
             return None
 
     QVBoxLayout = QHBoxLayout = QTableWidget = QTableWidgetItem = QPushButton = QLabel = QLineEdit = QCheckBox = QHeaderView = DummyWidget
+    QFormLayout = QSpinBox = QWidget = QDialogButtonBox = DummyWidget
     DummyWidget.ResizeMode = type('RM', (), {'Stretch': 1})()
     DummyWidget.SelectionBehavior = type('SB', (), {'SelectRows': 1})()
     QFileDialog = QMessageBox = QTimer = QAbstractItemView = DummyWidget
     Qt = type('Qt', (), {'WindowModality': type('WM', (), {'NonModal': 0})(), 'ItemDataRole': type('IDR', (), {'UserRole': 32})()})()
 
-from calibre_plugins.takeout_book_fixer.config import prefs
-from calibre_plugins.takeout_book_fixer.queue_db import (
-    get_all_jobs, retry_job, retry_all_failed, clear_completed_jobs,
-    clear_all_jobs, delete_job
-)
+try:
+    from calibre_plugins.takeout_book_fixer.config import prefs
+    from calibre_plugins.takeout_book_fixer.queue_db import (
+        get_all_jobs, retry_job, retry_all_failed, clear_completed_jobs,
+        clear_all_jobs, delete_job
+    )
+except ImportError:
+    try:
+        from .config import prefs
+        from .queue_db import (
+            get_all_jobs, retry_job, retry_all_failed, clear_completed_jobs,
+            clear_all_jobs, delete_job
+        )
+    except ImportError:
+        from config import prefs
+        from queue_db import (
+            get_all_jobs, retry_job, retry_all_failed, clear_completed_jobs,
+            clear_all_jobs, delete_job
+        )
 
 
 class DropFolderConfigDialog(QDialog):
@@ -327,7 +342,10 @@ class QueueManagerDialog(QDialog):
             print(msg)
 
 
-from calibre_plugins.takeout_book_fixer.config import prefs
+try:
+    from calibre_plugins.takeout_book_fixer.config import prefs
+except ImportError:
+    pass
 
 
 class ConfigWidget(QWidget):
