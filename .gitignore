@@ -7,3 +7,5 @@ tests/__pycache__/
 *.zip
 dist/*.zip
 dist/**/*.zip
+dist/SHA256SUMS
+dist/SHA256SUMS.txt

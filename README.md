@@ -31,7 +31,7 @@ Official plugin releases are published on the [Releases page](https://github.com
 
 ## Building and testing
 
-Build every plugin zip with `python build_plugins.py` (output in `dist/`). The Fanfic Site Downloader zip bundles FanFicFare and needs `pip install fanficfare` in the Python that runs the script; otherwise that one zip is skipped with a message, and `--strict` turns that into an error. Shared code for the story plugins lives in `common/` and is copied into each zip; the older Takeout Book Fixer is built by `build.py`.
+Build every plugin zip with `python build_plugins.py` (output in `dist/`). The Fanfic Site Downloader zip bundles FanFicFare and needs `pip install fanficfare` in the Python that runs the script; otherwise that one zip is skipped with a message, and `--strict` turns that into an error. Shared code for the story plugins lives in `common/` and is copied into each zip.
 
 Run static linting with `ruff check .` and formatting checks with `ruff format --check .`. Run the test suite with `python -m pytest tests/`. Offline tests cover the Metabods and Nifty parsers, text cleaning, EPUB structure, the tagger, the fanfic engine and its zip contents, and an import check of each built zip under stubbed Calibre and Qt modules. The fanfic tests need `pip install fanficfare` and skip without it; `tests/test_media.py` covers Media Matcher (its real-encoder tag tests skip without `ffmpeg`), `tests/test_media_dialogs.py` runs its windows under PyQt6, and `tests/test_qt_dialogs.py` runs the real dialogs under PyQt6 (`pip install PyQt6`; on Linux it may also need system libraries such as libEGL) and skips without it. The one failing test in a plain environment is the older PDF test, which needs PyMuPDF.
 
