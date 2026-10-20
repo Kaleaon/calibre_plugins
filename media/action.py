@@ -7,9 +7,9 @@ from datetime import datetime
 
 from calibre.gui2 import error_dialog, info_dialog, question_dialog
 from calibre.gui2.actions import InterfaceAction
-from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
-                     QMenu, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, Qt, QToolButton, QTreeWidget,
-                     QTreeWidgetItem, QVBoxLayout)
+from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QIcon, QLabel, QLineEdit,
+                     QMenu, QPixmap, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, QSize, QSplitter, Qt, QTimer,
+                     QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 try:
     from qt.core import _
 except ImportError:
@@ -431,10 +431,59 @@ class MediaMatcherAction(InterfaceAction):
         activity.setMaximumBlockCount(5000)
         activity.setPlaceholderText(_('Each book as it is looked up, what was searched for, and what came back.'))
         layout.addWidget(activity, 2)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         tree = QTreeWidget()
         tree.setHeaderLabels([_('Suggested change'), _('Match')])
-        tree.setColumnWidth(0, 440)
-        layout.addWidget(tree, 3)
+        tree.setColumnWidth(0, 360)
+        splitter.addWidget(tree)
+
+        preview_panel = QWidget()
+        preview_layout = QVBoxLayout(preview_panel)
+        preview_layout.setContentsMargins(6, 6, 6, 6)
+        preview_title = QLabel(_('Artwork Preview'))
+        preview_title.setStyleSheet("font-weight: bold;")
+        preview_layout.addWidget(preview_title)
+
+        comparison_layout = QHBoxLayout()
+
+        current_box = QVBoxLayout()
+        current_header = QLabel(_('Current Library Cover'))
+        current_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        current_box.addWidget(current_header)
+
+        current_cover_label = QLabel()
+        current_cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        current_cover_label.setFrameShape(QFrame.Shape.StyledPanel)
+        current_cover_label.setMinimumSize(140, 180)
+        current_box.addWidget(current_cover_label, 1)
+
+        comparison_layout.addLayout(current_box)
+
+        candidate_box = QVBoxLayout()
+        candidate_header = QLabel(_('Candidate Cover'))
+        candidate_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        candidate_box.addWidget(candidate_header)
+
+        candidate_cover_label = QLabel()
+        candidate_cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        candidate_cover_label.setFrameShape(QFrame.Shape.StyledPanel)
+        candidate_cover_label.setMinimumSize(140, 180)
+        candidate_box.addWidget(candidate_cover_label, 1)
+
+        comparison_layout.addLayout(candidate_box)
+
+        preview_layout.addLayout(comparison_layout, 1)
+
+        preview_info = QLabel(_('Select a cover change row to inspect artwork.'))
+        preview_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        preview_info.setWordWrap(True)
+        preview_layout.addWidget(preview_info)
+
+        splitter.addWidget(preview_panel)
+        splitter.setSizes([500, 360])
+        layout.addWidget(splitter, 3)
+
         status = QLabel(_('Press Look up. Weak matches are not offered; uncertain ones are left unticked.'))
         status.setWordWrap(True)
         layout.addWidget(status)
@@ -454,6 +503,80 @@ class MediaMatcherAction(InterfaceAction):
 
         cancel_flag = threading.Event()
         suggestions = {}
+        cover_cache = {}
+        cover_items = {}
+        prefetch_queue = queue.Queue()
+
+        prefetch_timer = QTimer(dialog)
+
+        def process_prefetch_queue():
+            while not prefetch_queue.empty():
+                try:
+                    cb = prefetch_queue.get_nowait()
+                    cb()
+                except queue.Empty:
+                    break
+
+        prefetch_timer.timeout.connect(process_prefetch_queue)
+        prefetch_timer.start(100)
+
+        def update_preview(item=None):
+            if item is None:
+                item = tree.currentItem()
+            if not item:
+                current_cover_label.clear()
+                candidate_cover_label.clear()
+                current_cover_label.setText(_('No selection'))
+                candidate_cover_label.setText(_('No selection'))
+                preview_info.setText(_('Select a cover change row to inspect artwork.'))
+                return
+
+            book_id = item.data(0, Qt.ItemDataRole.UserRole)
+            if book_id is None and item.parent():
+                book_id = item.parent().data(0, Qt.ItemDataRole.UserRole)
+
+            if book_id is None or book_id not in suggestions:
+                current_cover_label.clear()
+                candidate_cover_label.clear()
+                current_cover_label.setText(_('No selection'))
+                candidate_cover_label.setText(_('No selection'))
+                preview_info.setText(_('Select a cover change row to inspect artwork.'))
+                return
+
+            s = suggestions[book_id]
+            preview_info.setText(f"{s['title'] or _('Book ' + str(book_id))} — {s['candidate']['title']}")
+
+            db = self.gui.current_db.new_api
+            old_bytes = db.cover(book_id) if hasattr(db, 'cover') else None
+            if old_bytes:
+                pix = QPixmap()
+                if not pix.loadFromData(old_bytes):
+                    pix = QPixmap(180, 240)
+                    pix.fill(Qt.GlobalColor.darkGray)
+                scaled = pix.scaled(180, 240, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                current_cover_label.setPixmap(scaled)
+            else:
+                current_cover_label.setText(_('No current cover'))
+
+            if 'cover' in s['changes']:
+                if book_id in cover_cache:
+                    cand_bytes = cover_cache[book_id]
+                    if cand_bytes:
+                        pix = QPixmap()
+                        if not pix.loadFromData(cand_bytes):
+                            pix = QPixmap(180, 240)
+                            pix.fill(Qt.GlobalColor.lightGray)
+                        scaled = pix.scaled(180, 240, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                        candidate_cover_label.setPixmap(scaled)
+                    else:
+                        candidate_cover_label.setText(_('No candidate cover available'))
+                else:
+                    candidate_cover_label.setText(_('Downloading candidate cover…'))
+            else:
+                candidate_cover_label.clear()
+                candidate_cover_label.setText(_('No cover change suggested'))
+
+        tree.currentItemChanged.connect(lambda cur, prev: update_preview(cur))
 
         def chosen_fields():
             return tuple(f for f, _ in FIELD_LABELS if boxes[f].isChecked())
@@ -478,7 +601,7 @@ class MediaMatcherAction(InterfaceAction):
             buttons.button(QDialogButtonBox.StandardButton.Close).setEnabled(not busy)
 
         stop_btn.clicked.connect(lambda: (cancel_flag.set(), log(_('Cancel pressed; stopping after the current lookup.'))))
-        dialog.finished.connect(lambda _result: cancel_flag.set())
+        dialog.finished.connect(lambda _result: (cancel_flag.set(), prefetch_timer.stop(), save_prefs()))
 
         def options():
             return {'kind': kind.currentData(), 'fields': chosen_fields(), 'min_score': float(prefs['min_score']),
@@ -500,6 +623,14 @@ class MediaMatcherAction(InterfaceAction):
                 return
             tree.clear()
             suggestions.clear()
+            cover_cache.clear()
+            cover_items.clear()
+            while not prefetch_queue.empty():
+                try:
+                    prefetch_queue.get_nowait()
+                except queue.Empty:
+                    break
+            update_preview(None)
             activity.clear()
             cancel_flag.clear()
             set_busy(True)
@@ -592,8 +723,63 @@ class MediaMatcherAction(InterfaceAction):
                     child.setCheckState(0, want)
                     child.setData(0, Qt.ItemDataRole.UserRole, field)
                     child.setData(0, Qt.ItemDataRole.UserRole + 1, (old, new))
+                    if field == 'cover':
+                        cover_items[s['id']] = child
                 top.setCheckState(0, want)
                 top.setExpanded(True)
+
+            def start_background_prefetch():
+                targets = []
+                for s in found:
+                    book_id = s['id']
+                    if 'cover' in s['changes']:
+                        urls = s['changes']['cover'][1]
+                        if urls:
+                            targets.append((book_id, urls))
+                if not targets:
+                    return
+
+                def fetch_worker():
+                    http = sources.Http(contact=contact.text().strip(), cancelled=cancel_flag.is_set)
+                    for book_id, urls in targets:
+                        if cancel_flag.is_set():
+                            break
+                        try:
+                            img_bytes = sources.fetch_image(http, urls)
+                        except Exception:
+                            img_bytes = None
+                        cover_cache[book_id] = img_bytes
+
+                        def on_complete(b_id=book_id, b_bytes=img_bytes):
+                            if cancel_flag.is_set():
+                                return
+                            try:
+                                if b_id in cover_items:
+                                    item = cover_items[b_id]
+                                    if b_bytes:
+                                        pix = QPixmap()
+                                        if not pix.loadFromData(b_bytes):
+                                            pix = QPixmap(24, 24)
+                                            pix.fill(Qt.GlobalColor.lightGray)
+                                        icon = QIcon(pix.scaled(24, 24, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                                        item.setIcon(0, icon)
+                                cur = tree.currentItem()
+                                if cur:
+                                    sel_id = cur.data(0, Qt.ItemDataRole.UserRole)
+                                    if sel_id is None and cur.parent():
+                                        sel_id = cur.parent().data(0, Qt.ItemDataRole.UserRole)
+                                    if sel_id == b_id:
+                                        update_preview(cur)
+                            except RuntimeError:
+                                pass
+
+                        prefetch_queue.put(on_complete)
+
+                worker_thread = threading.Thread(target=fetch_worker, daemon=True)
+                worker_thread.start()
+
+            start_background_prefetch()
+
             text = _('{found} of {count} book(s) have suggested changes{cancel}.').format(found=len(found), count=count, cancel=note_cancel)
             if skipped:
                 text += f' {len(skipped)} problem(s): ' + '; '.join(skipped[:3]) + (' …' if len(skipped) > 3 else '')
@@ -621,25 +807,33 @@ class MediaMatcherAction(InterfaceAction):
             wanted = {book_id: changes['cover'][1] for book_id, changes in items if 'cover' in changes}
             if wanted:
                 http = sources.Http(contact=contact.text().strip())
-                cache = {}
+                uncached = {}
+                for book_id, urls in wanted.items():
+                    if book_id in cover_cache and cover_cache[book_id]:
+                        covers[book_id] = cover_cache[book_id]
+                    else:
+                        uncached[book_id] = urls
 
-                def download(task):
-                    for book_id, urls in wanted.items():
-                        if task.cancelled():
-                            break
-                        task.status = _('Downloading cover art ({done} of {total})…').format(done=len(covers) + 1, total=len(wanted))
-                        key = tuple(urls)
-                        if key not in cache:
-                            try:
-                                cache[key] = sources.fetch_image(http, urls)
-                            except sources.ServiceError:
-                                cache[key] = None
-                        if cache[key]:
-                            covers[book_id] = cache[key]
+                if uncached:
+                    cache = {}
 
-                task = run_task(dialog, _('Downloading cover art…'), download)
-                if task.error:
-                    return error_dialog(dialog, 'Media Matcher', str(task.error), show=True)
+                    def download(task):
+                        for book_id, urls in uncached.items():
+                            if task.cancelled():
+                                break
+                            task.status = _('Downloading cover art ({done} of {total})…').format(done=len(covers) + 1, total=len(wanted))
+                            key = tuple(urls)
+                            if key not in cache:
+                                try:
+                                    cache[key] = sources.fetch_image(http, urls)
+                                except sources.ServiceError:
+                                    cache[key] = None
+                            if cache[key]:
+                                covers[book_id] = cache[key]
+
+                    task = run_task(dialog, _('Downloading cover art…'), download)
+                    if task.error:
+                        return error_dialog(dialog, 'Media Matcher', str(task.error), show=True)
             done, errors, undo = self.write_changes(items, covers)
             if undo:
                 prefs['undo'] = undo
