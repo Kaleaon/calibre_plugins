@@ -20,7 +20,8 @@ except ImportError:
 
 from calibre_plugins.gemini_library_fixer import engine
 from calibre_plugins.gemini_library_fixer.config import prefs
-from calibre_plugins.gemini_library_fixer.guikit import run_task
+from calibre_plugins.gemini_library_fixer.guikit import (append_log, collect_checked_fields, collect_tree_changes,
+                                                         format_field_value, run_task)
 
 FIELD_LABELS = [('title', _('Titles')), ('authors', _('Authors')), ('series', _('Series and volume number')), ('tags', _('Tags')),
                 ('language', _('Language (only if empty)')), ('isbn', _('ISBN (read from the back cover or title page)'))]
@@ -273,13 +274,7 @@ def prepare_image(data, max_side=1000):
     return base64.b64encode(bytes(buffer.data())).decode('ascii')
 
 
-def show_value(field, value):
-    if field == 'series':
-        name, index = value
-        return f'{name} #{index:g}' if name and index is not None else (name or '(none)')
-    if isinstance(value, list):
-        return ', '.join(value) if value else '(none)'
-    return value or '(none)'
+show_value = format_field_value
 
 
 class GeminiFixerAction(InterfaceAction):
@@ -437,6 +432,15 @@ class GeminiFixerAction(InterfaceAction):
         row.addWidget(models_btn)
         layout.addLayout(row)
 
+        row = QHBoxLayout()
+        row.addWidget(QLabel(_('Instruction Template:')))
+        template_combo = QComboBox()
+        manage_templates_btn = QPushButton(_('Manage Templates...'))
+        manage_templates_btn.setToolTip(_('Create, edit, or delete instruction templates and presets'))
+        row.addWidget(template_combo, 1)
+        row.addWidget(manage_templates_btn)
+        layout.addLayout(row)
+
         layout.addWidget(QLabel(_('Fix:')))
         boxes = {}
         for field, label in FIELD_LABELS:
@@ -542,7 +546,7 @@ class GeminiFixerAction(InterfaceAction):
             return key.text().strip() or os.environ.get('GEMINI_API_KEY', '') or os.environ.get('GOOGLE_API_KEY', '')
 
         def chosen_fields():
-            return tuple(f for f, _ in FIELD_LABELS if boxes[f].isChecked())
+            return collect_checked_fields(boxes, FIELD_LABELS)
 
         def update_template_combo():
             all_tpls = engine.get_all_templates(prefs.get('custom_templates', {}))
@@ -631,7 +635,7 @@ class GeminiFixerAction(InterfaceAction):
         settings_btn.clicked.connect(toggle_settings)
 
         def log(text):
-            activity.appendPlainText(f'{time.strftime("%H:%M:%S")}  {text}')
+            append_log(activity, text)
 
         def set_busy(busy):
             run_busy[0] = busy
@@ -886,17 +890,7 @@ class GeminiFixerAction(InterfaceAction):
                 warning_dialog(dialog, _('Gemini'), _('Processing stopped early due to an error:\n\n{error}\n\nPartial results collected before the error are displayed below.').format(error=partial_error), show=True)
 
         def collect():
-            items = []
-            for i in range(tree.topLevelItemCount()):
-                top = tree.topLevelItem(i)
-                changes = {}
-                for j in range(top.childCount()):
-                    child = top.child(j)
-                    if child.checkState(0) == Qt.CheckState.Checked:
-                        changes[child.data(0, Qt.ItemDataRole.UserRole)] = child.data(0, Qt.ItemDataRole.UserRole + 1)
-                if changes:
-                    items.append((top.data(0, Qt.ItemDataRole.UserRole), changes))
-            return items
+            return collect_tree_changes(tree)
 
         def do_apply():
             items = collect()

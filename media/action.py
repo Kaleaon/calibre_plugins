@@ -17,7 +17,8 @@ except ImportError:
 
 from calibre_plugins.media_matcher import matching, sources, tags as audio
 from calibre_plugins.media_matcher.config import prefs
-from calibre_plugins.media_matcher.guikit import run_task
+from calibre_plugins.media_matcher.guikit import (append_log, collect_checked_fields, collect_tree_changes,
+                                                  format_field_value, run_task)
 
 KIND_CHOICES = [('auto', _('Detect from each file')), ('music', _('Music')), ('audiobook', _('Audiobook')), ('book', _('Book'))]
 FIELD_LABELS = [('title', _('Titles')), ('authors', _('Artists / authors')), ('album', _('Album (as series) and track number')),
@@ -32,19 +33,7 @@ ADD_NOTE = _('Each audio file becomes its own book, because Calibre keeps one fi
             'number is the series number, so an album sorts and groups naturally. Files are copied into your library.')
 
 
-def show_value(field, value):
-    if field == 'album':
-        name, index = value
-        return (f'{name} #{index:g}' if name and index is not None else name) or _('(none)')
-    if field == 'date':
-        return value[:10] if value else _('(none)')
-    if field == 'authors' or field == 'tags':
-        return ', '.join(value) if value else _('(none)')
-    if field == 'identifiers':
-        return ', '.join(f'{k}:{v}' for k, v in sorted(value.items())) or _('(none)')
-    if field == 'cover':
-        return _('none') if value is None else (_('front cover from ') + (_('Cover Art Archive') if 'coverartarchive' in value[0] else 'Open Library'))
-    return value or _('(none)')
+show_value = format_field_value
 
 
 def split_artists(text):
@@ -456,7 +445,7 @@ class MediaMatcherAction(InterfaceAction):
         suggestions = {}
 
         def chosen_fields():
-            return tuple(f for f, _ in FIELD_LABELS if boxes[f].isChecked())
+            return collect_checked_fields(boxes, FIELD_LABELS)
 
         def save_prefs():
             prefs['kind'] = kind.currentData()
@@ -467,7 +456,7 @@ class MediaMatcherAction(InterfaceAction):
             prefs['fingerprint'] = fingerprint.isChecked()
 
         def log(text):
-            activity.appendPlainText(f'{time.strftime("%H:%M:%S")}  {text}')
+            append_log(activity, text)
 
         def set_busy(busy):
             for w in (check_btn,):
@@ -601,17 +590,7 @@ class MediaMatcherAction(InterfaceAction):
             apply_btn.setEnabled(bool(found))
 
         def collect():
-            items = []
-            for i in range(tree.topLevelItemCount()):
-                top = tree.topLevelItem(i)
-                changes = {}
-                for j in range(top.childCount()):
-                    child = top.child(j)
-                    if child.checkState(0) == Qt.CheckState.Checked:
-                        changes[child.data(0, Qt.ItemDataRole.UserRole)] = child.data(0, Qt.ItemDataRole.UserRole + 1)
-                if changes:
-                    items.append((top.data(0, Qt.ItemDataRole.UserRole), changes))
-            return items
+            return collect_tree_changes(tree)
 
         def do_apply():
             items = collect()

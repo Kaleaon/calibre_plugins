@@ -1433,6 +1433,92 @@ class FanficDialogTests(QtCase):
         self.assertIn('[www.royalroad.com]\nuse_flaresolverr_proxy:true', advanced.toPlainText())
 
 
+class GuikitHelpersTests(unittest.TestCase):
+    """Unit tests for shared common.guikit helpers."""
+
+    def test_parse_lines(self):
+        from common.guikit import parse_lines
+
+        # String inputs
+        self.assertEqual(parse_lines("line1\nline2\n\n  line3  \n"), ["line1", "line2", "line3"])
+        self.assertEqual(parse_lines(""), [])
+        self.assertEqual(parse_lines(None), [])
+
+        # Widget-like inputs (if Qt is available)
+        if HAVE_QT:
+            text_edit = QtWidgets.QPlainTextEdit()
+            text_edit.setPlainText("  http://example.com/1 \n\n http://example.com/2 ")
+            self.assertEqual(parse_lines(text_edit), ["http://example.com/1", "http://example.com/2"])
+
+    def test_collect_checked_fields(self):
+        from common.guikit import collect_checked_fields
+
+        if not HAVE_QT:
+            return
+
+        box_a = QtWidgets.QCheckBox()
+        box_a.setChecked(True)
+        box_b = QtWidgets.QCheckBox()
+        box_b.setChecked(False)
+        box_c = QtWidgets.QCheckBox()
+        box_c.setChecked(True)
+
+        boxes = {'title': box_a, 'authors': box_b, 'series': box_c}
+        labels = [('series', 'Series'), ('title', 'Titles'), ('authors', 'Authors')]
+
+        self.assertEqual(collect_checked_fields(boxes, labels), ('series', 'title'))
+        self.assertEqual(collect_checked_fields(boxes), ('title', 'series'))
+
+    def test_append_log(self):
+        from common.guikit import append_log
+
+        if not HAVE_QT:
+            return
+
+        activity = QtWidgets.QPlainTextEdit()
+        append_log(activity, "Started processing")
+        text = activity.toPlainText()
+        self.assertIn("Started processing", text)
+        self.assertRegex(text, r'^\d{2}:\d{2}:\d{2}\s{2}Started processing$')
+
+    def test_collect_tree_changes(self):
+        from common.guikit import collect_tree_changes
+
+        if not HAVE_QT:
+            return
+
+        tree = QtWidgets.QTreeWidget()
+        top = QtWidgets.QTreeWidgetItem(tree)
+        top.setData(0, QtCore.Qt.ItemDataRole.UserRole, 101)
+
+        child1 = QtWidgets.QTreeWidgetItem(top)
+        child1.setData(0, QtCore.Qt.ItemDataRole.UserRole, 'title')
+        child1.setData(0, QtCore.Qt.ItemDataRole.UserRole + 1, 'New Title')
+        child1.setCheckState(0, QtCore.Qt.CheckState.Checked)
+
+        child2 = QtWidgets.QTreeWidgetItem(top)
+        child2.setData(0, QtCore.Qt.ItemDataRole.UserRole, 'authors')
+        child2.setData(0, QtCore.Qt.ItemDataRole.UserRole + 1, ['New Author'])
+        child2.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+
+        changes = collect_tree_changes(tree)
+        self.assertEqual(changes, [(101, {'title': 'New Title'})])
+
+    def test_format_field_value(self):
+        from common.guikit import format_field_value
+
+        self.assertEqual(format_field_value('series', ('Dune', 1.0)), 'Dune #1')
+        self.assertEqual(format_field_value('series', (None, None)), '(none)')
+        self.assertEqual(format_field_value('album', ('Album', 2.0)), 'Album #2')
+        self.assertEqual(format_field_value('date', '2026-10-20T12:00:00Z'), '2026-10-20')
+        self.assertEqual(format_field_value('authors', ['Author A', 'Author B']), 'Author A, Author B')
+        self.assertEqual(format_field_value('tags', []), '(none)')
+        self.assertEqual(format_field_value('identifiers', {'isbn': '12345'}), 'isbn:12345')
+        self.assertEqual(format_field_value('cover', None), 'none')
+        self.assertEqual(format_field_value('cover', ('http://coverartarchive.org/img.jpg',)), 'front cover from Cover Art Archive')
+        self.assertEqual(format_field_value('cover', ('http://openlibrary.org/img.jpg',)), 'front cover from Open Library')
+        self.assertEqual(format_field_value('title', None), '(none)')
+
 
 if __name__ == '__main__':
     unittest.main()
