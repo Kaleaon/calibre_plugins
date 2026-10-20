@@ -15,7 +15,7 @@ import tempfile
 import time
 import types
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -862,6 +862,59 @@ class RedditPluginTests(QtCase):
         self.assertIn('2 match your filters', text)
         self.assertEqual(self.config.prefs['follows'][0]['last_checked'], 0.0, 'a test is not a check')
         self.assertEqual(action.gui.db.books, {}, 'a test never touches the library')
+
+    def test_manage_dialog_export_opml_saves_file(self):
+        core = self.core
+        action = self.make_action()
+        f1 = core.new_follow('HFY Story', 'r/HFY')
+        self.config.prefs['follows'] = [f1]
+        dialog = self.ui.ManageDialog(None, action)
+        tmp_dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(tmp_dir, ignore_errors=True))
+        out_file = os.path.join(tmp_dir, 'export.opml')
+
+        with patch.object(self.ui.QFileDialog, 'getSaveFileName', return_value=(out_file, 'OPML Files (*.opml *.xml)')):
+            dialog.export_opml()
+
+        self.assertTrue(os.path.isfile(out_file))
+        imported, skipped = core.import_opml(out_file, existing=[])
+        self.assertEqual(len(imported), 1)
+        self.assertEqual(imported[0]['name'], 'HFY Story')
+
+    def test_manage_dialog_import_opml_adds_series_to_table(self):
+        core = self.core
+        action = self.make_action()
+        f1 = core.new_follow('HFY Story', 'r/HFY')
+        self.config.prefs['follows'] = [f1]
+        dialog = self.ui.ManageDialog(None, action)
+
+        tmp_dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(tmp_dir, ignore_errors=True))
+        in_file = os.path.join(tmp_dir, 'import.opml')
+
+        f2 = core.new_follow('New Author Series', 'u/NewAuthor')
+        core.export_opml([f1, f2], in_file)
+
+        with patch.object(self.ui.QFileDialog, 'getOpenFileName', return_value=(in_file, 'OPML Files (*.opml *.xml)')):
+            dialog.import_opml()
+
+        self.assertEqual(len(self.config.prefs['follows']), 2)
+        self.assertEqual(dialog.table.rowCount(), 2)
+
+    def test_manage_dialog_import_opml_handles_malformed_xml_gracefully(self):
+        action = self.make_action()
+        dialog = self.ui.ManageDialog(None, action)
+
+        tmp_dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(tmp_dir, ignore_errors=True))
+        bad_file = os.path.join(tmp_dir, 'bad.opml')
+        with open(bad_file, 'w', encoding='utf-8') as f:
+            f.write("<html>Malformed XML</html>")
+
+        with patch.object(self.ui.QFileDialog, 'getOpenFileName', return_value=(bad_file, 'OPML Files (*.opml *.xml)')):
+            with patch.object(self.ui, 'show_friendly_error_dialog') as mock_err:
+                dialog.import_opml()
+                self.assertTrue(mock_err.called)
 
     # -- the whole life of a followed series, against a stand-in library and feed
     def chapter(self, n, body=None):

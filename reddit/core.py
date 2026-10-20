@@ -1239,3 +1239,203 @@ def run_follows(source, follows, cache_dir, cancelled=lambda: False, progress=la
             follow['last_status'] = f'error: {exc}'[:200]
         results.append(result)
     return results
+
+
+# ---------------------------------------------------------------- OPML export and import
+
+def export_opml(follows, target):
+    """Export followed story series to an OPML 2.0 XML document.
+
+    :param follows: list of follow dicts
+    :param target: file path or file-like object to write XML to
+    :return: int count of exported series
+    """
+    ET.register_namespace('reddit', 'http://reddit.com/opml')
+    NS = 'http://reddit.com/opml'
+
+    root = ET.Element('opml', version='2.0')
+    head = ET.SubElement(root, 'head')
+    title_elem = ET.SubElement(head, 'title')
+    title_elem.text = 'Reddit Story Follower Subscriptions'
+
+    body = ET.SubElement(root, 'body')
+
+    for follow in follows:
+        sources = follow.get('sources')
+        if sources:
+            src = sources[0]
+        else:
+            src = follow.get('source', {})
+
+        kind = src.get('kind', 'subreddit')
+        sub = src.get('subreddit', '')
+        user = src.get('user', '')
+        query = src.get('query', '')
+
+        xml_url = feed_url(src)
+        if kind == 'subreddit':
+            html_url = f'{WWW}/r/{sub}/' if sub else f'{WWW}/'
+        elif kind == 'user':
+            html_url = f'{WWW}/u/{user}' if user else f'{WWW}/'
+        else:
+            html_url = source_text(src)
+            if not html_url.startswith('http'):
+                html_url = f'{WWW}/{html_url.lstrip("/")}'
+
+        name = follow.get('name') or describe_source(src)
+
+        attribs = {
+            'text': name,
+            'title': name,
+            'type': 'rss',
+            'xmlUrl': xml_url,
+            'htmlUrl': html_url,
+            f'{{{NS}}}kind': kind,
+            f'{{{NS}}}subreddit': sub,
+            f'{{{NS}}}user': user,
+            f'{{{NS}}}query': query,
+            f'{{{NS}}}title_filter': follow.get('title_filter', ''),
+            f'{{{NS}}}author_filter': follow.get('author_filter', ''),
+            f'{{{NS}}}flair_filter': follow.get('flair_filter', ''),
+            f'{{{NS}}}layout': follow.get('layout', 'series'),
+            f'{{{NS}}}author_note': '1' if follow.get('author_note') else '0',
+            f'{{{NS}}}title_from_body': '1' if follow.get('title_from_body') else '0',
+            f'{{{NS}}}index_url': follow.get('index_url', ''),
+        }
+
+        ET.SubElement(body, 'outline', attribs)
+
+    ET.indent(root)
+    tree = ET.ElementTree(root)
+
+    if isinstance(target, (str, os.PathLike)):
+        tree.write(target, encoding='utf-8', xml_declaration=True)
+    elif hasattr(target, 'write'):
+        tree.write(target, encoding='utf-8', xml_declaration=True)
+
+    return len(follows)
+
+
+def import_opml(target, existing=None):
+    """Import followed story series from an OPML 2.0 XML document.
+
+    :param target: file path, XML string, or file-like object
+    :param existing: list of existing follow dicts (to prevent duplicate subscriptions)
+    :return: (imported_follows_list, skipped_duplicate_count)
+    """
+    NS = 'http://reddit.com/opml'
+
+    try:
+        if isinstance(target, (str, os.PathLike)) and os.path.isfile(target):
+            tree = ET.parse(target)
+            root = tree.getroot()
+        elif isinstance(target, str):
+            root = ET.fromstring(target)
+        elif hasattr(target, 'read'):
+            tree = ET.parse(target)
+            root = tree.getroot()
+        else:
+            raise ValueError('Invalid target for OPML import')
+
+        if root.tag.lower() != 'opml':
+            raise ValueError(f'Not a valid OPML file (root element is <{root.tag}> instead of <opml>).')
+    except ET.ParseError as exc:
+        raise ValueError(f'Invalid OPML XML document: {exc}') from exc
+    except Exception as exc:
+        if isinstance(exc, ValueError):
+            raise
+        raise ValueError(f'Could not read OPML file: {exc}') from exc
+
+    def _get_attr(elem, name):
+        return (
+            elem.attrib.get(f'{{{NS}}}{name}') or
+            elem.attrib.get(f'reddit:{name}') or
+            elem.attrib.get(name) or
+            ''
+        )
+
+    outlines = root.findall('.//outline')
+    imported = []
+    skipped = 0
+
+    existing_follows = list(existing or [])
+
+    def _is_duplicate(src, title_flt, author_flt, flair_flt):
+        src_kind = src.get('kind', '')
+        src_sub = src.get('subreddit', '').lower()
+        src_user = src.get('user', '').lower()
+        src_query = src.get('query', '').lower()
+
+        t_flt = title_flt.lower()
+        a_flt = author_flt.lower()
+        f_flt = flair_flt.lower()
+
+        for ex in existing_follows + imported:
+            ex_src = ex.get('source') or (ex['sources'][0] if ex.get('sources') else {})
+            if (ex_src.get('kind', '') == src_kind and
+                ex_src.get('subreddit', '').lower() == src_sub and
+                ex_src.get('user', '').lower() == src_user and
+                ex_src.get('query', '').lower() == src_query and
+                ex.get('title_filter', '').lower() == t_flt and
+                ex.get('author_filter', '').lower() == a_flt and
+                ex.get('flair_filter', '').lower() == f_flt):
+                return True
+        return False
+
+    for elem in outlines:
+        kind = _get_attr(elem, 'kind')
+        xml_url = elem.attrib.get('xmlUrl') or elem.attrib.get('xmlurl') or ''
+        html_url = elem.attrib.get('htmlUrl') or elem.attrib.get('htmlurl') or ''
+
+        src = None
+        if kind:
+            src = {
+                'kind': kind,
+                'subreddit': _get_attr(elem, 'subreddit'),
+                'user': _get_attr(elem, 'user'),
+                'query': _get_attr(elem, 'query')
+            }
+        elif xml_url or html_url:
+            for url in (xml_url, html_url):
+                if url:
+                    try:
+                        src = parse_source(url)
+                        break
+                    except SourceError:
+                        continue
+
+        if not src:
+            continue
+
+        title_flt = _get_attr(elem, 'title_filter')
+        author_flt = _get_attr(elem, 'author_filter')
+        flair_flt = _get_attr(elem, 'flair_filter')
+        layout = _get_attr(elem, 'layout') or 'series'
+        author_note = _get_attr(elem, 'author_note') in ('1', 'true', 'True', 'yes')
+        title_from_body = _get_attr(elem, 'title_from_body') in ('1', 'true', 'True', 'yes')
+        index_url = _get_attr(elem, 'index_url')
+
+        name = elem.attrib.get('title') or elem.attrib.get('text') or ''
+        if not name or name == xml_url or name == html_url:
+            name = describe_source(src)
+
+        if _is_duplicate(src, title_flt, author_flt, flair_flt):
+            skipped += 1
+            continue
+
+        follow = new_follow(
+            name=name,
+            source_input='',
+            title_filter=title_flt,
+            author_filter=author_flt,
+            author_note=author_note,
+            layout=layout,
+            flair_filter=flair_flt,
+            index_url=index_url,
+            title_from_body=title_from_body,
+            sources=[src]
+        )
+        imported.append(follow)
+
+    return imported, skipped
+
