@@ -1,6 +1,6 @@
 from io import BytesIO
 from calibre.gui2.actions import InterfaceAction
-from calibre.gui2 import error_dialog, info_dialog
+from calibre.gui2 import info_dialog
 from calibre.utils.config import JSONConfig
 from qt.core import (QAction, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QLabel, QMenu,
                      QPlainTextEdit, QVBoxLayout)

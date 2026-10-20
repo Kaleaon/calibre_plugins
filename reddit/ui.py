@@ -12,13 +12,6 @@ except ImportError:
 from calibre_plugins.reddit_follower import core, login
 from calibre_plugins.reddit_follower.config import prefs
 from calibre_plugins.reddit_follower.guikit import run_task
-try:
-    from calibre_plugins.reddit_follower.error_handler import show_friendly_error_dialog
-except ImportError:
-    try:
-        from .error_handler import show_friendly_error_dialog
-    except ImportError:
-        from error_handler import show_friendly_error_dialog
 from calibre_plugins.reddit_follower.storykit import Fetcher
 
 ACCESS_NOTE = _(

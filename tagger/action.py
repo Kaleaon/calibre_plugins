@@ -1,4 +1,4 @@
-from calibre.gui2 import error_dialog, info_dialog
+from calibre.gui2 import info_dialog
 from calibre.gui2.actions import InterfaceAction
 from qt.core import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
                      QPushButton, QRadioButton, QVBoxLayout)
