@@ -2,14 +2,14 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from calibre.customize.ui import find_plugin
-from calibre.db.legacy import LibraryDatabase
+from calibre.library import db as calibre_db
 root=Path('/workspace/bookfixer/takeout-validation/january')
 rows=json.loads(next((root/'recovered').glob('recovery-report-*.json')).read_text())
 plugin=find_plugin('Takeout Book Fixer')
 with plugin:
  from calibre_plugins.takeout_book_fixer.core import recover
  from calibre_plugins.takeout_book_fixer.importer import import_books
- db=LibraryDatabase(str(root/'comic-library'))
+ db=calibre_db(str(root/'comic-library'))
  gui=SimpleNamespace(current_db=db,library_view=SimpleNamespace(model=lambda:SimpleNamespace(refresh=lambda:None)),tags_view=SimpleNamespace(recount=lambda:None))
  for index,row in enumerate(r for r in rows if r.get('format')=='pdf'):
   files,result,report=recover(row['output'],root/('pdf-conversion-'+str(index)),comics=True)

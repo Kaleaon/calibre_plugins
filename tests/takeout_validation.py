@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 from calibre.customize.ui import find_plugin
-from calibre.db.legacy import LibraryDatabase
+from calibre.library import db as calibre_db
 source = Path(sys.argv[1]); target = Path(sys.argv[2]); target.mkdir(parents=True, exist_ok=True)
 plugin = find_plugin('Takeout Book Fixer')
 with plugin:
@@ -15,7 +15,7 @@ with plugin:
     print('Recovery:',dict(collections.Counter(r['status'] for r in rows)),flush=True)
     print('Formats:',dict(collections.Counter(r.get('format') for r in rows if 'output' in r)),flush=True)
     print('Extension corrections:',sum(Path(r['source']).suffix.lower() != '.'+r['format'] for r in rows if 'output' in r),flush=True)
-    db = LibraryDatabase(str(target / 'library'))
+    db = calibre_db(str(target / 'library'))
     gui = SimpleNamespace(current_db=db, library_view=SimpleNamespace(model=lambda: SimpleNamespace(refresh=lambda: None)), tags_view=SimpleNamespace(recount=lambda: None))
     ids, errors = import_books(gui, rows)
     validated = 0
