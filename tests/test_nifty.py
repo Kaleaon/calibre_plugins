@@ -75,6 +75,35 @@ class ListingTests(unittest.TestCase):
         self.assertEqual(len(found[0]['files']), 3)  # a chapter link means the whole series
         self.assertEqual(len(errors), 2)
 
+    def test_direct_sections_constants_and_targets(self):
+        self.assertIn('bestiality', core.SECTIONS)
+        self.assertIn('journal-entries', core.SECTIONS)
+        self.assertIn('Author22', core.DIRECT_SECTIONS)
+        self.assertEqual(len(core.SECTIONS), 10)
+
+        # Whole direct section URL expands stories directly
+        f = FakeFetcher({
+            core.SITE + 'journal-entries/': TABLE,
+            core.SITE + 'bestiality/': TABLE,
+        })
+        urls = core.extract_directory_urls(['https://www.nifty.org/nifty/journal-entries/',
+                                            'https://www.nifty.org/nifty/bestiality/saga-1',
+                                            'https://www.nifty.org/nifty/bestiality/more-saga/'])
+        self.assertIn(core.SITE + 'journal-entries/', urls)
+        self.assertIn(core.SITE + 'bestiality/', urls)
+        self.assertIn(core.SITE + 'bestiality/more-saga/', urls)
+
+        found, errors = core.expand_targets(f, [
+            'https://www.nifty.org/nifty/journal-entries/',
+            'https://www.nifty.org/nifty/bestiality/lone-story',
+            'https://www.nifty.org/nifty/bestiality/more-saga/',
+        ])
+        self.assertEqual(errors, [])
+        found_ids = {r['id']: r for r in found}
+        self.assertIn('journal-entries/saga', found_ids)
+        self.assertEqual(found_ids['bestiality/lone-story']['files'], ['bestiality/lone-story'])
+        self.assertEqual(found_ids['bestiality/more-saga']['dir'], 'bestiality/more-saga')
+
 
 class TextTests(unittest.TestCase):
     def test_headers_and_author(self):

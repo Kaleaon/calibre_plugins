@@ -203,6 +203,8 @@ class NiftyFakeFetcher(FakeFetcher):
             return NIFTY_SECTION
         if url.endswith('/gay/college/') or url.endswith('/gay/camping/'):
             return NIFTY_CATEGORY
+        if url.endswith('/nifty/journal-entries/'):
+            return NIFTY_CATEGORY
         raise IOError('unexpected url ' + url)
 
 
@@ -241,6 +243,15 @@ class OtherDialogTests(QtCase):
         dialog.toggle_favorite()
         self.assertIn('gay/college', dialog.favorites)
         self.assertEqual(dialog.favs.count(), 2)
+
+        # Direct section loads '[All Stories]' as category and displays stories
+        dialog.filter.setText('')
+        dialog.section.setCurrentText('journal-entries')
+        self.assertEqual([dialog.category.itemData(i) for i in range(dialog.category.count())], ['journal-entries'])
+        self.assertEqual(dialog.category.itemText(0), '[All Stories]')
+        dialog.load_stories()
+        self.assertEqual(dialog.story_list.count(), 2)
+        self.assertEqual(sorted(r['id'] for r in dialog.refs), ['journal-entries/campus-rivals', 'journal-entries/my-story'])
 
     def test_nifty_link_dialog(self):
         ui = importlib.import_module(self.load('nifty_downloader') + '.ui')

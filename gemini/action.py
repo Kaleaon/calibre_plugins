@@ -22,6 +22,7 @@ from calibre_plugins.gemini_library_fixer import engine
 from calibre_plugins.gemini_library_fixer.config import prefs
 from calibre_plugins.gemini_library_fixer.guikit import (
     DialogAction,
+    EmptyStateOverlay,
     append_log,
     chosen_fields as guikit_chosen_fields,
     collect_tree_changes,
@@ -819,6 +820,16 @@ class GeminiFixerAction(DialogAction):
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
 
+        overlay = EmptyStateOverlay(
+            tree,
+            icon='✨',
+            title='Check your books with Gemini',
+            message='Select books and click "Check books" to ask Gemini for metadata suggestions.',
+            action_text='Check books',
+            on_action=check_btn.click
+        )
+        overlay.show_empty()
+
         def api_key():
             return key.text().strip() or os.environ.get('GEMINI_API_KEY', '') or os.environ.get('GOOGLE_API_KEY', '')
 
@@ -1343,6 +1354,16 @@ class GeminiFixerAction(DialogAction):
             if skipped:
                 text += _(' {count} could not be checked: ').format(count=len(skipped)) + '; '.join(skipped[:3]) + (' …' if len(skipped) > 3 else '')
             status.setText(text)
+            if suggestions:
+                overlay.hide_empty()
+            else:
+                overlay.show_empty(
+                    title='No suggested changes found',
+                    message='Gemini did not find any metadata changes for the selected books. You can adjust confidence thresholds or choose different fields.',
+                    icon='🔍',
+                    action_text='Check books',
+                    on_action=check_btn.click
+                )
             update_ticked()
             splitter.setSizes([120, 700])  # the changes are what needs reading now
             if partial_error:
@@ -1365,6 +1386,13 @@ class GeminiFixerAction(DialogAction):
                 text += _('\n\nProblems:\n') + '\n'.join(errors[:10])
             info_dialog(self.gui, _('Gemini'), text, show=True)
             tree.clear()
+            overlay.show_empty(
+                title='Check your books with Gemini',
+                message='Select books and click "Check books" to ask Gemini for metadata suggestions.',
+                icon='✨',
+                action_text='Check books',
+                on_action=check_btn.click
+            )
             update_ticked()
 
         def do_undo():

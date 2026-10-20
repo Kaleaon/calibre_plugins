@@ -105,9 +105,14 @@ class BrowseDialog(QDialog):
         if task.error:
             self.summary.setText(f'Could not load categories: {task.error}')
             return
-        for cat in task.result or []:
-            path = f'{section}/{cat}'
-            self.category.addItem(('★ ' if path in self.favorites else '') + core.humanize(cat), path)
+        cats = task.result or []
+        if not cats and section in core.DIRECT_SECTIONS:
+            path = section
+            self.category.addItem(('★ ' if path in self.favorites else '') + '[All Stories]', path)
+        else:
+            for cat in cats:
+                path = f'{section}/{cat}'
+                self.category.addItem(('★ ' if path in self.favorites else '') + core.humanize(cat), path)
 
     def refresh_favorites(self):
         self.favs.clear()

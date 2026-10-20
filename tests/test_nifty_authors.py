@@ -25,6 +25,7 @@ AUTHORS_PAGE = (panel('writer', 'Writer &amp; Co',
                 + panel('solo', 'Solo Author', ('/nifty/gay/camping/lone-wolf', 'Lone Wolf')))
 PROLIFIC_PAGE = panel('writer', 'Writer &amp; Co', ('/nifty/gay/college/texas-tails/', 'Texas Tails'),
                       ('/nifty/gay/sf-fantasy/third-story', 'A Third Story'))
+EPROLIFIC_PAGE = panel('writer', 'Writer &amp; Co', ('/nifty/gay/athletics/fourth-story', 'A Fourth Story'))
 
 
 def stories(*pairs):
@@ -55,12 +56,13 @@ class AuthorsDirectoryTests(unittest.TestCase):
         self.assertEqual(core.author_sections(authors[0]), ['gay', 'lesbian'])
 
     def test_both_pages_merge_without_repeating_stories(self):
-        f = FakeFetcher({core.SITE + 'authors.html': AUTHORS_PAGE, core.SITE + 'prolific.html': PROLIFIC_PAGE})
+        f = FakeFetcher({core.SITE + 'authors.html': AUTHORS_PAGE, core.SITE + 'prolific.html': PROLIFIC_PAGE, core.SITE + 'eprolific.html': EPROLIFIC_PAGE})
         authors = core.load_authors(f)
         writer = next(a for a in authors if a['id'] == 'writer')
         paths = [s['path'] for s in writer['stories']]
         self.assertEqual(len(paths), len(set(paths)))
         self.assertIn('gay/sf-fantasy/third-story', paths)
+        self.assertIn('gay/athletics/fourth-story', paths)
         self.assertEqual([a['name'] for a in authors], ['Solo Author', 'Writer & Co'], 'sorted by name')
 
     def test_norm_path(self):

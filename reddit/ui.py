@@ -11,7 +11,7 @@ except ImportError:
 
 from calibre_plugins.reddit_follower import core, login
 from calibre_plugins.reddit_follower.config import prefs
-from calibre_plugins.reddit_follower.guikit import run_task
+from calibre_plugins.reddit_follower.guikit import EmptyStateOverlay, run_task
 try:
     from calibre_plugins.reddit_follower.error_handler import show_friendly_error_dialog
 except ImportError:
@@ -593,6 +593,16 @@ class DiscoverDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+        self.overlay = EmptyStateOverlay(
+            self.table,
+            icon='🔎',
+            title='Find stories on Reddit',
+            message='Enter search terms or select a subreddit and click "Search" to discover stories.',
+            action_text='Search',
+            on_action=go.click
+        )
+        self.overlay.show_empty()
+
     def add_top(self):
         if not self.groups:
             self.message.setText('Search or browse first (for example Order: Top of all time), then add the top rated.')
@@ -641,6 +651,14 @@ class DiscoverDialog(QDialog):
         self.message.setText(_('{series} series and {other} single stories among the posts looked through. '
                              'Counts are only what the search showed; following a series reads all of its parts.').format(series=series, other=len(self.groups) - series) if self.groups
                              else _('Nothing found. Try other words, another order, or no flair.'))
+        if self.groups:
+            self.overlay.hide_empty()
+        else:
+            self.overlay.show_empty(
+                title='No stories found',
+                message='No series or stories matched your search criteria. Try using different keywords, order, or clearing flair filters.',
+                icon='🔎'
+            )
 
     def follow_selected(self):
         rows = self.table.selectionModel().selectedRows()
@@ -731,12 +749,19 @@ class ManageDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        self.overlay = EmptyStateOverlay(
+            self.table,
+            icon='📚',
+            title='No followed stories',
+            message='You are not following any Reddit stories yet. Discover and follow stories to keep your library updated.',
+            action_text='Find stories…',
+            on_action=self.find
+        )
 
         self.update_timer = QTimer(self)
         self.update_timer.setInterval(1000)
         self.update_timer.timeout.connect(self.update_backoff_timer)
         self.update_timer.start()
-
         self.refresh()
 
     def open_queue_manager(self):
@@ -745,8 +770,10 @@ class ManageDialog(QDialog):
 
     def follows(self):
         if hasattr(self.action, 'get_follows'):
-            return self.action.get_follows()
-        return prefs['follows']
+            res = self.action.get_follows()
+            if isinstance(res, (list, tuple)):
+                return res
+        return prefs.get('follows', [])
 
     def dismiss_error(self):
         if hasattr(self.action, 'last_background_error'):
@@ -761,6 +788,10 @@ class ManageDialog(QDialog):
 
     def update_backoff_timer(self):
         backoff_until = getattr(self.action, 'backoff_until', 0.0)
+        try:
+            backoff_until = float(backoff_until or 0.0)
+        except (TypeError, ValueError):
+            backoff_until = 0.0
         now = time.time()
         if backoff_until > now:
             remaining = max(0, int(backoff_until - now))
@@ -805,6 +836,16 @@ class ManageDialog(QDialog):
         mode_str = _('the official API') if prefs['mode'] == 'api' else _('public feeds')
         auto_str = _('; automatic checks every {hours:.1f} hours.').format(hours=max(float(prefs['check_hours']), core.MIN_CHECK_HOURS)) if prefs['auto_check'] else _('; automatic checks are off.')
         self.mode_label.setText(_('Reading: {mode}{auto}').format(mode=mode_str, auto=auto_str))
+        if follows:
+            self.overlay.hide_empty()
+        else:
+            self.overlay.show_empty(
+                title='No followed stories',
+                message='You are not following any Reddit stories yet. Discover and follow stories to keep your library updated.',
+                icon='📚',
+                action_text='Find stories…',
+                on_action=self.find
+            )
 
     def selected_ids(self):
         rows = {i.row() for i in self.table.selectedItems()}

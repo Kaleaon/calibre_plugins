@@ -8,13 +8,14 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
-    from .storykit import Cancelled, build_epub as _build_epub, clean_fragment, escape, sort_by_posting_order, strip_tags
+    from .storykit import Cancelled, Fetcher, build_epub as _build_epub, clean_fragment, escape, sort_by_posting_order, strip_tags
 except ImportError:  # tests load this file directly with common/ on sys.path
-    from storykit import Cancelled, build_epub as _build_epub, clean_fragment, escape, sort_by_posting_order, strip_tags
+    from storykit import Cancelled, Fetcher, build_epub as _build_epub, clean_fragment, escape, sort_by_posting_order, strip_tags
 
 SITE = 'https://www.nifty.org/nifty/'
 PUBLISHER = 'Nifty'
-SECTIONS = ['gay', 'lesbian', 'bisexual', 'transgender']
+SECTIONS = ['gay', 'lesbian', 'bisexual', 'transgender', 'bestiality', 'information', 'journal-entries', 'Kovzland', 'Vince_Water', 'Author22']
+DIRECT_SECTIONS = frozenset({'bestiality', 'information', 'journal-entries', 'Kovzland', 'Vince_Water', 'Author22'})
 MAX_DEPTH = 6
 
 build_epub = functools.partial(_build_epub, publisher=PUBLISHER)
@@ -155,10 +156,20 @@ def extract_directory_urls(lines):
         if path is None:
             continue
         parts = path.strip('/').split('/')
-        if len(parts) == 1:
-            continue
         dir_path = None
-        if len(parts) == 2:
+        if len(parts) == 1:
+            if parts[0] in DIRECT_SECTIONS:
+                dir_path = parts[0]
+            else:
+                continue
+        elif len(parts) == 2 and parts[0] in DIRECT_SECTIONS:
+            if path.endswith('/'):
+                dir_path = path.rstrip('/')
+            else:
+                folder, name = path.rsplit('/', 1)
+                prefix, number = split_chapter(name)
+                dir_path = folder if number is not None else None
+        elif len(parts) == 2:
             dir_path = path.rstrip('/')
         elif path.endswith('/'):
             dir_path = path.rstrip('/')
@@ -274,7 +285,35 @@ def expand_targets(fetcher, lines, progress=lambda msg: None):
         parts = path.strip('/').split('/')
         try:
             if len(parts) == 1:
-                errors.append(f'{line.strip()}: a whole section is too broad; pick a category or story.')
+                if parts[0] in DIRECT_SECTIONS:
+                    progress(f'Reading section {path}')
+                    found = expand_dir(fetcher, parts[0], dir_cache=dir_cache)
+                    if not found:
+                        errors.append(f'No stories found at {line.strip()}')
+                    for r in found:
+                        refs.setdefault(r['id'], r)
+                else:
+                    errors.append(f'{line.strip()}: a whole section is too broad; pick a category or story.')
+            elif len(parts) == 2 and parts[0] in DIRECT_SECTIONS:
+                if path.endswith('/'):
+                    refs.setdefault(path.rstrip('/'), {'id': path.rstrip('/'), 'title': humanize(parts[-1]), 'author': '',
+                                                       'date': '', 'dir': path.rstrip('/'), 'files': None, 'detail': 'series folder'})
+                else:
+                    folder, name = path.rsplit('/', 1)
+                    prefix, number = split_chapter(name)
+                    if number is None:
+                        r = {'id': path, 'title': humanize(prefix), 'author': '', 'date': '', 'dir': None, 'files': [path], 'detail': 'single story'}
+                    else:
+                        progress(f'Reading series {folder}')
+                        url = url_for(folder + '/')
+                        if dir_cache is not None and url in dir_cache:
+                            page_html = dir_cache.get(url)
+                        else:
+                            page_html = fetcher.get(url)
+                        names = dict(group_files(parse_listing(page_html))).get(prefix) or [name]
+                        r = {'id': f'{folder}/{prefix}', 'title': book_title(prefix, folder.rsplit('/', 1)[-1]), 'author': '', 'date': '', 'dir': None,
+                             'files': [f'{folder}/{n}' for n in names], 'detail': f'{len(names)} chapter(s)'}
+                    refs.setdefault(r['id'], r)
             elif len(parts) == 2:
                 progress(f'Reading category {path}')
                 found = expand_dir(fetcher, path, dir_cache=dir_cache)
@@ -610,7 +649,7 @@ def fetch_group(fetcher, group, progress=lambda msg: None):
 
 # ---------------------------------------------------------------- authors directory: stories spread over many folders
 
-AUTHOR_PAGES = ('authors.html', 'prolific.html')  # the regular and the "prolific authors" directories
+AUTHOR_PAGES = ('authors.html', 'prolific.html', 'eprolific.html')  # the regular, prolific, and extra prolific directories
 _PANEL = re.compile(r'<div id="([^"]+)" class="panel panel-default">\s*<div class="panel-heading">\s*'
                     r'<h4 class="panel-title">(.*?)</h4>.*?<ul>(.*?)</ul>', re.S)
 _ENTRY = re.compile(r'<li><a href="(/nifty/[^"]+)">(.*?)</a>', re.S)

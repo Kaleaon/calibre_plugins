@@ -8,7 +8,7 @@ except ImportError:
 
 from calibre_plugins.fanfic_downloader import engine, flaresolverr
 from calibre_plugins.fanfic_downloader.config import prefs
-from calibre_plugins.fanfic_downloader.guikit import run_task
+from calibre_plugins.fanfic_downloader.guikit import EmptyStateOverlay, run_task
 
 ADVANCED_HELP = '''# FanFicFare personal.ini settings, optional. Examples (remove the # to use).
 # Each [section] header may appear only once: put all of a site's lines under one header.
@@ -357,6 +357,16 @@ class DownloadDialog(QDialog):
                                 'to fetch only those chapters.')))
         self.urls = QPlainTextEdit()
         self.urls.setPlaceholderText('https://www.royalroad.com/fiction/21220\nhttps://archiveofourown.org/works/51711850')
+        self.urls_overlay = EmptyStateOverlay(
+            self.urls,
+            icon='📖',
+            title='Enter story URLs',
+            message='Paste story or fiction web addresses (one per line) from supported sites like Royal Road or AO3.',
+            action_text='Paste from clipboard',
+            on_action=self.paste_urls
+        )
+        self.urls.textChanged.connect(lambda: self.urls_overlay.update_visibility())
+        self.urls_overlay.update_visibility()
         layout.addWidget(self.urls, 2)
 
         self.adult = QCheckBox(_('Allow adult sites (adult-only sites, and confirming adult content on mixed sites)'))
@@ -391,6 +401,11 @@ class DownloadDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def paste_urls(self):
+        text = QApplication.clipboard().text()
+        if text:
+            self.urls.setPlainText(text)
 
     def values(self):
         prefs['allow_adult'] = self.adult.isChecked()
