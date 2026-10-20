@@ -196,6 +196,26 @@ class FollowDialog(QDialog):
             self.layout_box.setCurrentIndex(1)
         form.addRow(_('Make'), self.layout_box)
         layout.addLayout(form)
+
+        # Multi-source section
+        layout.addWidget(QLabel(_('Additional Feed Sources (for multi-author or multi-subreddit series):')))
+        self.sources_table = QTableWidget(0, 4)
+        self.sources_table.setHorizontalHeaderLabels([_('Where'), _('Title filter'), _('Author filter'), _('Flair filter')])
+        self.sources_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.sources_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.sources_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.sources_table)
+
+        src_btn_row = QHBoxLayout()
+        add_src_btn = QPushButton(_('Add feed source…'))
+        add_src_btn.clicked.connect(self.add_source)
+        rem_src_btn = QPushButton(_('Remove feed source'))
+        rem_src_btn.clicked.connect(self.remove_source)
+        src_btn_row.addWidget(add_src_btn)
+        src_btn_row.addWidget(rem_src_btn)
+        src_btn_row.addStretch(1)
+        layout.addLayout(src_btn_row)
+
         self.title_from_body = QCheckBox(_('The first line of each post is its chapter title (use it to name the chapter)'))
         self.title_from_body.setToolTip(_('For authors who open every post with a short title line. The line becomes the chapter name and is taken out of the text; '
                                         'a note in brackets next to it becomes a boxed author\'s note; posts that do not open that way keep their own title.'))
@@ -622,13 +642,13 @@ class DiscoverDialog(QDialog):
 
 class ManageDialog(QDialog):
     """The list of followed stories, with add, edit, remove and check buttons."""
-    COLUMNS = [_('Book'), _('Following'), _('Chapters'), _('Last checked'), _('Status')]
+    COLUMNS = [_('Book'), _('Feed Sources'), _('Chapters'), _('Last checked'), _('Status')]
 
     def __init__(self, parent, action):
         super().__init__(parent)
         self.action = action
         self.setWindowTitle(_('Followed Reddit stories'))
-        self.resize(860, 460)
+        self.resize(880, 460)
         layout = QVBoxLayout(self)
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
@@ -639,7 +659,7 @@ class ManageDialog(QDialog):
         self.mode_label = QLabel('')
         layout.addWidget(self.mode_label)
         row1 = QHBoxLayout()
-        for label, slot in ((_('Find stories…'), self.find), (_('Add…'), self.add), (_('Edit…'), self.edit), (_('Remove'), self.remove), (_('Queue manager…'), self.open_queue_manager), (_('Test selected'), self.test_selected)):
+        for label, slot in ((_('Find stories…'), self.find), (_('Add…'), self.add), (_('Edit…'), self.edit), (_('Manifest…'), self.manifest), (_('Remove'), self.remove), (_('Queue manager…'), self.open_queue_manager), (_('Test selected'), self.test_selected)):
             button = QPushButton(label)
             button.clicked.connect(slot)
             row1.addWidget(button)
@@ -670,7 +690,18 @@ class ManageDialog(QDialog):
         self.table.setRowCount(len(follows))
         for r, follow in enumerate(follows):
             checked = time.strftime('%Y-%m-%d %H:%M', time.localtime(follow['last_checked'])) if follow.get('last_checked') else _('never')
-            cells = [follow['name'], core.describe_source(follow['source']) + core.describe_filters(follow), str(self.action.chapter_count(follow)), checked, follow.get('last_status', '')]
+            sources = follow.get('sources') or ([follow.get('source')] if follow.get('source') else [])
+            if len(sources) > 1:
+                source_desc = _('{count} source(s) ({first_two}{more})').format(
+                    count=len(sources),
+                    first_two=", ".join(core.describe_source(s) for s in sources[:2]),
+                    more=_('…') if len(sources) > 2 else ''
+                )
+            elif sources:
+                source_desc = core.describe_source(sources[0])
+            else:
+                source_desc = core.describe_source(follow.get('source', {}))
+            cells = [follow['name'], source_desc + core.describe_filters(follow), str(self.action.chapter_count(follow)), checked, follow.get('last_status', '')]
             for c, text in enumerate(cells):
                 item = QTableWidgetItem(text)
                 item.setData(Qt.ItemDataRole.UserRole, follow['id'])
