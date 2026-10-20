@@ -2,7 +2,7 @@
 import time
 import webbrowser
 
-from qt.core import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QHBoxLayout, QLabel,
+from qt.core import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
                      QLineEdit, QMessageBox, QPushButton, QRadioButton, QSpinBox, QTableWidget, QTableWidgetItem, Qt, QVBoxLayout)
 try:
     from qt.core import _
@@ -638,13 +638,19 @@ class ManageDialog(QDialog):
         layout.addWidget(self.table, 1)
         self.mode_label = QLabel('')
         layout.addWidget(self.mode_label)
-        row = QHBoxLayout()
-        for label, slot in ((_('Find stories…'), self.find), (_('Add…'), self.add), (_('Edit…'), self.edit), (_('Remove'), self.remove), (_('Queue manager…'), self.open_queue_manager), (_('Test selected'), self.test_selected), (_('Check selected now'), self.check_selected),
-                            (_('Check all now'), self.check_all), (_('Settings…'), self.settings)):
+        row1 = QHBoxLayout()
+        for label, slot in ((_('Find stories…'), self.find), (_('Add…'), self.add), (_('Edit…'), self.edit), (_('Remove'), self.remove), (_('Queue manager…'), self.open_queue_manager), (_('Test selected'), self.test_selected)):
             button = QPushButton(label)
             button.clicked.connect(slot)
-            row.addWidget(button)
-        layout.addLayout(row)
+            row1.addWidget(button)
+        layout.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        for label, slot in ((_('Check selected now'), self.check_selected), (_('Check all now'), self.check_all), (_('Export OPML…'), self.export_opml), (_('Import OPML…'), self.import_opml), (_('Settings…'), self.settings)):
+            button = QPushButton(label)
+            button.clicked.connect(slot)
+            row2.addWidget(button)
+        layout.addLayout(row2)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -744,4 +750,53 @@ class ManageDialog(QDialog):
     def settings(self):
         SettingsDialog(self).exec()
         self.refresh()
+
+    def export_opml(self):
+        filename, _filt = QFileDialog.getSaveFileName(
+            self,
+            _('Export OPML'),
+            'reddit_subscriptions.opml',
+            _('OPML Files (*.opml *.xml);;All Files (*)')
+        )
+        if not filename:
+            return
+        try:
+            follows = self.follows()
+            count = core.export_opml(follows, filename)
+            QMessageBox.information(
+                self,
+                _('Export OPML'),
+                _('Successfully exported {count} story series to OPML file.').format(count=count)
+            )
+        except Exception as exc:
+            show_friendly_error_dialog(self, _('Failed to export OPML'), exc)
+
+    def import_opml(self):
+        filename, _filt = QFileDialog.getOpenFileName(
+            self,
+            _('Import OPML'),
+            '',
+            _('OPML Files (*.opml *.xml);;All Files (*)')
+        )
+        if not filename:
+            return
+        try:
+            existing = self.follows()
+            imported, skipped = core.import_opml(filename, existing=existing)
+            if imported:
+                if hasattr(self.action, 'registry'):
+                    reg = self.action.registry()
+                    for item in imported:
+                        reg.save_series(item)
+                prefs['follows'] = prefs['follows'] + imported
+                self.refresh()
+            QMessageBox.information(
+                self,
+                _('Import OPML'),
+                _('Imported {count} new story series ({skipped} duplicates skipped).').format(
+                    count=len(imported), skipped=skipped
+                )
+            )
+        except Exception as exc:
+            show_friendly_error_dialog(self, _('Failed to import OPML'), exc)
 

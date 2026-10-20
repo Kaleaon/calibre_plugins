@@ -10,6 +10,7 @@ import threading
 import unittest
 import urllib.error
 import xml.dom.minidom
+import xml.etree.ElementTree as ET
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'common'))
@@ -994,6 +995,95 @@ class ApiSourceTests(unittest.TestCase):
         with self.assertRaises(core.RateLimited) as caught:
             self.api().page(core.parse_source('r/HFY'))
         self.assertEqual(caught.exception.retry_after, 45)
+
+
+class OpmlTests(unittest.TestCase):
+    def test_export_opml_valid_xml_and_metadata(self):
+        f1 = core.new_follow('HFY Main', 'r/HFY')
+        f2 = core.new_follow('Out of Cruel Space', 'u/KyleKKent', title_filter='Out of Cruel Space',
+                             author_filter='KyleKKent', author_note=True, title_from_body=True,
+                             index_url='https://docs.google.com/sheet1')
+        buf = io.BytesIO()
+        cnt = core.export_opml([f1, f2], buf)
+        self.assertEqual(cnt, 2)
+        xml_str = buf.getvalue().decode('utf-8')
+
+        root = ET.fromstring(xml_str)
+        self.assertTrue(root.tag.endswith('opml'))
+        self.assertEqual(root.attrib.get('version'), '2.0')
+
+        outlines = root.findall('.//outline')
+        self.assertEqual(len(outlines), 2)
+
+        o1 = outlines[0]
+        self.assertEqual(o1.attrib['title'], 'HFY Main')
+        self.assertEqual(o1.attrib['type'], 'rss')
+        self.assertEqual(o1.attrib['xmlUrl'], 'https://www.reddit.com/r/HFY/new.rss?limit=100')
+        self.assertEqual(o1.attrib['htmlUrl'], 'https://www.reddit.com/r/HFY/')
+
+        o2 = outlines[1]
+        self.assertEqual(o2.attrib['title'], 'Out of Cruel Space')
+        self.assertEqual(o2.attrib['xmlUrl'], 'https://www.reddit.com/user/KyleKKent/submitted.rss?sort=new&limit=100')
+        self.assertEqual(o2.attrib['htmlUrl'], 'https://www.reddit.com/u/KyleKKent')
+
+    def test_import_opml_roundtrip(self):
+        f1 = core.new_follow('HFY Main', 'r/HFY')
+        f2 = core.new_follow('Out of Cruel Space', 'u/KyleKKent', title_filter='Out of Cruel Space',
+                             author_filter='KyleKKent', author_note=True, title_from_body=True,
+                             index_url='https://docs.google.com/sheet1')
+        buf = io.BytesIO()
+        core.export_opml([f1, f2], buf)
+        xml_str = buf.getvalue().decode('utf-8')
+
+        imported, skipped = core.import_opml(xml_str, existing=[])
+        self.assertEqual(len(imported), 2)
+        self.assertEqual(skipped, 0)
+
+        self.assertEqual(imported[0]['name'], 'HFY Main')
+        self.assertEqual(imported[0]['source'], {'kind': 'subreddit', 'subreddit': 'HFY', 'user': '', 'query': ''})
+
+        self.assertEqual(imported[1]['name'], 'Out of Cruel Space')
+        self.assertEqual(imported[1]['title_filter'], 'Out of Cruel Space')
+        self.assertEqual(imported[1]['author_filter'], 'KyleKKent')
+        self.assertTrue(imported[1]['author_note'])
+        self.assertTrue(imported[1]['title_from_body'])
+        self.assertEqual(imported[1]['index_url'], 'https://docs.google.com/sheet1')
+
+    def test_import_opml_external_aggregator(self):
+        external_opml = """<?xml version="1.0" encoding="UTF-8"?>
+<opml version="1.0">
+  <head><title>Feedly Subscriptions</title></head>
+  <body>
+    <outline text="Reddit HFY" title="Reddit HFY" type="rss" xmlUrl="https://www.reddit.com/r/HFY/.rss" htmlUrl="https://www.reddit.com/r/HFY/"/>
+    <outline text="u/KyleKKent posts" title="u/KyleKKent posts" type="rss" xmlUrl="https://www.reddit.com/user/KyleKKent/submitted.rss?sort=new" htmlUrl="https://www.reddit.com/user/KyleKKent"/>
+  </body>
+</opml>"""
+        imported, skipped = core.import_opml(external_opml, existing=[])
+        self.assertEqual(len(imported), 2)
+        self.assertEqual(skipped, 0)
+        self.assertEqual(imported[0]['source']['kind'], 'subreddit')
+        self.assertEqual(imported[0]['source']['subreddit'], 'HFY')
+        self.assertEqual(imported[1]['source']['kind'], 'user')
+        self.assertEqual(imported[1]['source']['user'], 'KyleKKent')
+
+    def test_import_opml_duplicate_detection(self):
+        f1 = core.new_follow('HFY Main', 'r/HFY')
+        buf = io.BytesIO()
+        core.export_opml([f1], buf)
+        xml_str = buf.getvalue().decode('utf-8')
+
+        imported, skipped = core.import_opml(xml_str, existing=[f1])
+        self.assertEqual(len(imported), 0)
+        self.assertEqual(skipped, 1)
+
+    def test_import_opml_invalid_xml_raises_friendly_error(self):
+        with self.assertRaises(ValueError) as cm:
+            core.import_opml("<opml><unclosed_tag>", existing=[])
+        self.assertIn('Invalid OPML XML document', str(cm.exception))
+
+        with self.assertRaises(ValueError) as cm:
+            core.import_opml("<html>Not an OPML file</html>", existing=[])
+        self.assertIn('Not a valid OPML file', str(cm.exception))
 
 
 if __name__ == '__main__':
