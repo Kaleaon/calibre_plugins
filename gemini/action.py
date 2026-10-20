@@ -22,12 +22,12 @@ from calibre_plugins.gemini_library_fixer import engine
 from calibre_plugins.gemini_library_fixer.config import prefs
 from calibre_plugins.gemini_library_fixer.guikit import run_task
 
-FIELD_LABELS = [('title', _('Titles')), ('authors', _('Authors')), ('series', _('Series and volume number')), ('tags', _('Tags')),
-                ('language', _('Language (only if empty)')), ('isbn', _('ISBN (read from the back cover or title page)'))]
-SHOW = {'title': _('Title'), 'authors': _('Authors'), 'series': _('Series'), 'tags': _('Tags'), 'language': _('Language'), 'isbn': _('ISBN')}
-PRIVACY = _('Your API key is stored unencrypted in Calibre\'s settings folder. Only book details (title, authors, series, tags, '
-            'publisher, language, file names) are sent to Google; the opening text and the cover pictures of a book are sent only if you tick those options. '
-            'Changing a title or author also renames the book\'s folder and files in your library. Nothing changes until you press Apply.')
+FIELD_LABELS = [('title', 'Titles'), ('authors', 'Authors'), ('series', 'Series and volume number'), ('tags', 'Tags'),
+                ('language', 'Language (only if empty)'), ('isbn', 'ISBN (read from the back cover or title page)')]
+SHOW = {'title': 'Title', 'authors': 'Authors', 'series': 'Series', 'tags': 'Tags', 'language': 'Language', 'isbn': 'ISBN'}
+PRIVACY = ('Your API key is stored unencrypted in Calibre\'s settings folder. Only book details (title, authors, series, tags, '
+           'publisher, language, file names) are sent to Google; the opening text and the cover pictures of a book are sent only if you tick those options. '
+           'Changing a title or author also renames the book\'s folder and files in your library. Nothing changes until you press Apply.')
 
 
 class TemplateManagerDialog(QDialog):
@@ -284,7 +284,7 @@ def show_value(field, value):
 
 class GeminiFixerAction(InterfaceAction):
     name = 'Gemini Library Fixer'
-    action_spec = (_('Gemini fix books'), None, _('Rename, sort and fix book metadata with the Google Gemini API'), None)
+    action_spec = ('Gemini fix books', None, 'Rename, sort and fix book metadata with the Google Gemini API', None)
 
     def genesis(self):
         self.qaction.triggered.connect(self.show_dialog)
@@ -396,7 +396,7 @@ class GeminiFixerAction(InterfaceAction):
     def show_dialog(self):
         selected = list(self.gui.library_view.get_selected_ids())
         dialog = QDialog(self.gui)
-        dialog.setWindowTitle(_('Gemini Library Fixer'))
+        dialog.setWindowTitle('Gemini Library Fixer')
         dialog.resize(1000, 700)
         main = QVBoxLayout(dialog)
         settings = QWidget()  # everything up to the progress bar; it can be hidden to give the results more room
@@ -411,83 +411,92 @@ class GeminiFixerAction(InterfaceAction):
         note.setWordWrap(True)
         layout.addWidget(note)
 
-        scope_selected = QRadioButton(_('Selected books ({count})').format(count=len(selected)))
-        scope_all = QRadioButton(_('Entire library (uses many requests; start with a few selected books)'))
+        scope_selected = QRadioButton(f'Selected books ({len(selected)})')
+        scope_all = QRadioButton('Entire library (uses many requests; start with a few selected books)')
         (scope_selected if selected else scope_all).setChecked(True)
         scope_selected.setEnabled(bool(selected))
         layout.addWidget(scope_selected)
         layout.addWidget(scope_all)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel(_('Google AI API key:')))
+        row.addWidget(QLabel('Google AI API key:'))
         key = QLineEdit(prefs['api_key'])
         key.setEchoMode(QLineEdit.EchoMode.Password)
-        key.setPlaceholderText(_('Free key from https://aistudio.google.com/apikey — no billing needed (or set GEMINI_API_KEY)'))
+        key.setPlaceholderText('Free key from https://aistudio.google.com/apikey — no billing needed (or set GEMINI_API_KEY)')
         row.addWidget(key, 1)
         layout.addLayout(row)
         row = QHBoxLayout()
-        row.addWidget(QLabel(_('Model:')))
+        row.addWidget(QLabel('Model:'))
         model = QComboBox()
         model.setEditable(True)
         model.addItem(prefs['model'])
         model.setCurrentText(prefs['model'])
         row.addWidget(model, 1)
-        models_btn = QPushButton(_('List models'))
-        models_btn.setToolTip(_('Ask Google which models your key can use'))
+        models_btn = QPushButton('List models')
+        models_btn.setToolTip('Ask Google which models your key can use')
         row.addWidget(models_btn)
         layout.addLayout(row)
 
-        layout.addWidget(QLabel(_('Fix:')))
+        row = QHBoxLayout()
+        row.addWidget(QLabel('Instruction Template:'))
+        template_combo = QComboBox()
+        manage_templates_btn = QPushButton('Manage Templates...')
+        manage_templates_btn.setToolTip('Create, edit, or delete instruction templates and presets')
+        row.addWidget(template_combo, 1)
+        row.addWidget(manage_templates_btn)
+        layout.addLayout(row)
+
+        layout.addWidget(QLabel('Fix:'))
         boxes = {}
         for field, label in FIELD_LABELS:
             boxes[field] = QCheckBox(label)
             boxes[field].setChecked(field in prefs['fields'])
             layout.addWidget(boxes[field])
-        tags_remove = QCheckBox(_('Let it remove or rename existing tags (otherwise it can only add tags)'))
+        tags_remove = QCheckBox('Let it remove or rename existing tags (otherwise it can only add tags)')
         tags_remove.setChecked(bool(prefs['tags_remove']))
         layout.addWidget(tags_remove)
-        excerpt = QCheckBox(_('Also send the first ~1500 characters of each EPUB (helps with badly named books; sends book text to Google)'))
+        excerpt = QCheckBox('Also send the first ~1500 characters of each EPUB (helps with badly named books; sends book text to Google)')
         excerpt.setChecked(bool(prefs['excerpt']))
         layout.addWidget(excerpt)
-        covers = QCheckBox(_('Also look at the cover pictures: the front cover, and a back cover or last page where the book has one (sends pictures to Google; uses more of a free key\'s limit)'))
+        covers = QCheckBox('Also look at the cover pictures: the front cover, and a back cover or last page where the book has one (sends pictures to Google; uses more of a free key\'s limit)')
         covers.setChecked(bool(prefs['covers']))
-        covers.setToolTip(_('Gemini reads the title, author, series, volume and ISBN printed on the pictures. Calibre keeps only a front cover, so a back cover is found only inside the file: an EPUB image named back/rear, or the last page of a CBZ.'))
+        covers.setToolTip('Gemini reads the title, author, series, volume and ISBN printed on the pictures. Calibre keeps only a front cover, so a back cover is found only inside the file: an EPUB image named back/rear, or the last page of a CBZ.')
         layout.addWidget(covers)
         row = QHBoxLayout()
-        row.addWidget(QLabel(_('Minimum confidence:')))
+        row.addWidget(QLabel('Minimum confidence:'))
         confidence = QComboBox()
         confidence.addItems(['low', 'medium', 'high'])
         confidence.setCurrentText(prefs['min_confidence'])
         row.addWidget(confidence)
-        row.addWidget(QLabel(_('Books per request:')))
+        row.addWidget(QLabel('Books per request:'))
         batch = QSpinBox()
         batch.setRange(1, 50)
         batch.setValue(int(prefs['batch_size']))
         row.addWidget(batch)
-        row.addWidget(QLabel(_('Seconds between requests:')))
+        row.addWidget(QLabel('Seconds between requests:'))
         interval = QSpinBox()
         interval.setRange(0, 120)
         interval.setValue(int(prefs['min_interval']))
-        interval.setToolTip(_('Free Google AI keys allow only a few requests per minute. 7 keeps under about 8 a minute; use 0 with a paid key.'))
+        interval.setToolTip('Free Google AI keys allow only a few requests per minute. 7 keeps under about 8 a minute; use 0 with a paid key.')
         row.addWidget(interval)
         row.addStretch(1)
         layout.addLayout(row)
 
         layout = main
         row = QHBoxLayout()
-        settings_btn = QPushButton(_('Hide settings'))
-        settings_btn.setToolTip(_('Hide the settings above to make room for the log and the suggested changes'))
+        settings_btn = QPushButton('Hide settings')
+        settings_btn.setToolTip('Hide the settings above to make room for the log and the suggested changes')
         row.addWidget(settings_btn)
         bar = QProgressBar()
         bar.setRange(0, 1)
         bar.setValue(0)
         bar.setFormat('%v of %m')
         row.addWidget(bar, 1)
-        stop_btn = QPushButton(_('Cancel'))
+        stop_btn = QPushButton('Cancel')
         stop_btn.setEnabled(False)
         row.addWidget(stop_btn)
         layout.addLayout(row)
-        phase = QLabel(_('Idle.'))
+        phase = QLabel('Idle.')
         layout.addWidget(phase)
 
         # The log and the list of suggested changes share a splitter, so either can be dragged larger.
@@ -495,16 +504,16 @@ class GeminiFixerAction(InterfaceAction):
         activity = QPlainTextEdit()
         activity.setReadOnly(True)
         activity.setMaximumBlockCount(5000)
-        activity.setPlaceholderText(_('What is happening shows up here: each book as it is read, the exact data sent to Gemini, and every answer that comes back.'))
+        activity.setPlaceholderText('What is happening shows up here: each book as it is read, the exact data sent to Gemini, and every answer that comes back.')
         splitter.addWidget(activity)
         results = QWidget()
         results_layout = QVBoxLayout(results)
         results_layout.setContentsMargins(0, 0, 0, 0)
         pick_row = QHBoxLayout()
-        pick_row.addWidget(QLabel(_('Suggested changes:')))
-        all_btn = QPushButton(_('Check all'))
-        none_btn = QPushButton(_('Check none'))
-        safe_btn = QPushButton(_('Check all except big changes'))
+        pick_row.addWidget(QLabel('Suggested changes:'))
+        all_btn = QPushButton('Check all')
+        none_btn = QPushButton('Check none')
+        safe_btn = QPushButton('Check all except big changes')
         for w in (all_btn, none_btn, safe_btn):
             pick_row.addWidget(w)
         pick_row.addStretch(1)
@@ -512,7 +521,7 @@ class GeminiFixerAction(InterfaceAction):
         pick_row.addWidget(ticked)
         results_layout.addLayout(pick_row)
         tree = QTreeWidget()
-        tree.setHeaderLabels([_('Suggested change'), _('Why')])
+        tree.setHeaderLabels(['Suggested change', 'Why'])
         tree.setColumnWidth(0, 700)
         tree.setAlternatingRowColors(True)
         results_layout.addWidget(tree, 1)
@@ -521,15 +530,15 @@ class GeminiFixerAction(InterfaceAction):
         splitter.setStretchFactor(1, 3)
         splitter.setSizes([180, 520])
         layout.addWidget(splitter, 1)
-        status = QLabel(_('Press Check books to ask Gemini. Big changes (a very different title or author) are left unticked.'))
+        status = QLabel('Press Check books to ask Gemini. Big changes (a very different title or author) are left unticked.')
         status.setWordWrap(True)
         layout.addWidget(status)
 
         buttons = QDialogButtonBox()
-        check_btn = QPushButton(_('Check books'))
-        apply_btn = QPushButton(_('Apply ticked changes'))
+        check_btn = QPushButton('Check books')
+        apply_btn = QPushButton('Apply ticked changes')
         apply_btn.setEnabled(False)
-        undo_btn = QPushButton(_('Undo last run'))
+        undo_btn = QPushButton('Undo last run')
         undo_btn.setEnabled(bool(prefs['undo']))
         buttons.addButton(check_btn, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.addButton(apply_btn, QDialogButtonBox.ButtonRole.AcceptRole)
@@ -615,7 +624,7 @@ class GeminiFixerAction(InterfaceAction):
                 for j in range(top.childCount()):
                     total += 1
                     count += top.child(j).checkState(0) == Qt.CheckState.Checked
-            ticked.setText(_('{count} of {total} change(s) ticked').format(count=count, total=total) if total else '')
+            ticked.setText(f'{count} of {total} change(s) ticked' if total else '')
             apply_btn.setEnabled(count > 0 and not run_busy[0])
 
         run_busy = [False]
@@ -626,7 +635,7 @@ class GeminiFixerAction(InterfaceAction):
 
         def toggle_settings():
             scroll.setHidden(not scroll.isHidden())
-            settings_btn.setText(_('Show settings') if scroll.isHidden() else _('Hide settings'))
+            settings_btn.setText('Show settings' if scroll.isHidden() else 'Hide settings')
 
         settings_btn.clicked.connect(toggle_settings)
 
@@ -642,16 +651,16 @@ class GeminiFixerAction(InterfaceAction):
             stop_btn.setEnabled(busy)
             buttons.button(QDialogButtonBox.StandardButton.Close).setEnabled(not busy)
 
-        stop_btn.clicked.connect(lambda: (cancel_flag.set(), log(_('Cancel pressed; stopping after the current step.'))))
+        stop_btn.clicked.connect(lambda: (cancel_flag.set(), log('Cancel pressed; stopping after the current step.')))
         dialog.finished.connect(lambda _result: cancel_flag.set())
 
         def do_list_models():
             save_prefs()
             if not api_key():
-                return error_dialog(dialog, _('Gemini'), _('Enter your API key first.'), show=True)
-            task = run_task(dialog, _('Asking Google for the model list…'), lambda t: engine.list_models(api_key(), cancelled=t.cancelled))
+                return error_dialog(dialog, 'Gemini', 'Enter your API key first.', show=True)
+            task = run_task(dialog, 'Asking Google for the model list…', lambda t: engine.list_models(api_key(), cancelled=t.cancelled))
             if task.error:
-                return error_dialog(dialog, _('Gemini'), str(task.error), show=True)
+                return error_dialog(dialog, 'Gemini', str(task.error), show=True)
             if task.result:
                 current = model.currentText()
                 model.clear()
@@ -661,9 +670,9 @@ class GeminiFixerAction(InterfaceAction):
         def do_check():
             save_prefs()
             if not api_key():
-                return error_dialog(dialog, _('Gemini'), _('Enter your Google AI API key first.'), show=True)
+                return error_dialog(dialog, 'Gemini', 'Enter your Google AI API key first.', show=True)
             if not chosen_fields():
-                return error_dialog(dialog, _('Gemini'), _('Tick at least one thing to fix.'), show=True)
+                return error_dialog(dialog, 'Gemini', 'Tick at least one thing to fix.', show=True)
             ids = selected if scope_selected.isChecked() else sorted(self.gui.current_db.new_api.all_book_ids())
             tree.clear()
             update_ticked()
@@ -674,7 +683,7 @@ class GeminiFixerAction(InterfaceAction):
                 toggle_settings()  # more room for the log; the button brings the settings back
             splitter.setSizes([520, 180])
             try:
-                log(_('Reading {count} book(s) from your library').format(count=len(ids)) + (_(' (including the opening text of EPUBs)') if excerpt.isChecked() else '') + (_(' and their cover pictures') if covers.isChecked() else '') + '…')
+                log(f'Reading {len(ids)} book(s) from your library' + (' (including the opening text of EPUBs)' if excerpt.isChecked() else '') + (' and their cover pictures' if covers.isChecked() else '') + '…')
                 bar.setRange(0, max(1, len(ids)))
                 bar.setValue(0)
 
@@ -702,22 +711,22 @@ class GeminiFixerAction(InterfaceAction):
                         if kind == 'progress':
                             index, total, book = info
                             bar.setValue(index)
-                            phase.setText(_('Reading your library: book {index} of {total}').format(index=index, total=total))
-                            log(_('  read {index}/{total}: {desc}').format(index=index, total=total, desc=engine.describe_book(book)))
+                            phase.setText(f'Reading your library: book {index} of {total}')
+                            log(f'  read {index}/{total}: {engine.describe_book(book)}')
                     if cancel_flag.is_set():
-                        phase.setText(_('Cancelling… stopping library scan'))
+                        phase.setText('Cancelling… stopping library scan')
                     else:
-                        phase.setText(_('Reading your library…'))
+                        phase.setText('Reading your library…')
                     QApplication.processEvents()
                     time.sleep(0.02)
 
                 if box.get('error'):
-                    log(_('✖ Stopped: {error}').format(error=box["error"]))
+                    log(f'✖ Stopped: {box["error"]}')
                     return finish_run(None, 0, error=box['error'])
 
                 books = box.get('books', [])
                 if cancel_flag.is_set():
-                    log(_('Cancelled while reading. Nothing was sent to Google.'))
+                    log('Cancelled while reading. Nothing was sent to Google.')
                     return finish_run(None, len(books))
 
                 m_name = model.currentText().strip() or engine.DEFAULT_MODEL
@@ -733,28 +742,17 @@ class GeminiFixerAction(InterfaceAction):
                     template_vars=tpl_vars
                 )
                 msg = (
-                    _("Pre-Flight API Usage Estimate:\n\n"
-                      "• Selected Books: {books_count}\n"
-                      "• Batch Requests: {batch_count} ({per_request} books/request)\n"
-                      "• Text Characters: {text_chars:,}\n"
-                      "• Estimated Tokens: ~{prompt_tokens:,} ({text_tokens:,} text, {image_tokens:,} image)\n"
-                      "• Estimated Duration: ~{estimated_duration} seconds\n"
-                      "• Estimated Cost: ${estimated_cost:.4f} USD (Model: {model})\n\n"
-                      "Do you want to proceed with sending these requests to Google Gemini?")
-                ).format(
-                    books_count=est['books_count'],
-                    batch_count=est['batch_count'],
-                    per_request=est['per_request'],
-                    text_chars=est['text_chars'],
-                    prompt_tokens=est['prompt_tokens'],
-                    text_tokens=est['text_tokens'],
-                    image_tokens=est['image_tokens'],
-                    estimated_duration=est['estimated_duration'],
-                    estimated_cost=est['estimated_cost'],
-                    model=m_name
+                    f"Pre-Flight API Usage Estimate:\n\n"
+                    f"• Selected Books: {est['books_count']}\n"
+                    f"• Batch Requests: {est['batch_count']} ({est['per_request']} books/request)\n"
+                    f"• Text Characters: {est['text_chars']:,}\n"
+                    f"• Estimated Tokens: ~{est['prompt_tokens']:,} ({est['text_tokens']:,} text, {est['image_tokens']:,} image)\n"
+                    f"• Estimated Duration: ~{est['estimated_duration']} seconds\n"
+                    f"• Estimated Cost: ${est['estimated_cost']:.4f} USD (Model: {m_name})\n\n"
+                    f"Do you want to proceed with sending these requests to Google Gemini?"
                 )
-                if not question_dialog(dialog, _('Gemini Pre-Flight Confirmation'), msg):
-                    log(_('Cancelled at pre-flight confirmation. Nothing was sent to Google.'))
+                if not question_dialog(dialog, 'Gemini Pre-Flight Confirmation', msg):
+                    log('Cancelled at pre-flight confirmation. Nothing was sent to Google.')
                     return finish_run(None, len(books))
 
                 result, error = ask_gemini(books)
@@ -768,8 +766,7 @@ class GeminiFixerAction(InterfaceAction):
             box = {}
             total = len(books)
             per_request = min(batch.value(), 8) if covers.isChecked() else batch.value()  # pictures make requests heavy
-            log(_('Sending {total} book(s) to Gemini ({model}), {per_request} per request. Only the details shown above leave your computer.').format(
-                total=total, model=model.currentText().strip() or engine.DEFAULT_MODEL, per_request=per_request))
+            log(f'Sending {total} book(s) to Gemini ({model.currentText().strip() or engine.DEFAULT_MODEL}), {per_request} per request. Only the details shown above leave your computer.')
             bar.setRange(0, max(1, total))
             bar.setValue(0)
 
@@ -793,30 +790,28 @@ class GeminiFixerAction(InterfaceAction):
                 if kind == 'sending':
                     batch_books = info['books']
                     waiting['since'], waiting['count'] = time.time(), len(batch_books)
-                    log(_('→ Sending {count} book(s) to Gemini:').format(count=len(batch_books)))
+                    log(f'→ Sending {len(batch_books)} book(s) to Gemini:')
                     for b in batch_books:
                         log(f'     {engine.describe_book(b)}')
                 elif kind == 'received':
-                    log(_('← Gemini answered after {duration:.0f}s ({count} entries)').format(
-                        duration=time.time() - (waiting["since"] or time.time()), count=info["count"]))
+                    log(f'← Gemini answered after {time.time() - (waiting["since"] or time.time()):.0f}s ({info["count"]} entries)')
                     waiting['since'] = None
                 elif kind == 'answer':
                     book, changes = info['book'], info['changes']
                     name = f"“{book.get('title') or book['id']}”"
                     if info.get('cover_text'):
-                        log(_('   📖 read from the pictures for {name}: {text}').format(name=name, text=info['cover_text']))
+                        log(f"   📖 read from the pictures for {name}: {info['cover_text']}")
                     if info['kept']:
-                        log(_('   ✔ {name} [{confidence}]: ').format(name=name, confidence=info['confidence'])
-                            + '; '.join(engine.describe_change(f, o, n) for f, (o, n) in changes.items())
+                        log(f"   ✔ {name} [{info['confidence']}]: " + '; '.join(engine.describe_change(f, o, n) for f, (o, n) in changes.items())
                             + (f" — {info['reason']}" if info['reason'] else ''))
                     elif changes:
-                        log(_('   ✖ {name}: suggestion dropped, {why}').format(name=name, why=info['dropped_why']))
+                        log(f"   ✖ {name}: suggestion dropped, {info['dropped_why']}")
                     else:
-                        log(_('   – {name}: no change needed').format(name=name))
+                        log(f'   – {name}: no change needed')
                 elif kind == 'notice':
-                    log(_('⚠ {text}').format(text=info['text']))
+                    log(f"⚠ {info['text']}")
                 elif kind == 'skipped':
-                    log(_('✖ {text}').format(text=info['text']))
+                    log(f"✖ {info['text']}")
                 elif kind == 'progress':
                     bar.setValue(info['done'])
 
@@ -824,45 +819,40 @@ class GeminiFixerAction(InterfaceAction):
                 while not messages.empty():
                     handle(*messages.get())
                 if cancel_flag.is_set():
-                    phase.setText(_('Cancelling… waiting for the request in progress to come back'))
+                    phase.setText('Cancelling… waiting for the request in progress to come back')
                 elif waiting['since'] is not None:
-                    phase.setText(_('Waiting for Gemini… {duration:.0f}s so far ({count} books in this request; usually 5–60s)').format(
-                        duration=time.time() - waiting['since'], count=waiting['count']))
+                    phase.setText(f"Waiting for Gemini… {time.time() - waiting['since']:.0f}s so far ({waiting['count']} books in this request; usually 5–60s)")
                 else:
-                    phase.setText(_('Working…'))
+                    phase.setText('Working…')
                 QApplication.processEvents()
                 time.sleep(0.05)
             return box.get('result'), box.get('error')
 
         def finish_run(result, count, error=None):
-            phase.setText(_('Idle.'))
+            phase.setText('Idle.')
             partial_error = None
             if error:
                 if hasattr(error, 'suggestions') and getattr(error, 'suggestions') is not None:
                     partial_error = error
                     result = (getattr(error, 'suggestions', []), getattr(error, 'skipped', []))
-                    log(_('⚠ Stopped early due to an error: {error}').format(error=error))
+                    log(f'⚠ Stopped early due to an error: {error}')
                 else:
-                    log(_('✖ Stopped: {error}').format(error=error))
-                    return error_dialog(dialog, _('Gemini'), str(error), show=True)
+                    log(f'✖ Stopped: {error}')
+                    return error_dialog(dialog, 'Gemini', str(error), show=True)
             if result is None:
-                status.setText(_('Cancelled before anything was sent.'))
+                status.setText('Cancelled before anything was sent.')
                 return
             suggestions, skipped = result
-            cancelled_note = _(' (cancelled early)') if cancel_flag.is_set() else (
-                _(' (stopped early due to an error)') if partial_error else ''
+            cancelled_note = ' (cancelled early)' if cancel_flag.is_set() else (
+                ' (stopped early due to an error)' if partial_error else ''
             )
-            log(_('Done: {count} of {total} book(s) have suggested changes{note}. Tick what you want below, then press Apply.').format(
-                count=len(suggestions), total=count, note=cancelled_note))
+            log(f'Done: {len(suggestions)} of {count} book(s) have suggested changes{cancelled_note}. Tick what you want below, then press Apply.')
             seen_ids = set()
             for s in suggestions:
                 if s['id'] in seen_ids:
                     continue
                 seen_ids.add(s['id'])
-                top = QTreeWidgetItem(tree, [
-                    s['title'] or _('book {id}').format(id=s['id']),
-                    _('{confidence} confidence{big}').format(confidence=s['confidence'], big=_('; BIG CHANGE') if s['big'] else '')
-                ])
+                top = QTreeWidgetItem(tree, [s['title'] or f"book {s['id']}", f"{s['confidence']} confidence" + ('; BIG CHANGE' if s['big'] else '')])
                 top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
                 want = Qt.CheckState.Unchecked if s['big'] else Qt.CheckState.Checked  # adding a child resets an auto-tristate parent, so set the parent last
                 top.setData(0, Qt.ItemDataRole.UserRole, s['id'])
@@ -875,15 +865,14 @@ class GeminiFixerAction(InterfaceAction):
                     child.setData(0, Qt.ItemDataRole.UserRole + 1, (old, new))
                 top.setCheckState(0, want)
                 top.setExpanded(True)
-            text = _('{count} of {total} book(s) have suggested changes{note}.').format(
-                count=len(suggestions), total=count, note=cancelled_note)
+            text = f'{len(suggestions)} of {count} book(s) have suggested changes{cancelled_note}.'
             if skipped:
-                text += _(' {count} could not be checked: ').format(count=len(skipped)) + '; '.join(skipped[:3]) + (' …' if len(skipped) > 3 else '')
+                text += f' {len(skipped)} could not be checked: ' + '; '.join(skipped[:3]) + (' …' if len(skipped) > 3 else '')
             status.setText(text)
             update_ticked()
             splitter.setSizes([120, 700])  # the changes are what needs reading now
             if partial_error:
-                warning_dialog(dialog, _('Gemini'), _('Processing stopped early due to an error:\n\n{error}\n\nPartial results collected before the error are displayed below.').format(error=partial_error), show=True)
+                warning_dialog(dialog, 'Gemini', f'Processing stopped early due to an error:\n\n{partial_error}\n\nPartial results collected before the error are displayed below.', show=True)
 
         def collect():
             items = []
@@ -901,30 +890,30 @@ class GeminiFixerAction(InterfaceAction):
         def do_apply():
             items = collect()
             if not items:
-                return error_dialog(dialog, _('Gemini'), _('Nothing is ticked.'), show=True)
+                return error_dialog(dialog, 'Gemini', 'Nothing is ticked.', show=True)
             done, errors, undo = self.write_changes(items)
             if undo:
                 prefs['undo'] = undo
                 undo_btn.setEnabled(True)
             self.refresh(done)
-            text = _('Updated {count} book(s). "Undo last run" can put the old values back.').format(count=len(done))
+            text = f'Updated {len(done)} book(s). "Undo last run" can put the old values back.'
             if errors:
-                text += _('\n\nProblems:\n') + '\n'.join(errors[:10])
-            info_dialog(self.gui, _('Gemini'), text, show=True)
+                text += '\n\nProblems:\n' + '\n'.join(errors[:10])
+            info_dialog(self.gui, 'Gemini', text, show=True)
             tree.clear()
             update_ticked()
 
         def do_undo():
             undo = dict(prefs['undo'])
-            if not undo or not question_dialog(dialog, _('Gemini'), _('Put back the old values for {count} book(s) changed in the last run?').format(count=len(undo))):
+            if not undo or not question_dialog(dialog, 'Gemini', f'Put back the old values for {len(undo)} book(s) changed in the last run?'):
                 return
             done, errors = self.restore(undo)
             self.refresh(done)
             if not errors:
                 prefs['undo'] = {}
                 undo_btn.setEnabled(False)
-            text = _('Restored {count} book(s).').format(count=len(done)) + (_('\n\nProblems:\n') + '\n'.join(errors[:10]) if errors else '')
-            info_dialog(self.gui, _('Gemini'), text, show=True)
+            text = f'Restored {len(done)} book(s).' + ('\n\nProblems:\n' + '\n'.join(errors[:10]) if errors else '')
+            info_dialog(self.gui, 'Gemini', text, show=True)
 
         key.editingFinished.connect(save_prefs)  # the key is remembered as soon as it is typed, not only after a check
         dialog.finished.connect(lambda _result: save_prefs())
