@@ -2,6 +2,7 @@ from calibre.gui2 import error_dialog, info_dialog, question_dialog
 from calibre.gui2.actions import InterfaceAction
 
 from calibre_plugins.fanfic_downloader import engine, flaresolverr, libkit
+from calibre_plugins.fanfic_downloader.config import prefs
 from calibre_plugins.fanfic_downloader.guikit import run_task
 from calibre_plugins.fanfic_downloader.ui import DownloadDialog, FlareSolverrSetupWizard
 
@@ -156,7 +157,18 @@ class FanficAction(InterfaceAction):
         # Pre-flight connectivity verification for Cloudflare protected domains
         cf_stories = [info for info in accepted if flaresolverr.is_cloudflare_domain(info['domain'])]
         if cf_stories:
-            if not flaresolverr.is_enabled(opts['ini']):
+            fs_path = prefs.get('flaresolverr_path', '')
+            fs_valid = bool(fs_path) and not flaresolverr.validate_executable(fs_path)
+
+            if fs_valid:
+                # Auto-enable FlareSolverr proxy setting in INI when valid executable path exists
+                for story in cf_stories:
+                    sec = story['domain'] if story['domain'].startswith('www.') else f"www.{story['domain']}"
+                    opts['ini'], _ = flaresolverr.enable_in_ini(opts['ini'], sec)
+                opts['ini'], _ = flaresolverr.enable_in_ini(opts['ini'], flaresolverr.SECTION)
+                prefs['advanced_ini'] = opts['ini']
+
+            if not flaresolverr.is_enabled(opts['ini']) and not fs_valid:
                 wizard = FlareSolverrSetupWizard(self.gui, advanced_edit=opts['ini'])
                 if wizard.exec() == wizard.DialogCode.Accepted:
                     opts['ini'] = wizard.updated_ini()
@@ -165,12 +177,18 @@ class FanficAction(InterfaceAction):
                                            'FlareSolverr proxy is not enabled. Cloudflare-protected sites may fail with HTTP 403.\n\nDo you want to continue downloading anyway?'):
                         return
 
-            if flaresolverr.is_enabled(opts['ini']):
+            if fs_valid or flaresolverr.is_enabled(opts['ini']):
                 settings = flaresolverr.settings_from_ini(opts['ini'])
 
                 def preflight_work(task):
                     task.status = 'Checking FlareSolverr proxy connectivity…'
-                    ok_srv, msg_srv = flaresolverr.check_server(settings, timeout=5)
+                    ok_srv, msg_srv = flaresolverr.check_server(settings, timeout=3)
+                    if not ok_srv and fs_valid:
+                        task.status = 'Auto-starting FlareSolverr background process…'
+                        ok_start, msg_start = flaresolverr.launcher.start(fs_path, settings, cancelled=task.cancelled)
+                        if not ok_start:
+                            return False, f'Auto-spawn failed: {msg_start}'
+                        ok_srv, msg_srv = flaresolverr.check_server(settings, timeout=5)
                     if not ok_srv:
                         return False, msg_srv
                     task.status = 'Verifying site loading through FlareSolverr…'
@@ -210,17 +228,47 @@ class FanficAction(InterfaceAction):
             if dl_task.error:
                 exc = dl_task.error
                 if flaresolverr.is_403_error(exc):
-                    if question_dialog(self.gui, 'Cloudflare 403 Challenge',
-                                       f"Download failed with HTTP 403 bot challenge for {info['url']}.\n\nWould you like to open the FlareSolverr Setup Wizard to resolve this and retry?"):
-                        wizard = FlareSolverrSetupWizard(self.gui, advanced_edit=opts['ini'], recovery_mode=True, recovery_url=info['url'])
-                        if wizard.exec() == wizard.DialogCode.Accepted:
-                            opts['ini'] = wizard.updated_ini()
+                    fs_path = prefs.get('flaresolverr_path', '')
+                    fs_valid = bool(fs_path) and not flaresolverr.validate_executable(fs_path)
+                    auto_retried = False
+                    if fs_valid:
+                        sec = info['domain'] if info['domain'].startswith('www.') else f"www.{info['domain']}"
+                        opts['ini'], _ = flaresolverr.enable_in_ini(opts['ini'], sec)
+                        opts['ini'], _ = flaresolverr.enable_in_ini(opts['ini'], flaresolverr.SECTION)
+                        prefs['advanced_ini'] = opts['ini']
+                        settings = flaresolverr.settings_from_ini(opts['ini'])
+
+                        def relaunch_work(task):
+                            task.status = 'Restarting FlareSolverr process on 403 challenge…'
+                            if flaresolverr.launcher.running():
+                                flaresolverr.launcher.stop()
+                            ok_start, msg_start = flaresolverr.launcher.start(fs_path, settings, cancelled=task.cancelled)
+                            if not ok_start:
+                                return False, msg_start
+                            return True, 'FlareSolverr restarted'
+
+                        relaunch_task = run_task(self.gui, 'Restarting FlareSolverr…', relaunch_work)
+                        if relaunch_task.result and relaunch_task.result[0]:
                             retry_task = run_task(self.gui, f"Retrying {info['domain']}…", download_item)
                             if not retry_task.error and retry_task.result:
                                 results.append(retry_task.result)
+                                auto_retried = True
                                 continue
                             elif retry_task.error:
                                 exc = retry_task.error
+
+                    if not auto_retried:
+                        if question_dialog(self.gui, 'Cloudflare 403 Challenge',
+                                           f"Download failed with HTTP 403 bot challenge for {info['url']}.\n\nWould you like to open the FlareSolverr Setup Wizard to resolve this and retry?"):
+                            wizard = FlareSolverrSetupWizard(self.gui, advanced_edit=opts['ini'], recovery_mode=True, recovery_url=info['url'])
+                            if wizard.exec() == wizard.DialogCode.Accepted:
+                                opts['ini'] = wizard.updated_ini()
+                                retry_task = run_task(self.gui, f"Retrying {info['domain']}…", download_item)
+                                if not retry_task.error and retry_task.result:
+                                    results.append(retry_task.result)
+                                    continue
+                                elif retry_task.error:
+                                    exc = retry_task.error
                 failures.append(f"{info['url']}: {engine.explain(exc, info['url'])}")
             elif dl_task.result:
                 results.append(dl_task.result)

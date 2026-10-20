@@ -196,22 +196,21 @@ class FlareSolverrSetupWizard(QWizard):
         self.setWindowTitle(_('Royal Road setup (FlareSolverr)'))
         self.resize(760, 680)
 
+        self.method = 0  # 0: Local Program, 1: Docker, 2: Existing Server
+
+        self.guide_browser = QTextBrowser()
+        self.guide_browser.setOpenExternalLinks(True)
+        self.guide_browser.setMarkdown(guide_text())
+
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.program = QLabel()
-        self.program.setWordWrap(True)
         self.choose_button = QPushButton(_('Choose FlareSolverr program…'))
         self.start_button = QPushButton(_('Start FlareSolverr'))
         self.stop_button = QPushButton(_('Stop FlareSolverr'))
         self.choose_button.clicked.connect(self.choose_program)
         self.start_button.clicked.connect(self.start_program)
         self.stop_button.clicked.connect(self.stop_program)
-
-        self.guide_browser = QTextBrowser()
-        self.guide_browser.setOpenExternalLinks(True)
-        self.guide_browser.setMarkdown(guide_text())
-
-        self.method = 0 if prefs['flaresolverr_path'] else 1
 
         self.addPage(StartupMethodPage(self))
         self.addPage(MethodConfigPage(self))
@@ -422,3 +421,6 @@ class DownloadDialog(QDialog):
             'combine': self.combine.isChecked(),
             'ini': self.advanced.toPlainText(),
         }
+
+
+RoyalRoadSetupDialog = FlareSolverrSetupWizard
