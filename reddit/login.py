@@ -46,7 +46,19 @@ class CallbackServer:
     """Listens on 127.0.0.1 for Reddit's redirect. Use as a context manager so the port is always released."""
 
     def __init__(self, port=REDIRECT_PORT):
-        self.port, self.server, self.result, self.problem = port, None, None, ''
+        if isinstance(port, (list, tuple)):
+            self.ports = list(port)
+        elif isinstance(port, int):
+            if port == 0:
+                self.ports = [0]
+            else:
+                self.ports = list(range(port, port + 11)) + [0]
+        else:
+            self.ports = [REDIRECT_PORT]
+
+        self.port = self.ports[0] if self.ports else REDIRECT_PORT
+        self.redirect_uri = f'http://127.0.0.1:{self.port}/callback'
+        self.server, self.result, self.problem = None, None, ''
         outer = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -78,10 +90,21 @@ class CallbackServer:
         self.expected_state = None
 
     def __enter__(self):
-        try:
-            self.server = http.server.HTTPServer(('127.0.0.1', self.port), self._handler)
-        except OSError as exc:
-            raise LoginError(f'Port {self.port} on this computer is already in use ({exc}). Close the program using it and try again.') from exc
+        last_exc = None
+        for p in self.ports:
+            try:
+                self.server = http.server.HTTPServer(('127.0.0.1', p), self._handler)
+                self.port = self.server.server_address[1]
+                self.redirect_uri = f'http://127.0.0.1:{self.port}/callback'
+                last_exc = None
+                break
+            except OSError as exc:
+                last_exc = exc
+
+        if self.server is None:
+            tested = ', '.join(str(p) for p in self.ports)
+            raise LoginError(f'Port on this computer is already in use ({last_exc}). Tested ports: {tested}. Close the program using it and try again.') from last_exc
+
         self.server.timeout = 0.25
         return self
 
@@ -126,7 +149,7 @@ def exchange_code(fetcher, client_id, client_secret, code, redirect_uri=REDIRECT
         raise LoginError('Reddit did not answer in a way we could read.') from exc
     if not reply.get('access_token'):
         raise LoginError(f"Reddit would not give a token ({reply.get('error') or reply.get('message') or 'no reason given'}). "
-                         'Check the client id and that the app\'s redirect uri is exactly ' + REDIRECT_URI)
+                         f"Check the client id and that the app's redirect uri is exactly {redirect_uri}")
     if not reply.get('refresh_token'):
         raise LoginError('Reddit gave a short-lived token but no lasting login. Make sure the app is an "installed app" or '
                          '"web app" and try again.')
@@ -152,11 +175,13 @@ def revoke(fetcher, client_id, client_secret, refresh_token, revoke_url=None):
 
 
 def log_in(fetcher, client_id, client_secret, server, open_browser, cancelled=lambda: False, timeout=180,
-           redirect_uri=REDIRECT_URI, authorize_base=None, token_url=None, base=None):
+           redirect_uri=None, authorize_base=None, token_url=None, base=None):
     """Run the whole login with an already-listening CallbackServer. open_browser(url) shows Reddit's page to the user.
     Returns {'refresh_token', 'username'}."""
     if not client_id:
         raise LoginError('Enter your Reddit app\'s client id first.')
+    if redirect_uri is None:
+        redirect_uri = getattr(server, 'redirect_uri', REDIRECT_URI)
     state = new_state()
     server.expected_state = state
     open_browser(authorize_url(client_id, state, redirect_uri, base=authorize_base))

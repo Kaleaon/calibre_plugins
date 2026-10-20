@@ -127,9 +127,43 @@ class LoginTests(unittest.TestCase):
 
     def test_busy_port_is_explained(self):
         with login.CallbackServer(0) as first:
+            p = first.server.server_address[1]
             with self.assertRaises(login.LoginError) as ctx:
-                login.CallbackServer(first.server.server_address[1]).__enter__()
+                login.CallbackServer([p]).__enter__()
         self.assertIn('already in use', str(ctx.exception))
+
+    def test_busy_port_falls_back(self):
+        with login.CallbackServer(0) as first:
+            p = first.server.server_address[1]
+            with login.CallbackServer(p) as second:
+                self.assertNotEqual(second.port, p)
+                self.assertTrue(second.port > 0)
+                self.assertEqual(second.redirect_uri, f'http://127.0.0.1:{second.port}/callback')
+
+    def test_fallback_port_when_primary_port_blocked(self):
+        import socket
+        try:
+            blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            blocker.bind(('127.0.0.1', 8844))
+            blocker.listen(1)
+        except OSError:
+            blocker = None
+
+        try:
+            with login.CallbackServer() as server:
+                if blocker is not None:
+                    self.assertNotEqual(server.port, 8844)
+                self.assertEqual(server.redirect_uri, f'http://127.0.0.1:{server.port}/callback')
+                opener = browser_that(lambda q: {'code': 'thecode', 'state': q['state']})
+                opener.port = server.port
+                result = login.log_in(core.Fetcher(min_interval=0), FAKE_ID, FAKE_SECRET, server, opener,
+                                     timeout=5, token_url=self.base + '/token', base=self.base)
+                self.assertEqual(result, {'refresh_token': 'refresh1', 'username': 'Reader'})
+                path, headers, form = StandIn.log[0]
+                self.assertEqual(form['redirect_uri'], [server.redirect_uri])
+        finally:
+            if blocker:
+                blocker.close()
 
     def test_missing_client_id(self):
         with self.assertRaises(login.LoginError):

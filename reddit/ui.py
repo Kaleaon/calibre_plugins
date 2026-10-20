@@ -412,6 +412,7 @@ class SettingsDialog(QDialog):
             with login.CallbackServer() as server:
                 task = run_task(self, _('Waiting for you to approve the login in your browser…'), lambda t: login.log_in(
                     Fetcher(cancelled=t.cancelled), client_id, secret, server, self.open_browser, t.cancelled,
+                    redirect_uri=server.redirect_uri,
                     **{k: v for k, v in self.login_endpoints.items() if k != 'revoke_url'}))
         except login.LoginError as exc:
             QMessageBox.warning(self, _('Reddit Story Follower'), str(exc))
