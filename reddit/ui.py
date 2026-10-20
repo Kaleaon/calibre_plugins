@@ -219,6 +219,10 @@ class FollowDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+        self.sources_table = QTableWidget(0, 4)
+        self.sources_table.setHorizontalHeaderLabels([_('Source'), _('Title filter'), _('Author filter'), _('Flair filter')])
+        self.sources_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+
         self.refresh_sources_table()
         self.check_source()
 
