@@ -59,7 +59,7 @@ def brotli_build_huffman_table(root_table, table, root_bits, code_lengths, code_
     sorted_symbols = [0] * code_lengths_size
 
     # build histogram of code lengths
-    for symbol in range(0,  code_lengths_size):
+    for symbol in range(code_lengths_size):
         count[code_lengths[symbol]] += 1
 
     # generate offsets into sorted symbol table by code length
@@ -68,7 +68,7 @@ def brotli_build_huffman_table(root_table, table, root_bits, code_lengths, code_
         offset[length + 1] = offset[length] + count[length]
 
     # sort symbols by length, by symbol order within each length
-    for symbol in range(0, code_lengths_size):
+    for symbol in range(code_lengths_size):
         length = code_lengths[symbol]
         if length != 0:
             sorted_symbols[offset[length]] = symbol
@@ -80,7 +80,7 @@ def brotli_build_huffman_table(root_table, table, root_bits, code_lengths, code_
 
     # special case code with only one value
     if offset[MAX_LENGTH] == 1:
-        for key in range(0, total_size):
+        for key in range(total_size):
             root_table[table + key] = HuffmanCode(0, sorted_symbols[0] & 0xffff)
         return total_size
 

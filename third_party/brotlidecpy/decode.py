@@ -2,11 +2,16 @@
 # Distributed under MIT license.
 # See file LICENSE for detail or copy at https://opensource.org/licenses/MIT
 
-from .huffman import HuffmanCode, brotli_build_huffman_table
-from .prefix import Prefix, kBlockLengthPrefixCode, kInsertLengthPrefixCode, kCopyLengthPrefixCode
 from .bit_reader import BrotliBitReader
-from .dictionary import BrotliDictionary
 from .context import Context
+from .dictionary import BrotliDictionary
+from .huffman import HuffmanCode, brotli_build_huffman_table
+from .prefix import (
+    Prefix,
+    kBlockLengthPrefixCode,
+    kCopyLengthPrefixCode,
+    kInsertLengthPrefixCode,
+)
 from .transform import Transform, kNumTransforms
 
 kDefaultCodeLength = 8
@@ -81,14 +86,14 @@ def decode_meta_block_length(br):
         if size_bytes == 0:
             return out
 
-        for i in range(0, size_bytes):
+        for i in range(size_bytes):
             next_byte = br.read_bits(8)
             if i + 1 == size_bytes and size_bytes > 1 and next_byte == 0:
                 raise Exception('Invalid size byte')
 
             out.meta_block_length |= next_byte << (i * 8)
     else:
-        for i in range(0, size_nibbles):
+        for i in range(size_nibbles):
             next_nibble = br.read_bits(4)
             if i + 1 == size_nibbles and size_nibbles > 4 and next_nibble == 0:
                 raise Exception('Invalid size nibble')
@@ -123,7 +128,7 @@ def read_huffman_code_lengths(code_length_code_lengths, num_symbols, code_length
     repeat_code_len = 0
     space = 32768
 
-    table = [HuffmanCode(0, 0) for _ in range(0, 32)]
+    table = [HuffmanCode(0, 0) for _ in range(32)]
 
     brotli_build_huffman_table(table, 0, 5, code_length_code_lengths, CODE_LENGTH_CODES)
 
@@ -156,7 +161,7 @@ def read_huffman_code_lengths(code_length_code_lengths, num_symbols, code_length
             if symbol + repeat_delta > num_symbols:
                 raise Exception('[read_huffman_code_lengths] symbol + repeat_delta > num_symbols')
 
-            for x in range(0, repeat_delta):
+            for x in range(repeat_delta):
                 code_lengths[symbol + x] = repeat_code_len
 
             symbol += repeat_delta
@@ -188,7 +193,7 @@ def read_huffman_code(alphabet_size, tables, table, br):
             max_bits_counter >>= 1
             max_bits += 1
 
-        for i in range(0, num_symbols):
+        for i in range(num_symbols):
             symbols[i] = br.read_bits(max_bits) % alphabet_size
             code_lengths[symbols[i]] = 2
         code_lengths[symbols[0]] = 1
@@ -265,8 +270,8 @@ def move_to_front(v, index):
 
 
 def inverse_move_to_front_transform(v, v_len):
-    mtf = list(range(0, 256))
-    for i in range(0, v_len):
+    mtf = list(range(256))
+    for i in range(v_len):
         index = v[i]
         v[i] = mtf[index]
         if index:
@@ -283,7 +288,7 @@ class HuffmanTreeGroup:
 
     def decode(self, br):
         next_entry = 0
-        for i in range(0, self.num_huff_trees):
+        for i in range(self.num_huff_trees):
             self.huff_trees[i] = next_entry
             table_size = read_huffman_code(self.alphabet_size, self.codes, next_entry, br)
             next_entry += table_size
@@ -302,7 +307,7 @@ class DecodeContextMap:
         if use_rle_for_zeros:
             max_run_length_prefix = br.read_bits(4) + 1
 
-        table = [HuffmanCode(0, 0) for _ in range(0, HUFFMAN_MAX_TABLE_SIZE)]
+        table = [HuffmanCode(0, 0) for _ in range(HUFFMAN_MAX_TABLE_SIZE)]
 
         read_huffman_code(self.num_huff_trees + max_run_length_prefix, table, 0, br)
 
@@ -367,8 +372,8 @@ def brotli_decompress_buffer(input_buffer):
     window_bits = decode_window_bits(br)
     max_backward_distance = (1 << window_bits) - 16
 
-    block_type_trees = [HuffmanCode(0, 0) for _ in range(0, 3 * HUFFMAN_MAX_TABLE_SIZE)]
-    block_len_trees = [HuffmanCode(0, 0) for _ in range(0, 3 * HUFFMAN_MAX_TABLE_SIZE)]
+    block_type_trees = [HuffmanCode(0, 0) for _ in range(3 * HUFFMAN_MAX_TABLE_SIZE)]
+    block_len_trees = [HuffmanCode(0, 0) for _ in range(3 * HUFFMAN_MAX_TABLE_SIZE)]
 
     while not input_end:
         block_length = [1 << 28, 1 << 28, 1 << 28]
@@ -377,7 +382,7 @@ def brotli_decompress_buffer(input_buffer):
         block_type_rb = [0, 1, 0, 1, 0, 1]
         block_type_rb_index = [0] * 3
 
-        for i in range(0, 3):
+        for i in range(3):
             hgroup[i].codes = None
             hgroup[i].huff_trees = None
 
@@ -406,7 +411,7 @@ def brotli_decompress_buffer(input_buffer):
             pos += meta_block_remaining_len
             continue
 
-        for i in range(0, 3):
+        for i in range(3):
             num_block_types[i] = decode_var_len_uint8(br) + 1
             if num_block_types[i] >= 2:
                 read_huffman_code(num_block_types[i] + 2, block_type_trees, i * HUFFMAN_MAX_TABLE_SIZE, br)
@@ -420,7 +425,7 @@ def brotli_decompress_buffer(input_buffer):
         num_distance_codes = (num_direct_distance_codes + (48 << distance_postfix_bits))
         context_modes = bytearray([0] * num_block_types[0])
 
-        for i in range(0, num_block_types[0]):
+        for i in range(num_block_types[0]):
             context_modes[i] = (br.read_bits(2) << 1)
 
         _o1 = DecodeContextMap(num_block_types[0] << kLiteralContextBits, br)
@@ -435,7 +440,7 @@ def brotli_decompress_buffer(input_buffer):
         hgroup[1] = HuffmanTreeGroup(kNumInsertAndCopyCodes, num_block_types[1])
         hgroup[2] = HuffmanTreeGroup(num_distance_codes, num_dist_huff_trees)
 
-        for i in range(0, 3):
+        for i in range(3):
             hgroup[i].decode(br)
 
         context_map_slice = 0
@@ -467,7 +472,7 @@ def brotli_decompress_buffer(input_buffer):
                 kCopyLengthPrefixCode[copy_code].nbits)
             prev_byte1 = output_buffer[pos - 1] if pos > 0 else 0
             prev_byte2 = output_buffer[pos - 2] if pos > 1 else 0
-            for j in range(0, insert_length):
+            for j in range(insert_length):
                 if block_length[0] == 0:
                     decode_block_type(num_block_types[0], block_type_trees, 0, block_type, block_type_rb,
                                       block_type_rb_index, br)
@@ -551,7 +556,7 @@ def brotli_decompress_buffer(input_buffer):
                     raise Exception("Invalid backward reference. pos: %s distance: %s len: %s bytes left: %s" % (
                         pos, distance, copy_length, meta_block_remaining_len))
 
-                for j in range(0, copy_length):  # don't try to optimize with a slice. source and dest may overlap
+                for j in range(copy_length):  # don't try to optimize with a slice. source and dest may overlap
                     output_buffer[pos] = output_buffer[pos - distance]
                     pos += 1
                     meta_block_remaining_len -= 1

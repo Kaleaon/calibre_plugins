@@ -4,8 +4,8 @@ Provides a multi-tabbed interface to monitor tasks, filter by state or failure c
 inspect diagnostic stack traces, and trigger manual task retries or purges.
 """
 
-from datetime import datetime
 import time
+from datetime import datetime
 
 try:
     from qt.core import (
@@ -19,13 +19,13 @@ try:
         QMessageBox,
         QPushButton,
         QSplitter,
+        Qt,
         QTableWidget,
         QTableWidgetItem,
         QTabWidget,
         QTextEdit,
         QVBoxLayout,
         QWidget,
-        Qt,
     )
 except ImportError:
     from PyQt6.QtCore import Qt
@@ -150,9 +150,9 @@ class QueueManagerDialog(QDialog):
         # Tasks Table
         self.tasks_table = QTableWidget(self)
         self.tasks_table.setColumnCount(7)
-        self.tasks_table.setHorizontalHeaderLabels([
-            "Task ID", "Type", "Status", "Attempts", "Next Run", "Updated", "Last Error"
-        ])
+        self.tasks_table.setHorizontalHeaderLabels(
+            ["Task ID", "Type", "Status", "Attempts", "Next Run", "Updated", "Last Error"]
+        )
         self.tasks_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tasks_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tasks_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -189,9 +189,7 @@ class QueueManagerDialog(QDialog):
         # History Table
         self.history_table = QTableWidget(self)
         self.history_table.setColumnCount(5)
-        self.history_table.setHorizontalHeaderLabels([
-            "Timestamp", "Task ID", "Transition", "Category", "Message"
-        ])
+        self.history_table.setHorizontalHeaderLabels(["Timestamp", "Task ID", "Transition", "Category", "Message"])
         self.history_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.history_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -225,13 +223,13 @@ class QueueManagerDialog(QDialog):
 
         self.tasks_table.setRowCount(len(tasks))
         for row_idx, task in enumerate(tasks):
-            self.tasks_table.setItem(row_idx, 0, QTableWidgetItem(str(task['task_id'])))
-            self.tasks_table.setItem(row_idx, 1, QTableWidgetItem(str(task['task_type'])))
-            self.tasks_table.setItem(row_idx, 2, QTableWidgetItem(str(task['status'])))
+            self.tasks_table.setItem(row_idx, 0, QTableWidgetItem(str(task["task_id"])))
+            self.tasks_table.setItem(row_idx, 1, QTableWidgetItem(str(task["task_type"])))
+            self.tasks_table.setItem(row_idx, 2, QTableWidgetItem(str(task["status"])))
             self.tasks_table.setItem(row_idx, 3, QTableWidgetItem(f"{task['attempts']}/{task['max_attempts']}"))
-            self.tasks_table.setItem(row_idx, 4, QTableWidgetItem(format_next_run(task['next_run_at'])))
-            self.tasks_table.setItem(row_idx, 5, QTableWidgetItem(format_timestamp(task['updated_at'])))
-            self.tasks_table.setItem(row_idx, 6, QTableWidgetItem(str(task.get('last_error') or '')))
+            self.tasks_table.setItem(row_idx, 4, QTableWidgetItem(format_next_run(task["next_run_at"])))
+            self.tasks_table.setItem(row_idx, 5, QTableWidgetItem(format_timestamp(task["updated_at"])))
+            self.tasks_table.setItem(row_idx, 6, QTableWidgetItem(str(task.get("last_error") or "")))
 
     def refresh_history(self):
         cat_filter = self.category_filter_combo.currentText()
@@ -239,13 +237,13 @@ class QueueManagerDialog(QDialog):
 
         self.history_table.setRowCount(len(logs))
         for row_idx, log in enumerate(logs):
-            item_ts = QTableWidgetItem(format_timestamp(log['timestamp']))
+            item_ts = QTableWidgetItem(format_timestamp(log["timestamp"]))
             item_ts.setData(Qt.ItemDataRole.UserRole, log)  # Store row data dictionary
             self.history_table.setItem(row_idx, 0, item_ts)
-            self.history_table.setItem(row_idx, 1, QTableWidgetItem(str(log['task_id'])))
+            self.history_table.setItem(row_idx, 1, QTableWidgetItem(str(log["task_id"])))
             self.history_table.setItem(row_idx, 2, QTableWidgetItem(f"{log['from_status']} -> {log['to_status']}"))
-            self.history_table.setItem(row_idx, 3, QTableWidgetItem(str(log.get('failure_category') or 'N/A')))
-            self.history_table.setItem(row_idx, 4, QTableWidgetItem(str(log.get('message') or '')))
+            self.history_table.setItem(row_idx, 3, QTableWidgetItem(str(log.get("failure_category") or "N/A")))
+            self.history_table.setItem(row_idx, 4, QTableWidgetItem(str(log.get("message") or "")))
 
         self.trace_edit.clear()
 
@@ -265,17 +263,17 @@ class QueueManagerDialog(QDialog):
             return
 
         trace_parts = [
-            f"=== Activity Log Details ===",
+            "=== Activity Log Details ===",
             f"Timestamp: {format_timestamp(log.get('timestamp'))}",
             f"Task ID: {log.get('task_id')}",
             f"Transition: {log.get('from_status')} -> {log.get('to_status')}",
             f"Category: {log.get('failure_category') or 'N/A'}",
             f"Message: {log.get('message') or ''}",
-            ""
+            "",
         ]
-        if log.get('diagnostic_trace'):
+        if log.get("diagnostic_trace"):
             trace_parts.append("=== Diagnostic Trace / Exception Stack ===")
-            trace_parts.append(str(log['diagnostic_trace']))
+            trace_parts.append(str(log["diagnostic_trace"]))
 
         self.trace_edit.setText("\n".join(trace_parts))
 
@@ -291,7 +289,7 @@ class QueueManagerDialog(QDialog):
     def on_retry_selected(self):
         task_ids = self.get_selected_task_ids()
         if not task_ids:
-            if not getattr(self, 'suppress_msgboxes', False):
+            if not getattr(self, "suppress_msgboxes", False):
                 QMessageBox.information(self, "Retry Tasks", "Please select one or more tasks to retry.")
             return
 
@@ -299,23 +297,23 @@ class QueueManagerDialog(QDialog):
             self.queue_manager.retry_task(task_id)
 
         self.refresh_all()
-        if not getattr(self, 'suppress_msgboxes', False):
+        if not getattr(self, "suppress_msgboxes", False):
             QMessageBox.information(self, "Retry Tasks", f"Successfully moved {len(task_ids)} task(s) to QUEUED state.")
 
     def on_purge_selected(self):
         task_ids = self.get_selected_task_ids()
         if not task_ids:
-            if not getattr(self, 'suppress_msgboxes', False):
+            if not getattr(self, "suppress_msgboxes", False):
                 QMessageBox.information(self, "Purge Tasks", "Please select one or more tasks to purge.")
             return
 
-        if not getattr(self, 'suppress_msgboxes', False):
+        if not getattr(self, "suppress_msgboxes", False):
             reply = QMessageBox.question(
                 self,
                 "Confirm Purge",
                 f"Are you sure you want to purge {len(task_ids)} selected task(s) from the queue?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No
+                QMessageBox.StandardButton.No,
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
@@ -330,13 +328,13 @@ class QueueManagerDialog(QDialog):
             self.refresh_all()
 
     def on_clear_history(self):
-        if not getattr(self, 'suppress_msgboxes', False):
+        if not getattr(self, "suppress_msgboxes", False):
             reply = QMessageBox.question(
                 self,
                 "Clear History",
                 "Are you sure you want to clear all activity log history?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No
+                QMessageBox.StandardButton.No,
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return

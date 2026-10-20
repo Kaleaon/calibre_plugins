@@ -3,6 +3,7 @@
 # See file LICENSE for detail or copy at https://opensource.org/licenses/MIT
 
 from .dictionary import BrotliDictionary
+
 """
 Transformations on dictionary words
 
@@ -22,8 +23,7 @@ class Transform:
         t = kTransforms[transform].transform
         skip = t < (0 if kOmitFirst1 else (t - (kOmitFirst1 - 1)))
         start_idx = idx
-        if skip > length:
-            skip = length
+        skip = min(skip, length)
 
         prefix_pos = 0
         while prefix_pos < len(prefix):
@@ -37,7 +37,7 @@ class Transform:
         if t <= kOmitLast9:
             length -= t
 
-        for i in range(0, length):
+        for i in range(length):
             dst[idx] = BrotliDictionary.dictionary[word + i]
             idx += 1
 

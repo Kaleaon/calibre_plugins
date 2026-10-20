@@ -1,10 +1,10 @@
 """Central exception formatter and friendly recovery dialog helper."""
+
 import json
 import socket
-import sys
 import traceback
 import zipfile
-from urllib.error import HTTPError, URLError
+from urllib.error import URLError
 
 try:
     from calibre.gui2 import error_dialog
@@ -67,22 +67,31 @@ def format_exception(exc_or_msg, det_msg=None):
     msg_lower = raw_msg.lower()
 
     # 1. Permission / File Access Errors
-    if isinstance(original_exc, PermissionError) or "errno 13" in msg_lower or "permission denied" in msg_lower or "access is denied" in msg_lower:
+    if (
+        isinstance(original_exc, PermissionError)
+        or "errno 13" in msg_lower
+        or "permission denied" in msg_lower
+        or "access is denied" in msg_lower
+    ):
         category = "File Access Error"
         explanation = "A file or folder needed by this action is locked or access was denied."
         recovery = [
             "Close any programs that might have the file open (e.g., e-book readers or text editors).",
             "Check folder permissions to ensure Calibre has write access.",
-            "Try running Calibre as an administrator if permissions persist."
+            "Try running Calibre as an administrator if permissions persist.",
         ]
 
     # 2. File Not Found
-    elif isinstance(original_exc, FileNotFoundError) or "errno 2" in msg_lower or "no such file or directory" in msg_lower:
+    elif (
+        isinstance(original_exc, FileNotFoundError)
+        or "errno 2" in msg_lower
+        or "no such file or directory" in msg_lower
+    ):
         category = "File Not Found"
         explanation = "A required file or directory could not be found."
         recovery = [
             "Verify that the file or directory exists at the specified path.",
-            "Ensure the source files have not been moved, renamed, or deleted."
+            "Ensure the source files have not been moved, renamed, or deleted.",
         ]
 
     # 3. Disk Space Error
@@ -91,7 +100,7 @@ def format_exception(exc_or_msg, det_msg=None):
         explanation = "There is not enough free disk space available to complete the operation."
         recovery = [
             "Free up disk space on the destination drive.",
-            "Empty the temporary folder or trash bin and try again."
+            "Empty the temporary folder or trash bin and try again.",
         ]
 
     # 4. HTTP 429 Rate Limit
@@ -100,7 +109,7 @@ def format_exception(exc_or_msg, det_msg=None):
         explanation = "The remote server rate-limited requests because too many requests were made in a short period."
         recovery = [
             "Wait a few minutes before attempting the operation again.",
-            "Increase the polling interval in the plugin settings to reduce request frequency."
+            "Increase the polling interval in the plugin settings to reduce request frequency.",
         ]
 
     # 5. HTTP 401 / 403 Access Denied
@@ -109,27 +118,36 @@ def format_exception(exc_or_msg, det_msg=None):
         explanation = "The remote server denied access or the authorization credentials were rejected."
         recovery = [
             "Check your account credentials or API keys in the plugin settings.",
-            "Verify that your account has permission to access the requested resource."
+            "Verify that your account has permission to access the requested resource.",
         ]
 
     # 6. General Network / Timeout / Connection Errors
-    elif (isinstance(original_exc, (URLError, ConnectionError, TimeoutError, socket.error))
-          or "connection" in msg_lower or "timed out" in msg_lower or "network" in msg_lower or "http error" in msg_lower):
+    elif (
+        isinstance(original_exc, (URLError, ConnectionError, TimeoutError, socket.error))
+        or "connection" in msg_lower
+        or "timed out" in msg_lower
+        or "network" in msg_lower
+        or "http error" in msg_lower
+    ):
         category = "Network Error"
         explanation = "A network error occurred while connecting to the remote service."
         recovery = [
             "Check your internet connection and network stability.",
             "Verify firewall or proxy settings if you are behind a restricted network.",
-            "Try again in a few minutes."
+            "Try again in a few minutes.",
         ]
 
     # 7. Bad ZIP / Corrupted Archive / EPUB
-    elif isinstance(original_exc, (zipfile.BadZipFile, zipfile.LargeZipFile)) or "not a zip file" in msg_lower or "bad zip" in msg_lower:
+    elif (
+        isinstance(original_exc, (zipfile.BadZipFile, zipfile.LargeZipFile))
+        or "not a zip file" in msg_lower
+        or "bad zip" in msg_lower
+    ):
         category = "Invalid Archive"
         explanation = "The file is not a valid ZIP or EPUB archive, or the file is corrupted."
         recovery = [
             "Verify that the file is an intact EPUB or ZIP archive.",
-            "Try re-downloading or recovering a fresh copy of the file."
+            "Try re-downloading or recovering a fresh copy of the file.",
         ]
 
     # 8. JSON or Data Parsing Error
@@ -138,7 +156,7 @@ def format_exception(exc_or_msg, det_msg=None):
         explanation = "The input file or server response contained invalid or unexpected formatting."
         recovery = [
             "Check that the input file is not corrupted.",
-            "Verify that settings or input syntax match expected formats."
+            "Verify that settings or input syntax match expected formats.",
         ]
 
     # 9. Dependency Missing
@@ -147,7 +165,7 @@ def format_exception(exc_or_msg, det_msg=None):
         explanation = "A required Python component or dependency was not found."
         recovery = [
             "Ensure all plugin files and dependencies are properly installed in Calibre.",
-            "Try re-installing the plugin zip."
+            "Try re-installing the plugin zip.",
         ]
 
     # Fallback for general errors
@@ -156,7 +174,7 @@ def format_exception(exc_or_msg, det_msg=None):
         explanation = raw_msg or "An unexpected error occurred during processing."
         recovery = [
             "Check the detailed error report below for technical details.",
-            "If the problem persists, report the issue with the detailed error trace."
+            "If the problem persists, report the issue with the detailed error trace.",
         ]
 
     return FriendlyError(category, explanation, recovery, details=details, original_exc=original_exc)
