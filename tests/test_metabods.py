@@ -79,6 +79,23 @@ class StoryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             core.parse_print_page('<html></html>')
 
+    def test_parse_print_page_chapter_range(self):
+        s1 = core.parse_print_page(PRINT, chapter_range='1')
+        self.assertEqual([h for h, _ in s1['sections']], ["Author's Note"])
+
+        s1_2 = core.parse_print_page(PRINT, chapter_range='1-2')
+        self.assertEqual([h for h, _ in s1_2['sections']], ["Author's Note", 'Part 1'])
+
+        s2_plus = core.parse_print_page(PRINT, chapter_range='2+')
+        self.assertEqual([h for h, _ in s2_plus['sections']], ['Part 1', 'Part 2'])
+
+        s_all = core.parse_print_page(PRINT, chapter_range='')
+        self.assertEqual([h for h, _ in s_all['sections']], ["Author's Note", 'Part 1', 'Part 2'])
+
+        with self.assertRaises(ValueError) as ctx:
+            core.parse_print_page(PRINT, chapter_range='99')
+        self.assertIn('No chapters match range "99"', str(ctx.exception))
+
     def test_print_page_without_part_headings(self):
         page = ('<div class="xyp_section"><h1>Solo</h1><p><strong>by A</strong></p></div>'
                 '<div class="xyp_section"><p>&nbsp;</p><div class=" xyp_section_cols"><p><p>Only text</p></p></div></div>'
