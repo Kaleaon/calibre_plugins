@@ -11,7 +11,7 @@ except ImportError:
     warning_dialog = error_dialog
 from calibre.gui2.actions import InterfaceAction
 from qt.core import (QApplication, QBuffer, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QIODevice, QImage, QLabel,
-                     QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSpinBox, QSplitter, Qt, QTreeWidget,
+                     QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSpinBox, QSplitter, Qt, QTreeWidget,
                      QTreeWidgetItem, QVBoxLayout, QWidget)
 try:
     from qt.core import _
@@ -437,6 +437,15 @@ class GeminiFixerAction(InterfaceAction):
         row.addWidget(models_btn)
         layout.addLayout(row)
 
+        row = QHBoxLayout()
+        row.addWidget(QLabel(_('Instruction Template:')))
+        template_combo = QComboBox()
+        manage_templates_btn = QPushButton(_('Manage Templates...'))
+        manage_templates_btn.setToolTip(_('Create, edit, or delete instruction templates and presets'))
+        row.addWidget(template_combo, 1)
+        row.addWidget(manage_templates_btn)
+        layout.addLayout(row)
+
         layout.addWidget(QLabel(_('Fix:')))
         boxes = {}
         for field, label in FIELD_LABELS:
@@ -505,7 +514,10 @@ class GeminiFixerAction(InterfaceAction):
         all_btn = QPushButton(_('Check all'))
         none_btn = QPushButton(_('Check none'))
         safe_btn = QPushButton(_('Check all except big changes'))
-        for w in (all_btn, none_btn, safe_btn):
+        field_btn = QPushButton(_('Check by field...'))
+        field_menu = QMenu(dialog)
+        field_btn.setMenu(field_menu)
+        for w in (all_btn, none_btn, safe_btn, field_btn):
             pick_row.addWidget(w)
         pick_row.addStretch(1)
         ticked = QLabel('')
@@ -515,6 +527,7 @@ class GeminiFixerAction(InterfaceAction):
         tree.setHeaderLabels([_('Suggested change'), _('Why')])
         tree.setColumnWidth(0, 700)
         tree.setAlternatingRowColors(True)
+        tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         results_layout.addWidget(tree, 1)
         splitter.addWidget(results)
         splitter.setStretchFactor(0, 1)
@@ -596,17 +609,103 @@ class GeminiFixerAction(InterfaceAction):
 
         cancel_flag = threading.Event()
 
-        def set_checks(choose):
-            """choose(top_item) -> True/False. Children are set first and the (auto-tristate) parent last."""
+        def set_checks(choose_top=None, choose_child_fn=None):
+            """choose_top(top_item) -> True/False or choose_child_fn(child_item, top_item) -> True/False/CheckState."""
             tree.blockSignals(True)
             for i in range(tree.topLevelItemCount()):
                 top = tree.topLevelItem(i)
-                state = Qt.CheckState.Checked if choose(top) else Qt.CheckState.Unchecked
-                for j in range(top.childCount()):
-                    top.child(j).setCheckState(0, state)
-                top.setCheckState(0, state)
+                if choose_child_fn is not None:
+                    for j in range(top.childCount()):
+                        child = top.child(j)
+                        res = choose_child_fn(child, top)
+                        if isinstance(res, bool):
+                            child.setCheckState(0, Qt.CheckState.Checked if res else Qt.CheckState.Unchecked)
+                        else:
+                            child.setCheckState(0, res)
+                elif choose_top is not None:
+                    state = Qt.CheckState.Checked if choose_top(top) else Qt.CheckState.Unchecked
+                    for j in range(top.childCount()):
+                        top.child(j).setCheckState(0, state)
+
+                child_count = top.childCount()
+                if child_count > 0:
+                    checked_count = sum(1 for j in range(child_count) if top.child(j).checkState(0) == Qt.CheckState.Checked)
+                    if checked_count == child_count:
+                        top.setCheckState(0, Qt.CheckState.Checked)
+                    elif checked_count == 0:
+                        top.setCheckState(0, Qt.CheckState.Unchecked)
+                    else:
+                        top.setCheckState(0, Qt.CheckState.PartiallyChecked)
             tree.blockSignals(False)
             update_ticked()
+
+        def get_present_fields():
+            seen = set()
+            fields = []
+            for i in range(tree.topLevelItemCount()):
+                top = tree.topLevelItem(i)
+                for j in range(top.childCount()):
+                    f = top.child(j).data(0, Qt.ItemDataRole.UserRole)
+                    if f and f not in seen:
+                        seen.add(f)
+                        fields.append(f)
+            ordered = [f for f, _ in FIELD_LABELS if f in seen]
+            for f in fields:
+                if f not in ordered:
+                    ordered.append(f)
+            return ordered
+
+        def update_field_menu():
+            field_menu.clear()
+            fields = get_present_fields()
+            if not fields:
+                act = field_menu.addAction(_('No fields available'))
+                act.setEnabled(False)
+                return
+
+            for f in fields:
+                flabel = SHOW.get(f, f.title())
+                act = field_menu.addAction(_('Check only {field}').format(field=flabel))
+                act.triggered.connect(lambda _, field=f: set_checks(choose_child_fn=lambda c, t: c.data(0, Qt.ItemDataRole.UserRole) == field))
+
+            field_menu.addSeparator()
+
+            for f in fields:
+                flabel = SHOW.get(f, f.title())
+                act = field_menu.addAction(_('Check all {field}').format(field=flabel))
+                act.triggered.connect(lambda _, field=f: set_checks(choose_child_fn=lambda c, t: Qt.CheckState.Checked if c.data(0, Qt.ItemDataRole.UserRole) == field else c.checkState(0)))
+
+            field_menu.addSeparator()
+
+            for f in fields:
+                flabel = SHOW.get(f, f.title())
+                act = field_menu.addAction(_('Uncheck all {field}').format(field=flabel))
+                act.triggered.connect(lambda _, field=f: set_checks(choose_child_fn=lambda c, t: Qt.CheckState.Unchecked if c.data(0, Qt.ItemDataRole.UserRole) == field else c.checkState(0)))
+
+        field_menu.aboutToShow.connect(update_field_menu)
+
+        def on_tree_context_menu(pos):
+            item = tree.itemAt(pos)
+            if not item or item.parent() is None:
+                return
+            field = item.data(0, Qt.ItemDataRole.UserRole)
+            if not field:
+                return
+            flabel = SHOW.get(field, field.title())
+            ctx_menu = QMenu(tree)
+
+            act_only = ctx_menu.addAction(_("Check only '{field}' across all books").format(field=flabel))
+            act_only.triggered.connect(lambda _, f=field: set_checks(choose_child_fn=lambda c, t: c.data(0, Qt.ItemDataRole.UserRole) == f))
+
+            act_all = ctx_menu.addAction(_("Check all '{field}' across all books").format(field=flabel))
+            act_all.triggered.connect(lambda _, f=field: set_checks(choose_child_fn=lambda c, t: Qt.CheckState.Checked if c.data(0, Qt.ItemDataRole.UserRole) == f else c.checkState(0)))
+
+            act_none = ctx_menu.addAction(_("Uncheck all '{field}' across all books").format(field=flabel))
+            act_none.triggered.connect(lambda _, f=field: set_checks(choose_child_fn=lambda c, t: Qt.CheckState.Unchecked if c.data(0, Qt.ItemDataRole.UserRole) == f else c.checkState(0)))
+
+            ctx_menu.exec(tree.viewport().mapToGlobal(pos))
+
+        tree.customContextMenuRequested.connect(on_tree_context_menu)
 
         def update_ticked():
             total = count = 0
@@ -635,7 +734,7 @@ class GeminiFixerAction(InterfaceAction):
 
         def set_busy(busy):
             run_busy[0] = busy
-            for w in (all_btn, none_btn, safe_btn):
+            for w in (all_btn, none_btn, safe_btn, field_btn):
                 w.setEnabled(not busy)
             for w in (check_btn, apply_btn, undo_btn, models_btn):
                 w.setEnabled(not busy and (w is not apply_btn) and (w is not undo_btn or bool(prefs['undo'])))
