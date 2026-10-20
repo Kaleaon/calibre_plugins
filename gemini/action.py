@@ -437,6 +437,18 @@ class GeminiFixerAction(InterfaceAction):
         row.addWidget(models_btn)
         layout.addLayout(row)
 
+        def _create_template_row(settings_layout, settings_prefs):
+            row = QHBoxLayout()
+            row.addWidget(QLabel(_('Instruction template:')))
+            template_combo = QComboBox()
+            row.addWidget(template_combo, 1)
+            manage_templates_btn = QPushButton(_('Manage templates...'))
+            row.addWidget(manage_templates_btn)
+            settings_layout.addLayout(row)
+            return template_combo, manage_templates_btn
+
+        template_combo, manage_templates_btn = _create_template_row(layout, prefs)
+
         layout.addWidget(QLabel(_('Fix:')))
         boxes = {}
         for field, label in FIELD_LABELS:
