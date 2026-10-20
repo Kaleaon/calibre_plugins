@@ -329,6 +329,74 @@ class MediaDialogTests(QtCase):
         self.assertTrue(any('AcoustID key' in t for t in shown))
         self.assertEqual(fetch.calls, [], 'nothing is sent')
 
+    def test_apply_saves_metadata_when_cover_download_fails_due_to_http_error(self):
+        import urllib.error
+        fetch = self.services()
+        db = MediaDb({1: dict(title='yesterday', authors=['Beatles'], series='', series_index=1.0, tags=['Rock'], identifiers={'x': '1'}, formats=['MP3'])})
+        gui = make_gui(db, [1])
+        action = self.action_mod.MediaMatcherAction()
+        action.gui = gui
+
+        def failing_fetch(url, headers, data, timeout):
+            if 'coverartarchive.org' in url or 'covers.openlibrary.org' in url:
+                raise urllib.error.HTTPError(url, 500, 'Internal Server Error', {}, None)
+            return fetch(url, headers, data, timeout)
+
+        self.sources.urllib_fetch = failing_fetch
+        shown_info = []
+        self.action_mod.info_dialog = lambda parent, title, text, show=False: shown_info.append(text)
+
+        def drive(dialog):
+            b = buttons(dialog)
+            tree = dialog.findChild(QtWidgets.QTreeWidget)
+            b['Look up'].click()
+            top = tree.topLevelItem(0)
+            top.setCheckState(0, QtCore.Qt.CheckState.Checked)
+            b['Apply ticked changes'].click()
+
+        run_dialog(action.match_dialog, drive)
+        writes = {name: list(m.values())[0] for name, m in db.writes}
+        self.assertEqual(writes['title'], 'Yesterday')
+        self.assertEqual(writes['authors'], ('The Beatles',))
+        self.assertEqual(writes['series'], 'Help!')
+        self.assertEqual(db.covers, {}, 'cover download failed, so no cover was set')
+        self.assertTrue(shown_info, 'summary info dialog was shown')
+        self.assertIn('Updated 1 book(s)', shown_info[0])
+        self.assertIn('Problems:', shown_info[0])
+        self.assertIn('cover download failed', shown_info[0])
+
+    def test_apply_saves_metadata_when_cover_download_is_cancelled(self):
+        fetch = self.services()
+        db = MediaDb({1: dict(title='yesterday', authors=['Beatles'], series='', series_index=1.0, tags=['Rock'], identifiers={'x': '1'}, formats=['MP3'])})
+        gui = make_gui(db, [1])
+        action = self.action_mod.MediaMatcherAction()
+        action.gui = gui
+
+        def cancelling_fetch(url, headers, data, timeout):
+            if 'coverartarchive.org' in url or 'covers.openlibrary.org' in url:
+                raise self.sources.Cancelled()
+            return fetch(url, headers, data, timeout)
+
+        self.sources.urllib_fetch = cancelling_fetch
+        shown_info = []
+        self.action_mod.info_dialog = lambda parent, title, text, show=False: shown_info.append(text)
+
+        def drive(dialog):
+            b = buttons(dialog)
+            tree = dialog.findChild(QtWidgets.QTreeWidget)
+            b['Look up'].click()
+            top = tree.topLevelItem(0)
+            top.setCheckState(0, QtCore.Qt.CheckState.Checked)
+            b['Apply ticked changes'].click()
+
+        run_dialog(action.match_dialog, drive)
+        writes = {name: list(m.values())[0] for name, m in db.writes}
+        self.assertEqual(writes['title'], 'Yesterday')
+        self.assertEqual(writes['authors'], ('The Beatles',))
+        self.assertEqual(db.covers, {})
+        self.assertTrue(shown_info)
+        self.assertIn('Updated 1 book(s)', shown_info[0])
+
 
 if __name__ == '__main__':
     unittest.main()
