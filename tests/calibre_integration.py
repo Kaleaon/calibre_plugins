@@ -1,7 +1,9 @@
 """Run with calibre-debug -e tests/calibre_integration.py."""
 import json
+import sys
 from pathlib import Path
-from types import SimpleNamespace
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from harness_utils import create_test_gui
 import tempfile
 import zipfile
 from calibre.customize.ui import find_plugin
@@ -26,7 +28,7 @@ with plugin:
         assert len(files) == 1
         assert Path(files[0]).suffix == '.epub'
         db = calibre_db(str(root / 'library'))
-        gui = SimpleNamespace(current_db=db, library_view=SimpleNamespace(model=lambda: SimpleNamespace(refresh=lambda: None)), tags_view=SimpleNamespace(recount=lambda: None))
+        gui = create_test_gui(db)
         ids, errors = import_books(gui, rows)
         assert not errors, errors
         assert len(ids) == 1, rows

@@ -1,6 +1,8 @@
 import json
+import sys
 from pathlib import Path
-from types import SimpleNamespace
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from harness_utils import create_test_gui
 from calibre.customize.ui import find_plugin
 from calibre.library import db as calibre_db
 root=Path('/workspace/bookfixer/takeout-validation/january')
@@ -10,7 +12,7 @@ with plugin:
  from calibre_plugins.takeout_book_fixer.core import recover
  from calibre_plugins.takeout_book_fixer.importer import import_books
  db=calibre_db(str(root/'comic-library'))
- gui=SimpleNamespace(current_db=db,library_view=SimpleNamespace(model=lambda:SimpleNamespace(refresh=lambda:None)),tags_view=SimpleNamespace(recount=lambda:None))
+ gui=create_test_gui(db)
  for index,row in enumerate(r for r in rows if r.get('format')=='pdf'):
   files,result,report=recover(row['output'],root/('pdf-conversion-'+str(index)),comics=True)
   assert files,result

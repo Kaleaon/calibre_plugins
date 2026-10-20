@@ -9,68 +9,16 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from harness_utils import BaseMockDb  # noqa: E402
 from test_qt_dialogs import HAVE_QT, QtCase, QtCore, QtWidgets  # noqa: E402
 from test_media import FIXTURES, JPEG, OL, MB, Scripted, id3_tag, id3_text, mp3_frames  # noqa: E402
 
 
-class MediaDb:
+class MediaDb(BaseMockDb):
     """Just enough of Calibre's db.new_api: books in memory, every write recorded."""
 
     def __init__(self, books):
-        self.books = books
-        self.writes, self.covers, self.added = [], {}, []
-
-    def get_metadata(self, book_id, get_cover=False):
-        b = self.books[book_id]
-        return types.SimpleNamespace(title=b['title'], authors=b['authors'], series=b['series'], series_index=b['series_index'],
-                                     tags=b['tags'], identifiers=b['identifiers'], publisher='', pubdate=None)
-
-    def formats(self, book_id):
-        return list(self.books[book_id]['formats'])
-
-    def format_abspath(self, book_id, fmt):
-        return self.books[book_id].get('path') or None
-
-    def field_for(self, name, book_id):
-        return self.books[book_id].get('has_cover', False)
-
-    def all_book_ids(self):
-        return set(self.books)
-
-    def all_field_for(self, name, ids):
-        if name == 'formats':
-            return {i: tuple(f for f in self.books[i]['formats']) for i in ids}
-        return {i: self.books[i].get({'authors': 'authors', 'title': 'title', 'series': 'series'}[name]) for i in ids}
-
-    def has_id(self, book_id):
-        return book_id in self.books
-
-    def set_field(self, name, mapping):
-        self.writes.append((name, dict(mapping)))
-
-    def cover(self, book_id):
-        return self.covers.get(book_id)
-
-    def remove_cover(self, book_ids):
-        for book_id in book_ids:
-            self.covers.pop(book_id, None)
-
-    def set_cover(self, mapping):
-        for book_id, data in mapping.items():
-            if data is None:
-                self.covers.pop(book_id, None)
-            else:
-                self.covers[book_id] = data
-
-    def add_books(self, items, **kwargs):
-        ids = []
-        for mi, formats in items:
-            new_id = max(self.books, default=0) + 1
-            self.books[new_id] = dict(title=mi.title, authors=list(mi.authors), series=getattr(mi, 'series', ''), series_index=getattr(mi, 'series_index', 1.0),
-                                      tags=list(mi.tags), identifiers=dict(mi.ids), formats=[f for f in formats])
-            self.added.append((mi, formats))
-            ids.append(new_id)
-        return ids, []
+        super().__init__(books=books)
 
 
 def make_gui(db, selected):
