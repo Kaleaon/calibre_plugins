@@ -1,0 +1,38 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+extend-exclude = [
+    "dist",
+    "build",
+    "third_party",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # Pyflakes
+    "I",   # isort
+    "W",   # pycodestyle warnings
+    "UP",  # pyupgrade
+]
+ignore = ["E501", "UP038"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "common",
+    "fanfic",
+    "gemini",
+    "media",
+    "metabods",
+    "nifty",
+    "plugin",
+    "reddit",
+    "scrubber_plugin",
+    "tagger",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"

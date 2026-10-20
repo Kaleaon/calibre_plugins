@@ -35,6 +35,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Run pre-commit checks
+        run: |
+          pre-commit run --all-files
+
       - name: Build plugin packages in strict mode
         run: |
           python build.py

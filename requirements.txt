@@ -8,3 +8,4 @@ pyparsing
 PyMuPDF
 pytest
 ruff
+pre-commit
