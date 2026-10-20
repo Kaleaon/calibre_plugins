@@ -9,7 +9,7 @@ import uuid
 import zipfile
 from html.parser import HTMLParser
 from io import BytesIO
-from pathlib import Path, PosixPath
+from pathlib import Path, PurePosixPath
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from xml.sax.saxutils import escape, quoteattr
@@ -599,7 +599,7 @@ def extract_epub_story(epub_source):
         if not opf_path or opf_path not in names:
             raise ValueError('Not a valid EPUB: OPF manifest not found')
 
-        opf_dir = PosixPath(opf_path).parent.as_posix()
+        opf_dir = PurePosixPath(opf_path).parent.as_posix()
         if opf_dir == '.':
             opf_dir = ''
         elif opf_dir and not opf_dir.endswith('/'):

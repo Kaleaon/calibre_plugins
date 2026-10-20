@@ -73,7 +73,14 @@ def alive(pid):
                 return proc_stat.read_text().split()[2] != 'Z'
             except OSError:
                 return True
-        return True
+        try:
+            import subprocess
+            out = subprocess.check_output(['ps', '-p', str(pid), '-o', 'state='], text=True, stderr=subprocess.DEVNULL).strip()
+            if not out or out.startswith('Z'):
+                return False
+            return True
+        except Exception:
+            return True
 
 
 def wait_gone(pid, seconds=10):

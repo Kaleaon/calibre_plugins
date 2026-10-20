@@ -3,7 +3,7 @@ import re
 import zipfile
 from html import escape
 from io import BytesIO
-from pathlib import PosixPath
+from pathlib import PurePosixPath
 
 try:
     from .storykit import build_epub, extract_epub_story, sort_by_posting_order
@@ -48,7 +48,7 @@ def extract_epub_cover(epub_bytes):
                         break
 
             if opf_path and opf_path in names:
-                opf_dir = PosixPath(opf_path).parent.as_posix()
+                opf_dir = PurePosixPath(opf_path).parent.as_posix()
                 if opf_dir == '.':
                     opf_dir = ''
                 elif opf_dir and not opf_dir.endswith('/'):
