@@ -89,13 +89,15 @@ def image_pdf_to_cbz(data):
         return output.getvalue()
 
 
-def sources(source, output):
+def sources(source, output, cancelled=lambda: False):
     source, output = Path(source).resolve(), Path(output).resolve()
     total = 0
     if source.is_file():
         if not zipfile.is_zipfile(source):
             if source.stat().st_size > MAX_MEMBER:
                 raise ValueError('Input book exceeds 512 MiB safety limit')
+            if cancelled():
+                return
             yield source.name, source.read_bytes()
             return
         try:
@@ -108,9 +110,13 @@ def sources(source, output):
                 if is_epub or is_comic:
                     if source.stat().st_size > MAX_MEMBER:
                         raise ValueError('Input book exceeds 512 MiB safety limit')
+                    if cancelled():
+                        return
                     yield source.name, source.read_bytes()
                     return
                 for member in z.infolist():
+                    if cancelled():
+                        return
                     if member.is_dir():
                         continue
                     total += member.file_size
@@ -123,6 +129,8 @@ def sources(source, output):
             raise ValueError(f'Corrupted or invalid ZIP file: {exc}') from exc
     else:
         for path in sorted(source.rglob('*')):
+            if cancelled():
+                return
             if not path.is_file() or path.is_symlink() or output == path or output in path.parents:
                 continue
             size = path.stat().st_size
@@ -132,7 +140,7 @@ def sources(source, output):
             yield str(path.relative_to(source)), path.read_bytes()
 
 
-def recover(source, output, comics=False, progress=None):
+def recover(source, output, comics=False, progress=None, cancelled=lambda: False):
     output = Path(output).resolve()
     source = Path(source).resolve()
     if source == output or (source.is_dir() and source in output.parents):
@@ -140,7 +148,9 @@ def recover(source, output, comics=False, progress=None):
     output.mkdir(parents=True, exist_ok=True)
     report, written, sidecars = [], [], {}
     try:
-        for name, data in sources(source, output):
+        for name, data in sources(source, output, cancelled=cancelled):
+            if cancelled():
+                break
             if progress:
                 progress(name)
             if name.lower().endswith('.json') and len(data) <= 1024 * 1024:

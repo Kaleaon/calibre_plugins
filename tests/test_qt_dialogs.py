@@ -15,7 +15,7 @@ import tempfile
 import time
 import types
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,8 +103,11 @@ class QtCase(unittest.TestCase):
                 setattr(qtcore, name, getattr(module, name))
         sys.modules['qt'] = types.ModuleType('qt')
         sys.modules['qt.core'] = qtcore
-        for name in ('calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils'):
+        for name in ('calibre', 'calibre.customize', 'calibre.gui2', 'calibre.utils'):
             sys.modules[name] = MagicMock()
+        actions = types.ModuleType('calibre.gui2.actions')
+        actions.InterfaceAction = type('InterfaceAction', (object,), {'__init__': lambda self, gui, name: setattr(self, 'gui', gui)})
+        sys.modules['calibre.gui2.actions'] = actions
         for name in ('calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.book'):
             sys.modules[name] = MagicMock()
         base = types.ModuleType('calibre.ebooks.metadata.book.base')
@@ -125,8 +128,9 @@ class QtCase(unittest.TestCase):
 
     def load(self, import_name):
         target = Path(self.tmp.name) / import_name
-        if not target.exists():
-            zipfile.ZipFile(self.built[import_name]).extractall(target)
+        if target.exists():
+            shutil.rmtree(target)
+        zipfile.ZipFile(self.built[import_name]).extractall(target)
         package = types.ModuleType(f'calibre_plugins.{import_name}')
         package.__path__ = [str(target)]
         sys.modules[package.__name__] = package
@@ -161,6 +165,71 @@ class TaskAndTagSearchTests(QtCase):
         task = guikit.run_task(None, 'Working…', work)
         self.assertTrue(task.cancelled())
         self.assertEqual(task.result, 'stopped early')
+
+    def test_takeout_action_run_recovery_cancelled(self):
+        package = self.load('takeout_book_fixer')
+        action_mod = importlib.import_module(package + '.action')
+
+        def make_epub():
+            b = io.BytesIO()
+            with zipfile.ZipFile(b, 'w') as z:
+                z.writestr('mimetype', 'application/epub+zip')
+                z.writestr('META-INF/container.xml', '<container/>')
+            return b.getvalue()
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            source = root / 'takeout.zip'
+            sample = make_epub()
+            with zipfile.ZipFile(source, 'w') as z:
+                z.writestr('book1.pdf', sample)
+                z.writestr('book2.pdf', sample)
+                z.writestr('book3.pdf', sample)
+            output = root / 'output'
+
+            def accept_options_dialog():
+                for widget in QtWidgets.QApplication.topLevelWidgets():
+                    if isinstance(widget, QtWidgets.QDialog) and not isinstance(widget, QtWidgets.QProgressDialog):
+                        widget.accept()
+                        return
+                QtCore.QTimer.singleShot(10, accept_options_dialog)
+
+            def press_cancel():
+                for widget in QtWidgets.QApplication.topLevelWidgets():
+                    if isinstance(widget, QtWidgets.QProgressDialog) and widget.isVisible():
+                        button = widget.findChild(QtWidgets.QPushButton)
+                        if button:
+                            button.click()
+                            return
+                QtCore.QTimer.singleShot(10, press_cancel)
+
+            QtCore.QTimer.singleShot(0, accept_options_dialog)
+            QtCore.QTimer.singleShot(20, press_cancel)
+
+            window = QtWidgets.QMainWindow()
+            window.library_view = MagicMock()
+            window.tags_view = MagicMock()
+            action = action_mod.TakeoutAction(window, None)
+            action.qaction = QtGui.QAction(window)
+            action.genesis()
+
+            orig_recover = action_mod.recover
+            def slow_recover(*args, **kwargs):
+                time.sleep(0.2)
+                return orig_recover(*args, **kwargs)
+
+            with patch.object(action_mod, 'QFileDialog') as mock_file_dialog, \
+                 patch.object(action_mod, 'recover', side_effect=slow_recover), \
+                 patch.object(action_mod, 'info_dialog') as mock_info, \
+                 patch.object(action_mod, 'show_friendly_error_dialog') as mock_error:
+
+                mock_file_dialog.getOpenFileName.return_value = (str(source), '')
+                mock_file_dialog.getExistingDirectory.return_value = str(output)
+
+                action.run_recovery(True)
+                self.assertFalse(mock_error.called)
+                self.assertTrue(mock_info.called)
+                self.assertIn('cancelled', mock_info.call_args[0][1].lower())
 
     def test_metabods_tag_search_fills_the_story_list(self):
         package = self.load('metabods_downloader')

@@ -9,6 +9,13 @@ except ImportError:
         from .error_handler import show_friendly_error_dialog
     except ImportError:
         from error_handler import show_friendly_error_dialog
+try:
+    from calibre_plugins.takeout_book_fixer.guikit import run_task
+except ImportError:
+    try:
+        from .guikit import run_task
+    except ImportError:
+        from guikit import run_task
 from calibre_plugins.takeout_book_fixer.core import recover
 
 class TakeoutAction(InterfaceAction):
@@ -57,36 +64,48 @@ class TakeoutAction(InterfaceAction):
         layout.addWidget(buttons)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        progress = QProgressDialog('Recovering books…', '', 0, 0, self.gui)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setCancelButton(None)
-        progress.show()
-        try:
-            # Worker keeps Calibre responsive while files and PDF pages are processed.
-            from concurrent.futures import ThreadPoolExecutor
-            from qt.core import QApplication
-            import time
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(recover, source, output, comics.isChecked())
-                while not future.done():
-                    QApplication.processEvents()
-                    time.sleep(0.05)
-                files, report, report_path = future.result()
-            imported, import_errors = [], []
-            if import_library.isChecked():
-                progress.setLabelText('Importing books and reading metadata…')
-                from calibre_plugins.takeout_book_fixer.importer import import_books
-                imported, import_errors = import_books(self.gui, report)
-                import json
-                with open(report_path, 'w', encoding='utf-8') as stream:
-                    json.dump(report, stream, indent=2, ensure_ascii=False)
-            errors = sum(r['status'] == 'error' for r in report)
-            info_dialog(self.gui, 'Takeout recovery complete',
-                        f'{len(files)} books recovered or already present; {errors} recovery errors.\n{len(imported)} imported into Calibre; {len(import_errors)} import errors.\nOutput: {output}\nReport: {report_path}', show=True)
-        except Exception as e:
-            show_friendly_error_dialog(self.gui, 'Takeout recovery failed', e, show=True)
-        finally:
-            progress.close()
+        def work(task):
+            return recover(
+                source,
+                output,
+                comics=comics.isChecked(),
+                progress=lambda msg: setattr(task, 'status', f'Recovering {msg}…'),
+                cancelled=task.cancelled,
+            )
+
+        task = run_task(self.gui, 'Recovering books…', work)
+        if task.error:
+            show_friendly_error_dialog(self.gui, 'Takeout recovery failed', task.error, show=True)
+            return
+
+        if task.result is None:
+            return
+
+        files, report, report_path = task.result
+
+        if task.cancelled():
+            info_dialog(
+                self.gui,
+                'Takeout recovery cancelled',
+                f'Recovery cancelled by user.\n{len(files)} books recovered or already present before cancellation.\nOutput: {output}\nReport: {report_path}',
+                show=True,
+            )
+            return
+
+        imported, import_errors = [], []
+        if import_library.isChecked():
+            from calibre_plugins.takeout_book_fixer.importer import import_books
+            imported, import_errors = import_books(self.gui, report)
+            import json
+            with open(report_path, 'w', encoding='utf-8') as stream:
+                json.dump(report, stream, indent=2, ensure_ascii=False)
+        errors = sum(r['status'] == 'error' for r in report)
+        info_dialog(
+            self.gui,
+            'Takeout recovery complete',
+            f'{len(files)} books recovered or already present; {errors} recovery errors.\n{len(imported)} imported into Calibre; {len(import_errors)} import errors.\nOutput: {output}\nReport: {report_path}',
+            show=True,
+        )
 
     def repair_selected(self):
         ids = list(self.gui.library_view.get_selected_ids())
