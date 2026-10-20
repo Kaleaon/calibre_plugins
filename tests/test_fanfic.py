@@ -350,5 +350,38 @@ class ActionTests(unittest.TestCase):
         self.assertEqual(find_book(gui, 'url', 'https://archiveofourown.org/works/12345/'), 2)
 
 
+class LibkitMergeEpubsTests(unittest.TestCase):
+    def test_libkit_reexports_merge_epubs(self):
+        from common import libkit, storykit
+        from io import BytesIO
+        story1 = {'id': '1', 'title': 'Story One', 'author': 'Author A', 'sections': [('Ch 1', '<p>Part 1</p>')]}
+        story2 = {'id': '2', 'title': 'Story Two', 'author': 'Author B', 'sections': [('Ch 1', '<p>Part 2</p>')]}
+        epub1 = storykit.build_epub([story1])
+        epub2 = storykit.build_epub([story2])
+        merged = libkit.merge_epubs([epub1, epub2], title='Combined Omnibus')
+        self.assertIsInstance(merged, bytes)
+        self.assertGreater(len(merged), 0)
+        with zipfile.ZipFile(BytesIO(merged), 'r') as z:
+            self.assertIn('OEBPS/content.opf', z.namelist())
+
+    def test_fanfic_combining_calls_libkit_merge_epubs(self):
+        from common import libkit, storykit
+        from io import BytesIO
+        story1 = {'id': '1', 'title': 'Story 1', 'author': 'Alice', 'sections': [('C1', '<p>A</p>')]}
+        story2 = {'id': '2', 'title': 'Story 2', 'author': 'Bob', 'sections': [('C2', '<p>B</p>')]}
+        epub1 = storykit.build_epub([story1])
+        epub2 = storykit.build_epub([story2])
+
+        results = [
+            {'title': 'Story 1', 'authors': ['Alice'], 'epub': epub1, 'tags': ['tag1'], 'chapter_errors': []},
+            {'title': 'Story 2', 'authors': ['Bob'], 'epub': epub2, 'tags': ['tag2'], 'chapter_errors': []},
+        ]
+
+        merged = libkit.merge_epubs([r['epub'] for r in results])
+        self.assertIsInstance(merged, bytes)
+        with zipfile.ZipFile(BytesIO(merged), 'r') as z:
+            self.assertIn('OEBPS/content.opf', z.namelist())
+
+
 if __name__ == '__main__':
     unittest.main()

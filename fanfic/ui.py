@@ -192,19 +192,19 @@ class FlareSolverrSetupWizard(QWizard):
 
     def __init__(self, parent=None, advanced_edit=None, recovery_mode=False, recovery_url=None):
         super().__init__(parent)
-        self.advanced = advanced_edit
+        self.advanced = advanced_edit  # the dialog's Advanced settings box; changes here are saved when that dialog is accepted
         self.recovery_mode = recovery_mode
         self.recovery_url = recovery_url or flaresolverr.TEST_URL
-        self.setWindowTitle('FlareSolverr Setup Wizard')
+        self.setWindowTitle(_('Royal Road setup (FlareSolverr)'))
         self.resize(760, 680)
 
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.program = QLabel()
         self.program.setWordWrap(True)
-        self.choose_button = QPushButton('Choose FlareSolverr program…')
-        self.start_button = QPushButton('Start FlareSolverr')
-        self.stop_button = QPushButton('Stop FlareSolverr')
+        self.choose_button = QPushButton(_('Choose FlareSolverr program…'))
+        self.start_button = QPushButton(_('Start FlareSolverr'))
+        self.stop_button = QPushButton(_('Stop FlareSolverr'))
         self.choose_button.clicked.connect(self.choose_program)
         self.start_button.clicked.connect(self.start_program)
         self.stop_button.clicked.connect(self.stop_program)
@@ -324,6 +324,9 @@ class FlareSolverrSetupWizard(QWizard):
         if isinstance(self.advanced, str):
             return self.advanced
         return prefs['advanced_ini'] or self.enable()
+
+
+RoyalRoadSetupDialog = FlareSolverrSetupWizard
 
 
 RoyalRoadSetupDialog = FlareSolverrSetupWizard

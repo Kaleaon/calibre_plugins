@@ -687,7 +687,6 @@ class GeminiFixerAction(DialogAction):
         enable_fallback.toggled.connect(fallback_model.setEnabled)
         row.addWidget(fallback_model, 1)
         layout.addLayout(row)
-
         layout.addWidget(QLabel(_('Fix:')))
         boxes = {}
         for field, label in FIELD_LABELS:
