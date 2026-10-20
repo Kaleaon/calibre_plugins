@@ -146,5 +146,170 @@ class TaggerDialogTests(unittest.TestCase):
         self.assertGreaterEqual(qt_core.QLabel.return_value.setWordWrap.call_count, 4)
 
 
+class RuleSetSchemaTests(unittest.TestCase):
+    def test_export_and_import_roundtrip(self):
+        rules_text = "tags:=Muscle Growth => Theme.Growth\nlitrpg => LitRPG"
+        sites_text = "storiesonline.net, sol.net => Stories Online"
+        data = rules.export_rule_set_data(rules_text, sites_text, title="Test Set")
+        self.assertEqual(data["version"], 1)
+        self.assertEqual(len(data["rules"]), 2)
+        self.assertEqual(len(data["sites"]), 1)
+
+        imp_rules, imp_sites, errors = rules.import_rule_set_data(data)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(imp_rules), 2)
+        self.assertEqual(len(imp_sites), 1)
+        self.assertEqual(imp_rules[0].tags, ["Theme.Growth"])
+        self.assertEqual(imp_sites[0][0], "Stories Online")
+
+    def test_import_rejects_unsupported_version(self):
+        data = {"version": 99, "rules": []}
+        imp_rules, imp_sites, errors = rules.import_rule_set_data(data)
+        self.assertEqual(imp_rules, [])
+        self.assertIn("Unsupported schema version '99'", errors[0])
+
+    def test_import_rejects_malformed_json_structure(self):
+        imp_rules, imp_sites, errors = rules.import_rule_set_data("not a dict")
+        self.assertIn("Invalid rule set data", errors[0])
+
+    def test_import_rejects_invalid_rule_syntax(self):
+        data = {
+            "version": 1,
+            "rules": ["re:(( => Bad Regex"]
+        }
+        imp_rules, imp_sites, errors = rules.import_rule_set_data(data)
+        self.assertEqual(imp_rules, [])
+        self.assertTrue(any("bad regular expression" in e for e in errors))
+
+    def test_classify_rule_duplicate_conflict_new(self):
+        parsed_local, _ = rules.parse_rules("litrpg => LitRPG\ntags:=Muscle Growth => Theme.Growth")
+        inc_new, _ = rules.parse_rules("action => Action")
+        inc_dup, _ = rules.parse_rules("litrpg => LitRPG")
+        inc_conf, _ = rules.parse_rules("litrpg => LitRPG, Game")
+
+        self.assertEqual(rules.classify_rule(inc_new[0], parsed_local), "New")
+        self.assertEqual(rules.classify_rule(inc_dup[0], parsed_local), "Duplicate")
+        self.assertEqual(rules.classify_rule(inc_conf[0], parsed_local), "Conflict")
+
+    def test_classify_site_duplicate_conflict_new(self):
+        local_sites, _ = rules.parse_sites("storiesonline.net => Stories Online")
+        inc_new, _ = rules.parse_sites("mysite.org => My Site")
+        inc_dup, _ = rules.parse_sites("storiesonline.net => Stories Online")
+        inc_conf, _ = rules.parse_sites("storiesonline.net => SOL New Name")
+
+        self.assertEqual(rules.classify_site(inc_new[0], local_sites), "New")
+        self.assertEqual(rules.classify_site(inc_dup[0], local_sites), "Duplicate")
+        self.assertEqual(rules.classify_site(inc_conf[0], local_sites), "Conflict")
+
+
+class RuleSetManagerDialogTests(unittest.TestCase):
+    def setUp(self):
+        self.saved_modules = dict(sys.modules)
+        for name in ('calibre', 'calibre.gui2', 'calibre.gui2.actions'):
+            sys.modules[name] = MagicMock()
+        sys.modules['calibre.gui2.actions'].InterfaceAction = object
+
+        class StubDialog(object):
+            def __init__(self, *a, **k): pass
+            def setWindowTitle(self, t): pass
+            def resize(self, w, h): pass
+            def accept(self): pass
+            def reject(self): pass
+
+        qt_mod = MagicMock()
+        qt_mod.core.QDialog = StubDialog
+        sys.modules['qt'] = qt_mod
+        sys.modules['qt.core'] = qt_mod.core
+
+        tagger_pkg = types.ModuleType('calibre_plugins.story_collection_tagger')
+        tagger_pkg.__path__ = [str(Path(__file__).resolve().parents[1] / 'tagger')]
+        tagger_pkg.config = MagicMock(prefs={'add_source': True, 'source_prefix': 'Source.', 'series_prefix': 'Series.', 'scan_comments': False, 'rules': 'litrpg => LitRPG', 'sites': 'sol.net => Stories Online'})
+        tagger_pkg.rules = rules
+        sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+        sys.modules['calibre_plugins.story_collection_tagger'] = tagger_pkg
+        sys.modules['calibre_plugins.story_collection_tagger.config'] = tagger_pkg.config
+        sys.modules['calibre_plugins.story_collection_tagger.rules'] = tagger_pkg.rules
+
+    def tearDown(self):
+        for k in list(sys.modules.keys()):
+            if k not in self.saved_modules:
+                del sys.modules[k]
+        sys.modules.update(self.saved_modules)
+
+    def test_manager_dialog_initialization_and_commit(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        dlg = action_mod.RuleSetManagerDialog(None, current_rules="litrpg => LitRPG", current_sites="sol.net => Stories Online")
+        self.assertEqual(len(dlg.local_rules), 1)
+        self.assertEqual(len(dlg.local_sites), 1)
+
+        rules_text, sites_text = dlg.get_committed_rules_and_sites()
+        self.assertEqual(rules_text, "litrpg => LitRPG")
+        self.assertEqual(sites_text, "sol.net => Stories Online")
+
+    def test_manager_dialog_1000_rules_performance(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        many_rules = "\n".join([f"pattern_{i} => Tag_{i}" for i in range(1000)])
+        import time
+        start = time.time()
+        dlg = action_mod.RuleSetManagerDialog(None, current_rules=many_rules, current_sites="")
+        elapsed = time.time() - start
+
+        self.assertEqual(len(dlg.local_rules), 1000)
+        self.assertLess(elapsed, 2.0, f"Table population for 1000 rules took too long ({elapsed:.2f}s)")
+
+    def test_manager_dialog_unchecked_rules_are_excluded(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        dlg = action_mod.RuleSetManagerDialog(None, current_rules="rule1 => Tag1\nrule2 => Tag2", current_sites="site1.com => Site1\nsite2.com => Site2")
+
+        # Mock table item check state for row 1 to be Unchecked
+        mock_chk_checked = MagicMock()
+        mock_chk_checked.checkState.return_value = action_mod.Qt.CheckState.Checked
+        mock_chk_unchecked = MagicMock()
+        mock_chk_unchecked.checkState.return_value = action_mod.Qt.CheckState.Unchecked
+
+        def get_item(row, col):
+            item = MagicMock()
+            if col == 0:
+                return mock_chk_checked if row == 0 else mock_chk_unchecked
+            elif col == 1:
+                item.text.return_value = "(default)" if row < 2 else "site1.com"
+            elif col == 2:
+                item.text.return_value = f"rule{row+1}" if row < 2 else "Site1"
+            elif col == 3:
+                item.text.return_value = f"Tag{row+1}"
+            return item
+
+        dlg.rules_table.rowCount = MagicMock(return_value=2)
+        dlg.rules_table.item = MagicMock(side_effect=get_item)
+
+        dlg.sites_table.rowCount = MagicMock(return_value=1)
+        dlg.sites_table.item = MagicMock(side_effect=get_item)
+
+        rules_out, sites_out = dlg._get_checked_rules_and_sites_text()
+        self.assertEqual(rules_out, "rule1 => Tag1")
+        self.assertNotIn("rule2", rules_out)
+
+    def test_manager_dialog_syntax_error_blocks_accept(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        dlg = action_mod.RuleSetManagerDialog(None, current_rules="", current_sites="")
+        dlg._get_checked_rules_and_sites_text = MagicMock(return_value=("re:(( => Bad Regex", ""))
+        dlg.accept = MagicMock()
+
+        dlg._on_accept()
+        dlg.accept.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

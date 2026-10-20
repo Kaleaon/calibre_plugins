@@ -2,13 +2,22 @@ from calibre.gui2 import error_dialog, info_dialog
 from calibre.gui2.actions import InterfaceAction
 from qt.core import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
                      QPushButton, QRadioButton, QVBoxLayout)
+import json
+from calibre.gui2 import error_dialog, info_dialog
+from calibre.gui2.actions import InterfaceAction
+from qt.core import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout,
+                     QHeaderView, QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton,
+                     QRadioButton, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget, Qt)
 try:
     from calibre_plugins.story_collection_tagger.error_handler import show_friendly_error_dialog
 except ImportError:
     try:
         from .error_handler import show_friendly_error_dialog
     except ImportError:
-        from error_handler import show_friendly_error_dialog
+        try:
+            from error_handler import show_friendly_error_dialog
+        except ImportError:
+            from common.error_handler import show_friendly_error_dialog
 
 from calibre_plugins.story_collection_tagger import rules as rules_mod
 from calibre_plugins.story_collection_tagger.config import prefs
@@ -18,6 +27,343 @@ RULES_HELP = ('One rule per line:  [field:]pattern => Tag, Tag\n'
               'A plain pattern is a case-insensitive substring; "=text" must match exactly; "re:..." is a regular expression.\n'
               'Examples:\n  tags:=Muscle Growth => Theme.Growth\n  source:Royal Road => Format.Web serial\n  re:litrpg|progression => LitRPG')
 SITES_HELP = 'Extra sites, one per line:  host, host2 => Name     (for example: storiesonline.net => Stories Online)'
+
+
+class RuleSetManagerDialog(QDialog):
+    def __init__(self, parent=None, current_rules="", current_sites=""):
+        super().__init__(parent)
+        self.setWindowTitle("Manage Rule Sets")
+        self.resize(800, 580)
+        self.committed_rules = current_rules
+        self.committed_sites = current_sites
+
+        self.local_rules, _ = rules_mod.parse_rules(current_rules)
+        self.local_sites, _ = rules_mod.parse_sites(current_sites)
+
+        layout = QVBoxLayout(self)
+
+        top_row = QHBoxLayout()
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Filter rules and sites...")
+        self.search_edit.textChanged.connect(self._filter_tables)
+        top_row.addWidget(self.search_edit)
+
+        load_btn = QPushButton("Load Rules (Import JSON)...")
+        load_btn.clicked.connect(self._load_json)
+        top_row.addWidget(load_btn)
+
+        save_btn = QPushButton("Save Rules (Export JSON)...")
+        save_btn.clicked.connect(self._save_json)
+        top_row.addWidget(save_btn)
+
+        layout.addLayout(top_row)
+
+        self.tabs = QTabWidget()
+        layout.addWidget(self.tabs)
+
+        # Rules tab
+        rules_widget = QWidget()
+        rules_layout = QVBoxLayout(rules_widget)
+
+        rules_controls = QHBoxLayout()
+        select_all_rules_btn = QPushButton("Select All")
+        select_all_rules_btn.clicked.connect(lambda: self._set_all_checked(self.rules_table, True))
+        deselect_all_rules_btn = QPushButton("Deselect All")
+        deselect_all_rules_btn.clicked.connect(lambda: self._set_all_checked(self.rules_table, False))
+        add_rule_btn = QPushButton("Add Rule")
+        add_rule_btn.clicked.connect(self._add_rule_row)
+        delete_rule_btn = QPushButton("Delete Selected")
+        delete_rule_btn.clicked.connect(lambda: self._delete_selected_rows(self.rules_table))
+
+        rules_controls.addWidget(select_all_rules_btn)
+        rules_controls.addWidget(deselect_all_rules_btn)
+        rules_controls.addWidget(add_rule_btn)
+        rules_controls.addWidget(delete_rule_btn)
+        rules_controls.addStretch()
+        rules_layout.addLayout(rules_controls)
+
+        self.rules_table = QTableWidget()
+        self.rules_table.setColumnCount(5)
+        self.rules_table.setHorizontalHeaderLabels(["Include", "Field", "Pattern", "Target Tags", "Status"])
+        if hasattr(QHeaderView, 'ResizeMode'):
+            self.rules_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            self.rules_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+            self.rules_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            self.rules_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+            self.rules_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.rules_table.itemChanged.connect(self._on_item_changed)
+        rules_layout.addWidget(self.rules_table)
+
+        self.tabs.addTab(rules_widget, "Keyword Rules")
+
+        # Sites tab
+        sites_widget = QWidget()
+        sites_layout = QVBoxLayout(sites_widget)
+
+        sites_controls = QHBoxLayout()
+        select_all_sites_btn = QPushButton("Select All")
+        select_all_sites_btn.clicked.connect(lambda: self._set_all_checked(self.sites_table, True))
+        deselect_all_sites_btn = QPushButton("Deselect All")
+        deselect_all_sites_btn.clicked.connect(lambda: self._set_all_checked(self.sites_table, False))
+        add_site_btn = QPushButton("Add Site")
+        add_site_btn.clicked.connect(self._add_site_row)
+        delete_site_btn = QPushButton("Delete Selected")
+        delete_site_btn.clicked.connect(lambda: self._delete_selected_rows(self.sites_table))
+
+        sites_controls.addWidget(select_all_sites_btn)
+        sites_controls.addWidget(deselect_all_sites_btn)
+        sites_controls.addWidget(add_site_btn)
+        sites_controls.addWidget(delete_site_btn)
+        sites_controls.addStretch()
+        sites_layout.addLayout(sites_controls)
+
+        self.sites_table = QTableWidget()
+        self.sites_table.setColumnCount(4)
+        self.sites_table.setHorizontalHeaderLabels(["Include", "Hosts", "Site Name", "Status"])
+        if hasattr(QHeaderView, 'ResizeMode'):
+            self.sites_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            self.sites_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            self.sites_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            self.sites_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.sites_table.itemChanged.connect(self._on_item_changed)
+        sites_layout.addWidget(self.sites_table)
+
+        self.tabs.addTab(sites_widget, "Source Sites")
+
+        self.status_label = QLabel("")
+        layout.addWidget(self.status_label)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self._on_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._populate_initial()
+
+    def _populate_initial(self):
+        self.rules_table.blockSignals(True)
+        self.sites_table.blockSignals(True)
+
+        self.rules_table.setRowCount(0)
+        for r in self.local_rules:
+            self._insert_rule_row(r.field, r.pattern, r.tags, checked=True, status="Existing")
+
+        self.sites_table.setRowCount(0)
+        for name, hosts, _ in self.local_sites:
+            self._insert_site_row(hosts, name, checked=True, status="Existing")
+
+        self.rules_table.blockSignals(False)
+        self.sites_table.blockSignals(False)
+        self._update_counts()
+
+    def _insert_rule_row(self, field, pattern, tags, checked=True, status="Existing"):
+        row = self.rules_table.rowCount()
+        self.rules_table.insertRow(row)
+
+        chk = QTableWidgetItem()
+        chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        chk.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+        self.rules_table.setItem(row, 0, chk)
+
+        fld_str = field if field else "(default)"
+        self.rules_table.setItem(row, 1, QTableWidgetItem(fld_str))
+        self.rules_table.setItem(row, 2, QTableWidgetItem(pattern or ""))
+
+        tags_str = ", ".join(tags) if isinstance(tags, (list, tuple)) else str(tags or "")
+        self.rules_table.setItem(row, 3, QTableWidgetItem(tags_str))
+        self.rules_table.setItem(row, 4, QTableWidgetItem(status))
+
+    def _insert_site_row(self, hosts, name, checked=True, status="Existing"):
+        row = self.sites_table.rowCount()
+        self.sites_table.insertRow(row)
+
+        chk = QTableWidgetItem()
+        chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        chk.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+        self.sites_table.setItem(row, 0, chk)
+
+        hosts_str = ", ".join(hosts) if isinstance(hosts, (list, tuple)) else str(hosts or "")
+        self.sites_table.setItem(row, 1, QTableWidgetItem(hosts_str))
+        self.sites_table.setItem(row, 2, QTableWidgetItem(name or ""))
+        self.sites_table.setItem(row, 3, QTableWidgetItem(status))
+
+    def _add_rule_row(self):
+        self._insert_rule_row("", "", "", checked=True, status="New")
+        self._update_counts()
+
+    def _add_site_row(self):
+        self._insert_site_row([], "", checked=True, status="New")
+        self._update_counts()
+
+    def _delete_selected_rows(self, table):
+        selected_rows = sorted(set(idx.row() for idx in table.selectedIndexes()), reverse=True)
+        table.blockSignals(True)
+        for row in selected_rows:
+            table.removeRow(row)
+        table.blockSignals(False)
+        self._update_counts()
+
+    def _set_all_checked(self, table, checked):
+        table.blockSignals(True)
+        for row in range(table.rowCount()):
+            if not table.isRowHidden(row):
+                item = table.item(row, 0)
+                if item:
+                    item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+        table.blockSignals(False)
+        self._update_counts()
+
+    def _on_item_changed(self, item):
+        if item and item.column() == 0:
+            self._update_counts()
+
+    def _update_counts(self):
+        rule_total = self.rules_table.rowCount()
+        rule_checked = sum(1 for r in range(rule_total) if self.rules_table.item(r, 0) and self.rules_table.item(r, 0).checkState() == Qt.CheckState.Checked)
+
+        site_total = self.sites_table.rowCount()
+        site_checked = sum(1 for r in range(site_total) if self.sites_table.item(r, 0) and self.sites_table.item(r, 0).checkState() == Qt.CheckState.Checked)
+
+        self.tabs.setTabText(0, f"Keyword Rules ({rule_checked}/{rule_total})")
+        self.tabs.setTabText(1, f"Source Sites ({site_checked}/{site_total})")
+        self.status_label.setText(f"Selected for configuration: {rule_checked} rule(s), {site_checked} site(s).")
+
+    def _filter_tables(self, text):
+        text = text.casefold()
+        for table in (self.rules_table, self.sites_table):
+            for r in range(table.rowCount()):
+                match = False
+                if not text:
+                    match = True
+                else:
+                    for c in range(1, table.columnCount()):
+                        item = table.item(r, c)
+                        if item and text in item.text().casefold():
+                            match = True
+                            break
+                table.setRowHidden(r, not match)
+
+    def _load_json(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Load Rule Set JSON", "", "JSON Files (*.json);;All Files (*)")
+        if not path:
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as exc:
+            QMessageBox.critical(self, "Load Error", f"Failed to read or parse JSON file:\n{exc}")
+            return
+
+        parsed_rules, parsed_sites, errors = rules_mod.import_rule_set_data(data)
+        if errors:
+            QMessageBox.warning(self, "Rule Validation Error", "The rule set file contains invalid or malformed rules and cannot be imported:\n\n" + "\n".join(errors))
+            return
+
+        self.rules_table.blockSignals(True)
+        self.sites_table.blockSignals(True)
+        self.rules_table.setUpdatesEnabled(False)
+        self.sites_table.setUpdatesEnabled(False)
+
+        new_rules = 0
+        conflict_rules = 0
+        for r in parsed_rules:
+            status = rules_mod.classify_rule(r, self.local_rules)
+            if status == 'New':
+                self._insert_rule_row(r.field, r.pattern, r.tags, checked=True, status="New")
+                new_rules += 1
+            elif status == 'Conflict':
+                self._insert_rule_row(r.field, r.pattern, r.tags, checked=False, status="Conflict (differs)")
+                conflict_rules += 1
+            elif status == 'Duplicate':
+                self._insert_rule_row(r.field, r.pattern, r.tags, checked=False, status="Duplicate")
+
+        for s in parsed_sites:
+            name, hosts, _ = s
+            status = rules_mod.classify_site(s, self.local_sites)
+            if status == 'New':
+                self._insert_site_row(hosts, name, checked=True, status="New")
+            elif status == 'Conflict':
+                self._insert_site_row(hosts, name, checked=False, status="Conflict (differs)")
+            elif status == 'Duplicate':
+                self._insert_site_row(hosts, name, checked=False, status="Duplicate")
+
+        self.rules_table.setUpdatesEnabled(True)
+        self.sites_table.setUpdatesEnabled(True)
+        self.rules_table.blockSignals(False)
+        self.sites_table.blockSignals(False)
+
+        self._update_counts()
+        QMessageBox.information(self, "Rule Set Loaded", f"Loaded {len(parsed_rules)} rule(s) and {len(parsed_sites)} site(s).\n\n"
+                                                         f"New rules added: {new_rules}\nConflicts flagged: {conflict_rules}")
+
+    def _save_json(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Save Rule Set JSON", "rule_set.json", "JSON Files (*.json);;All Files (*)")
+        if not path:
+            return
+
+        rules_text, sites_text = self._get_checked_rules_and_sites_text()
+        data = rules_mod.export_rule_set_data(rules_text, sites_text)
+
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            QMessageBox.information(self, "Export Successful", f"Rule set exported successfully to:\n{path}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Export Error", f"Failed to save JSON file:\n{exc}")
+
+    def _get_checked_rules_and_sites_text(self):
+        rule_lines = []
+        for r in range(self.rules_table.rowCount()):
+            chk = self.rules_table.item(r, 0)
+            if chk and chk.checkState() == Qt.CheckState.Checked:
+                fld_item = self.rules_table.item(r, 1)
+                pat_item = self.rules_table.item(r, 2)
+                tags_item = self.rules_table.item(r, 3)
+
+                fld = fld_item.text().strip() if fld_item else ""
+                pat = pat_item.text().strip() if pat_item else ""
+                tags = tags_item.text().strip() if tags_item else ""
+
+                if not pat or not tags:
+                    continue
+
+                field_prefix = f"{fld}:" if fld and fld != "(default)" else ""
+                rule_lines.append(f"{field_prefix}{pat} => {tags}")
+
+        site_lines = []
+        for r in range(self.sites_table.rowCount()):
+            chk = self.sites_table.item(r, 0)
+            if chk and chk.checkState() == Qt.CheckState.Checked:
+                hosts_item = self.sites_table.item(r, 1)
+                name_item = self.sites_table.item(r, 2)
+
+                hosts = hosts_item.text().strip() if hosts_item else ""
+                name = name_item.text().strip() if name_item else ""
+
+                if not hosts or not name:
+                    continue
+
+                site_lines.append(f"{hosts} => {name}")
+
+        return "\n".join(rule_lines), "\n".join(site_lines)
+
+    def _on_accept(self):
+        rules_text, sites_text = self._get_checked_rules_and_sites_text()
+        _, rule_errors = rules_mod.parse_rules(rules_text)
+        _, site_errors = rules_mod.parse_sites(sites_text)
+        all_errors = rule_errors + site_errors
+
+        if all_errors:
+            QMessageBox.warning(self, "Invalid Rules", f"Cannot commit configuration due to rule syntax errors:\n\n" + "\n".join(all_errors))
+            return
+
+        self.committed_rules = rules_text
+        self.committed_sites = sites_text
+        self.accept()
+
+    def get_committed_rules_and_sites(self):
+        return self.committed_rules, self.committed_sites
 
 
 class TaggerAction(InterfaceAction):
@@ -73,9 +419,14 @@ class TaggerAction(InterfaceAction):
         scan.setChecked(bool(prefs['scan_comments']))
         layout.addWidget(scan)
 
+        rules_header_layout = QHBoxLayout()
         rules_label = QLabel('Keyword rules')
         rules_label.setWordWrap(True)
-        layout.addWidget(rules_label)
+        manage_btn = QPushButton('Manage Rule Sets...')
+        rules_header_layout.addWidget(rules_label, 1)
+        rules_header_layout.addWidget(manage_btn)
+        layout.addLayout(rules_header_layout)
+
         rules_edit = QPlainTextEdit(prefs['rules'])
         rules_edit.setPlaceholderText(RULES_HELP)
         layout.addWidget(rules_edit, 2)
@@ -111,6 +462,22 @@ class TaggerAction(InterfaceAction):
             prefs['scan_comments'] = scan.isChecked()
             prefs['rules'] = rules_edit.toPlainText()
             prefs['sites'] = sites_edit.toPlainText()
+
+        def do_manage():
+            dlg = RuleSetManagerDialog(dialog, current_rules=rules_edit.toPlainText(), current_sites=sites_edit.toPlainText())
+            res = dlg.exec()
+            accepted_val = getattr(QDialog.DialogCode, 'Accepted', 1)
+            if res in (accepted_val, 1):
+                new_rules, new_sites = dlg.get_committed_rules_and_sites()
+                prefs['rules'] = new_rules
+                prefs['sites'] = new_sites
+                rules_edit.setPlainText(new_rules)
+                sites_edit.setPlainText(new_sites)
+                state['plan'] = []
+                apply_btn.setEnabled(False)
+                preview.setPlainText('Rule set configuration updated. Press Preview to see updated tag plan.')
+
+        manage_btn.clicked.connect(do_manage)
 
         def do_preview():
             save_prefs()
