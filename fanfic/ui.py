@@ -1,6 +1,6 @@
 """Fanfic downloader dialog. Network work never runs on the GUI thread (see guikit.run_task)."""
 from qt.core import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit,
-                     QPushButton, QTextBrowser, QVBoxLayout)
+                     QPushButton, QRadioButton, QTextBrowser, QVBoxLayout, QWizard, QWizardPage)
 try:
     from qt.core import _
 except ImportError:
@@ -196,31 +196,31 @@ class FlareSolverrSetupWizard(QWizard):
         self.setWindowTitle(_('Royal Road setup (FlareSolverr)'))
         self.resize(760, 680)
 
+        self.method = 0  # 0: Local Program, 1: Docker, 2: Existing Server
+
+        self.guide_browser = QTextBrowser()
+        self.guide_browser.setOpenExternalLinks(True)
+        self.guide_browser.setMarkdown(guide_text())
+
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.program = QLabel()
         self.program.setWordWrap(True)
-        layout.addWidget(self.program)
-        row = QHBoxLayout()
+
         self.choose_button = QPushButton(_('Choose FlareSolverr program…'))
         self.choose_button.clicked.connect(self.choose_program)
         self.start_button = QPushButton(_('Start FlareSolverr'))
         self.start_button.clicked.connect(self.start_program)
         self.stop_button = QPushButton(_('Stop FlareSolverr'))
         self.stop_button.clicked.connect(self.stop_program)
-        for button in (self.choose_button, self.start_button, self.stop_button):
-            row.addWidget(button)
-        layout.addLayout(row)
-        row = QHBoxLayout()
-        for label, slot in ((_('Copy Docker command'), self.copy_docker), (_('Test: is FlareSolverr running?'), self.test_server),
-                            (_('Test: load Royal Road through it'), self.test_site), (_('Enable for Royal Road'), self.enable)):
-            button = QPushButton(label)
-            button.clicked.connect(slot)
-            row.addWidget(button)
-        layout.addLayout(row)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+
+        self.addPage(StartupMethodPage(self))
+        self.addPage(MethodConfigPage(self))
+        self.addPage(HealthCheckPage(self))
+        self.addPage(ApplySettingsPage(self))
+
+        self.restart()
+
         self.show_enabled_state()
         self.refresh_program()
 
@@ -390,3 +390,7 @@ class DownloadDialog(QDialog):
             'combine': self.combine.isChecked(),
             'ini': self.advanced.toPlainText(),
         }
+
+
+RoyalRoadSetupDialog = FlareSolverrSetupWizard
+
