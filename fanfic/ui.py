@@ -1,6 +1,6 @@
 """Fanfic downloader dialog. Network work never runs on the GUI thread (see guikit.run_task)."""
 from qt.core import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit,
-                     QPushButton, QTextBrowser, QVBoxLayout)
+                     QPushButton, QTextBrowser, QVBoxLayout, QWizard, QWizardPage)
 try:
     from qt.core import _
 except ImportError:

@@ -1,15 +1,27 @@
 from pathlib import Path
 from calibre.gui2.actions import InterfaceAction
 from calibre.gui2 import error_dialog, info_dialog
-from qt.core import QAction, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QLabel, QVBoxLayout, QProgressDialog, Qt
+from qt.core import QAction, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QVBoxLayout, QProgressDialog, Qt
 try:
     from calibre_plugins.takeout_book_fixer.error_handler import show_friendly_error_dialog
 except ImportError:
     try:
         from .error_handler import show_friendly_error_dialog
     except ImportError:
-        from error_handler import show_friendly_error_dialog
-from calibre_plugins.takeout_book_fixer.core import recover
+        try:
+            from error_handler import show_friendly_error_dialog
+        except ImportError:
+            try:
+                from common.error_handler import show_friendly_error_dialog
+            except ImportError:
+                show_friendly_error_dialog = None
+try:
+    from calibre_plugins.takeout_book_fixer.core import recover
+except ImportError:
+    try:
+        from .core import recover
+    except ImportError:
+        from core import recover
 
 class TakeoutAction(InterfaceAction):
     name = 'Takeout Book Fixer'
@@ -51,12 +63,29 @@ class TakeoutAction(InterfaceAction):
         import_library = QCheckBox('Import recovered books into the current Calibre library')
         import_library.setChecked(True)
         layout.addWidget(import_library)
+
+        policy_layout = QHBoxLayout()
+        policy_label = QLabel('Duplicate collision policy:')
+        policy_combo = QComboBox()
+        policy_combo.addItem('Prompt on Conflict', 'prompt')
+        policy_combo.addItem('Auto-Merge Formats', 'merge')
+        policy_combo.addItem('Auto-Overwrite Existing', 'overwrite')
+        policy_combo.addItem('Auto-Skip Duplicates', 'skip')
+        policy_combo.addItem('Keep Both', 'keep_both')
+        policy_layout.addWidget(policy_label)
+        policy_layout.addWidget(policy_combo)
+        layout.addLayout(policy_layout)
+
+        import_library.toggled.connect(lambda checked: policy_combo.setEnabled(checked))
+        import_library.toggled.connect(lambda checked: policy_label.setEnabled(checked))
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
+        duplicate_policy = policy_combo.currentData() or 'prompt'
         progress = QProgressDialog('Recovering books…', '', 0, 0, self.gui)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setCancelButton(None)
@@ -76,7 +105,7 @@ class TakeoutAction(InterfaceAction):
             if import_library.isChecked():
                 progress.setLabelText('Importing books and reading metadata…')
                 from calibre_plugins.takeout_book_fixer.importer import import_books
-                imported, import_errors = import_books(self.gui, report)
+                imported, import_errors = import_books(self.gui, report, duplicate_policy=duplicate_policy)
                 import json
                 with open(report_path, 'w', encoding='utf-8') as stream:
                     json.dump(report, stream, indent=2, ensure_ascii=False)
