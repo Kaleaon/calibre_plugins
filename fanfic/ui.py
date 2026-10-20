@@ -1,6 +1,22 @@
 """Fanfic downloader dialog. Network work never runs on the GUI thread (see guikit.run_task)."""
-from qt.core import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit,
-                     QPushButton, QTextBrowser, QVBoxLayout)
+from qt.core import (
+    QApplication,
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QRadioButton,
+    QTextBrowser,
+    QVBoxLayout,
+    QWizard,
+    QWizardPage,
+)
+
 try:
     from qt.core import _
 except ImportError:
@@ -33,7 +49,7 @@ ADVANCED_HELP = '''# FanFicFare personal.ini settings, optional. Examples (remov
 def guide_text():
     """The Royal Road / FlareSolverr guide, shipped inside the plugin zip."""
     try:
-        data = get_resources('royalroad-flaresolverr.md')  # noqa: F821  injected by Calibre's plugin loader
+        data = get_resources('royalroad-flaresolverr.md')
     except NameError:
         data = None
     return data.decode('utf-8') if data else _('The setup guide is missing from this copy of the plugin.')
@@ -45,20 +61,20 @@ class StartupMethodPage(QWizardPage):
     def __init__(self, wizard):
         super().__init__(wizard)
         self.wizard = wizard
-        self.setTitle('Step 1: Select Startup Method')
-        self.setSubTitle('Choose how FlareSolverr will be launched or reached to bypass Cloudflare protection.')
+        self.setTitle(_('Step 1: Select Startup Method'))
+        self.setSubTitle(_('Choose how FlareSolverr will be launched or reached to bypass Cloudflare protection.'))
         layout = QVBoxLayout(self)
 
         info = QLabel(
-            'Cloudflare-protected sites (such as Royal Road) require a FlareSolverr proxy to solve bot challenges.\n'
-            'Please select your preferred startup method:'
+            _('Cloudflare-protected sites (such as Royal Road) require a FlareSolverr proxy to solve bot challenges.\n'
+              'Please select your preferred startup method:')
         )
         info.setWordWrap(True)
         layout.addWidget(info)
 
-        self.rb_local = QRadioButton('Local Program (Download binary executable on this computer)')
-        self.rb_docker = QRadioButton('Docker Container (Run background Docker container)')
-        self.rb_existing = QRadioButton('Existing Server (FlareSolverr is already running on this or another machine)')
+        self.rb_local = QRadioButton(_('Local Program (Download binary executable on this computer)'))
+        self.rb_docker = QRadioButton(_('Docker Container (Run background Docker container)'))
+        self.rb_existing = QRadioButton(_('Existing Server (FlareSolverr is already running on this or another machine)'))
 
         if self.wizard.method == 0:
             self.rb_local.setChecked(True)
@@ -90,8 +106,8 @@ class MethodConfigPage(QWizardPage):
     def __init__(self, wizard):
         super().__init__(wizard)
         self.wizard = wizard
-        self.setTitle('Step 2: Configure Startup Method')
-        self.setSubTitle('Select executable path, copy Docker command, or verify server endpoint.')
+        self.setTitle(_('Step 2: Configure Startup Method'))
+        self.setSubTitle(_('Select executable path, copy Docker command, or verify server endpoint.'))
         self.layout = QVBoxLayout(self)
 
     def initializePage(self):
@@ -102,7 +118,7 @@ class MethodConfigPage(QWizardPage):
 
         method = self.wizard.method
         if method == 0:  # Local Program
-            desc = QLabel('Select your FlareSolverr program executable and start it:')
+            desc = QLabel(_('Select your FlareSolverr program executable and start it:'))
             desc.setWordWrap(True)
             self.layout.addWidget(desc)
             self.layout.addWidget(self.wizard.program)
@@ -112,20 +128,20 @@ class MethodConfigPage(QWizardPage):
             row.addWidget(self.wizard.stop_button)
             self.layout.addLayout(row)
         elif method == 1:  # Docker Container
-            desc = QLabel('Run the following Docker command in your terminal or PowerShell:')
+            desc = QLabel(_('Run the following Docker command in your terminal or PowerShell:'))
             desc.setWordWrap(True)
             self.layout.addWidget(desc)
             cmd_box = QPlainTextEdit(flaresolverr.DOCKER_COMMAND)
             cmd_box.setReadOnly(True)
             cmd_box.setMaximumHeight(60)
             self.layout.addWidget(cmd_box)
-            copy_btn = QPushButton('Copy Docker Command')
+            copy_btn = QPushButton(_('Copy Docker Command'))
             copy_btn.clicked.connect(self.wizard.copy_docker)
             self.layout.addWidget(copy_btn)
         else:  # Existing Server
             settings = self.wizard.settings()
-            desc = QLabel(f'FlareSolverr endpoint is configured as: {flaresolverr.endpoint(settings)}\n'
-                          'Ensure your server is running and accessible at this address.')
+            desc = QLabel(_('FlareSolverr endpoint is configured as: {endpoint}\n'
+                            'Ensure your server is running and accessible at this address.').format(endpoint=flaresolverr.endpoint(settings)))
             desc.setWordWrap(True)
             self.layout.addWidget(desc)
 
@@ -139,16 +155,16 @@ class HealthCheckPage(QWizardPage):
     def __init__(self, wizard):
         super().__init__(wizard)
         self.wizard = wizard
-        self.setTitle('Step 3: Connectivity Verification')
-        self.setSubTitle('Verify that FlareSolverr answers requests and loads Cloudflare-protected pages.')
+        self.setTitle(_('Step 3: Connectivity Verification'))
+        self.setSubTitle(_('Verify that FlareSolverr answers requests and loads Cloudflare-protected pages.'))
         layout = QVBoxLayout(self)
 
-        layout.addWidget(QLabel('Run connectivity checks to verify server health:'))
+        layout.addWidget(QLabel(_('Run connectivity checks to verify server health:')))
 
         row = QHBoxLayout()
-        test_srv_btn = QPushButton('Test: Is FlareSolverr running?')
+        test_srv_btn = QPushButton(_('Test: Is FlareSolverr running?'))
         test_srv_btn.clicked.connect(self.wizard.test_server)
-        test_site_btn = QPushButton('Test: Load Royal Road through it')
+        test_site_btn = QPushButton(_('Test: Load Royal Road through it'))
         test_site_btn.clicked.connect(self.wizard.test_site)
         row.addWidget(test_srv_btn)
         row.addWidget(test_site_btn)
@@ -166,18 +182,18 @@ class ApplySettingsPage(QWizardPage):
     def __init__(self, wizard):
         super().__init__(wizard)
         self.wizard = wizard
-        self.setTitle('Step 4: Enable & Apply Settings')
-        self.setSubTitle('Inject FlareSolverr proxy setting into personal INI configuration.')
+        self.setTitle(_('Step 4: Enable & Apply Settings'))
+        self.setSubTitle(_('Inject FlareSolverr proxy setting into personal INI configuration.'))
         layout = QVBoxLayout(self)
 
         info = QLabel(
-            'Click Finish to inject "use_flaresolverr_proxy:true" into your personal INI settings '
-            'and enable FlareSolverr for story downloads.'
+            _('Click Finish to inject "use_flaresolverr_proxy:true" into your personal INI settings '
+              'and enable FlareSolverr for story downloads.')
         )
         info.setWordWrap(True)
         layout.addWidget(info)
 
-        enable_btn = QPushButton('Enable for Royal Road / Cloudflare')
+        enable_btn = QPushButton(_('Enable for Royal Road / Cloudflare'))
         enable_btn.clicked.connect(self.wizard.enable)
         layout.addWidget(enable_btn)
 
@@ -192,35 +208,35 @@ class FlareSolverrSetupWizard(QWizard):
 
     def __init__(self, parent=None, advanced_edit=None, recovery_mode=False, recovery_url=None):
         super().__init__(parent)
-        self.advanced = advanced_edit  # the dialog's Advanced settings box; changes here are saved when that dialog is accepted
-        self.setWindowTitle(_('Royal Road setup (FlareSolverr)'))
+        self.advanced = advanced_edit
+        self.recovery_mode = recovery_mode
+        self.recovery_url = recovery_url or flaresolverr.TEST_URL
+        self.setWindowTitle(_('FlareSolverr Setup Wizard'))
         self.resize(760, 680)
 
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.program = QLabel()
         self.program.setWordWrap(True)
-        layout.addWidget(self.program)
-        row = QHBoxLayout()
         self.choose_button = QPushButton(_('Choose FlareSolverr program…'))
-        self.choose_button.clicked.connect(self.choose_program)
         self.start_button = QPushButton(_('Start FlareSolverr'))
-        self.start_button.clicked.connect(self.start_program)
         self.stop_button = QPushButton(_('Stop FlareSolverr'))
+        self.choose_button.clicked.connect(self.choose_program)
+        self.start_button.clicked.connect(self.start_program)
         self.stop_button.clicked.connect(self.stop_program)
-        for button in (self.choose_button, self.start_button, self.stop_button):
-            row.addWidget(button)
-        layout.addLayout(row)
-        row = QHBoxLayout()
-        for label, slot in ((_('Copy Docker command'), self.copy_docker), (_('Test: is FlareSolverr running?'), self.test_server),
-                            (_('Test: load Royal Road through it'), self.test_site), (_('Enable for Royal Road'), self.enable)):
-            button = QPushButton(label)
-            button.clicked.connect(slot)
-            row.addWidget(button)
-        layout.addLayout(row)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+
+        self.guide_browser = QTextBrowser()
+        self.guide_browser.setOpenExternalLinks(True)
+        self.guide_browser.setMarkdown(guide_text())
+
+        self.method = 0 if prefs['flaresolverr_path'] else 1
+
+        self.addPage(StartupMethodPage(self))
+        self.addPage(MethodConfigPage(self))
+        self.addPage(HealthCheckPage(self))
+        self.addPage(ApplySettingsPage(self))
+        self.restart()
+
         self.show_enabled_state()
         self.refresh_program()
 
@@ -235,9 +251,10 @@ class FlareSolverrSetupWizard(QWizard):
         return flaresolverr.settings_from_ini(text)
 
     def show_enabled_state(self):
-        on = flaresolverr.is_enabled(self.advanced.toPlainText())
+        text = self.advanced.toPlainText() if hasattr(self.advanced, 'toPlainText') else (self.advanced or '')
+        on = flaresolverr.is_enabled(text)
         self.status.setText(_('FlareSolverr is switched on for Royal Road in Advanced settings.') if on else
-                            _('FlareSolverr is not switched on for Royal Road yet (the last button does that).'))
+                            _('FlareSolverr is not switched on for Royal Road yet.'))
 
     def copy_docker(self):
         QApplication.clipboard().setText(flaresolverr.DOCKER_COMMAND)
@@ -247,16 +264,21 @@ class FlareSolverrSetupWizard(QWizard):
         task = run_task(self, title, func)
         if task.error:
             self.status.setText(_('Test failed unexpectedly: {error}').format(error=task.error))
+            return False, str(task.error)
         elif task.result is not None:
-            self.status.setText((_('OK: ') if task.result[0] else _('Problem: ')) + task.result[1])
+            ok, msg = task.result
+            self.status.setText((_('OK: ') if ok else _('Problem: ')) + msg)
+            return ok, msg
+        return False, 'Task produced no result'
 
     def test_server(self):
         settings = self.settings()
-        self._run(_('Checking FlareSolverr…'), lambda task: flaresolverr.check_server(settings))
+        return self._run(_('Checking FlareSolverr…'), lambda task: flaresolverr.check_server(settings))
 
     def test_site(self):
         settings = self.settings()
-        self._run(_('Loading Royal Road through FlareSolverr (up to a minute)…'), lambda task: flaresolverr.fetch_through(settings))
+        url = self.recovery_url or flaresolverr.TEST_URL
+        return self._run(_('Loading site through FlareSolverr (up to a minute)…'), lambda task: flaresolverr.fetch_through(settings, url=url))
 
     def refresh_program(self):
         path = prefs['flaresolverr_path']
@@ -268,7 +290,7 @@ class FlareSolverrSetupWizard(QWizard):
         self.stop_button.setEnabled(running)
 
     def choose_program(self):
-        path, _ = QFileDialog.getOpenFileName(self, _('Choose the FlareSolverr program (flaresolverr or flaresolverr.exe)'), prefs['flaresolverr_path'] or '')
+        path, _filter = QFileDialog.getOpenFileName(self, _('Choose the FlareSolverr program (flaresolverr or flaresolverr.exe)'), prefs['flaresolverr_path'] or '')
         if not path:
             return
         problem = flaresolverr.validate_executable(path)
@@ -282,7 +304,7 @@ class FlareSolverrSetupWizard(QWizard):
     def start_program(self):
         path = prefs['flaresolverr_path']
         if not path:
-            self.status.setText('No FlareSolverr program chosen.')
+            self.status.setText(_('No FlareSolverr program chosen.'))
             return
         if not flaresolverr.looks_like_flaresolverr(path) and QMessageBox.question(
                 self, _('Run this program?'), _('The file "{path}" is not named like FlareSolverr.\n\nOnly start programs you trust. Run it anyway?').format(path=path),
@@ -294,8 +316,10 @@ class FlareSolverrSetupWizard(QWizard):
         self.refresh_program()
 
     def stop_program(self):
-        self.status.setText(flaresolverr.launcher.stop())
+        self.status.setText(_('Stopping FlareSolverr…'))
+        flaresolverr.launcher.stop()
         self.refresh_program()
+        self.status.setText(_('Stopped.'))
 
     def pageCount(self):
         return len(self.pageIds())
@@ -311,6 +335,17 @@ class FlareSolverrSetupWizard(QWizard):
             prefs['advanced_ini'] = new_text
         self.show_enabled_state()
         self.status.setText(self.status.text() + (_(' Saved when you press OK in the download window.') if changed else ''))
+        return new_text
+
+    def updated_ini(self):
+        if hasattr(self.advanced, 'toPlainText'):
+            return self.advanced.toPlainText()
+        if isinstance(self.advanced, str):
+            return self.advanced
+        return prefs['advanced_ini'] or self.enable()
+
+
+RoyalRoadSetupDialog = FlareSolverrSetupWizard
 
 
 class SitesDialog(QDialog):
@@ -370,11 +405,12 @@ class DownloadDialog(QDialog):
         royal.clicked.connect(lambda: RoyalRoadSetupDialog(self, self.advanced).exec())
         row.addWidget(royal)
         row.addStretch(1)
-        layout.addLayout(row)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        row.addWidget(buttons)
+        layout.addLayout(row)
 
     def values(self):
         prefs['allow_adult'] = self.adult.isChecked()

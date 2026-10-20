@@ -10,9 +10,34 @@ except ImportError:
     from calibre.gui2 import error_dialog, info_dialog, question_dialog
     warning_dialog = error_dialog
 from calibre.gui2.actions import InterfaceAction
-from qt.core import (QApplication, QBuffer, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QIODevice, QImage, QLabel,
-                     QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSpinBox, QSplitter, Qt, QTreeWidget,
-                     QTreeWidgetItem, QVBoxLayout, QWidget)
+from qt.core import (
+    QApplication,
+    QBuffer,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QImage,
+    QIODevice,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QRadioButton,
+    QScrollArea,
+    QSpinBox,
+    QSplitter,
+    Qt,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
 try:
     from qt.core import _
 except ImportError:
@@ -437,6 +462,15 @@ class GeminiFixerAction(InterfaceAction):
         row.addWidget(models_btn)
         layout.addLayout(row)
 
+        row = QHBoxLayout()
+        row.addWidget(QLabel(_('Instruction Template:')))
+        template_combo = QComboBox()
+        manage_templates_btn = QPushButton(_('Manage Templates...'))
+        manage_templates_btn.setToolTip(_('Create, edit, or delete instruction templates and presets'))
+        row.addWidget(template_combo, 1)
+        row.addWidget(manage_templates_btn)
+        layout.addLayout(row)
+
         layout.addWidget(QLabel(_('Fix:')))
         boxes = {}
         for field, label in FIELD_LABELS:
@@ -838,7 +872,7 @@ class GeminiFixerAction(InterfaceAction):
             phase.setText(_('Idle.'))
             partial_error = None
             if error:
-                if hasattr(error, 'suggestions') and getattr(error, 'suggestions') is not None:
+                if hasattr(error, 'suggestions') and error.suggestions is not None:
                     partial_error = error
                     result = (getattr(error, 'suggestions', []), getattr(error, 'skipped', []))
                     log(_('⚠ Stopped early due to an error: {error}').format(error=error))
