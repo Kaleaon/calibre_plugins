@@ -14,7 +14,6 @@ import re
 import time
 import uuid
 import xml.etree.ElementTree as ET
-from collections import Counter
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 

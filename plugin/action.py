@@ -1,5 +1,5 @@
 from calibre.gui2.actions import InterfaceAction
-from calibre.gui2 import error_dialog, info_dialog
+from calibre.gui2 import info_dialog
 from qt.core import QAction, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QLabel, QVBoxLayout, QProgressDialog, Qt
 try:
     from calibre_plugins.takeout_book_fixer.error_handler import show_friendly_error_dialog

@@ -9,7 +9,7 @@ import uuid
 import zipfile
 from html.parser import HTMLParser
 from io import BytesIO
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from xml.sax.saxutils import escape, quoteattr

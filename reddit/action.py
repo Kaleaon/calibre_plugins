@@ -3,7 +3,7 @@ import os
 import threading
 import time
 
-from calibre.gui2 import error_dialog, info_dialog
+from calibre.gui2 import info_dialog
 from calibre.gui2.actions import InterfaceAction
 from qt.core import QAction, QMenu, QTimer
 

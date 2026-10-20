@@ -1,10 +1,9 @@
 """Central exception formatter and friendly recovery dialog helper."""
 import json
 import socket
-import sys
 import traceback
 import zipfile
-from urllib.error import HTTPError, URLError
+from urllib.error import URLError
 
 try:
     from calibre.gui2 import error_dialog
