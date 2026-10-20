@@ -8,8 +8,8 @@ from datetime import datetime
 from calibre.gui2 import error_dialog, info_dialog, question_dialog
 from calibre.gui2.actions import InterfaceAction
 from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
-                     QMenu, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, Qt, QToolButton, QTreeWidget,
-                     QTreeWidgetItem, QVBoxLayout)
+                     QMenu, QPixmap, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QRadioButton, Qt, QTimer, QToolButton,
+                     QTreeWidget, QTreeWidgetItem, QVBoxLayout)
 try:
     from qt.core import _
 except ImportError:
@@ -51,6 +51,194 @@ def split_artists(text):
     return [a.strip() for a in (text or '').split(' / ') if a.strip()]
 
 
+class ManualSearchDialog(QDialog):
+    def __init__(self, parent, initial_metadata=None, http=None, options=None):
+        super().__init__(parent)
+        self.setWindowTitle(_('Manual Search / Lookup by ID'))
+        self.resize(780, 580)
+        self.http = http or sources.Http()
+        self.options = options or {}
+        self.selected_candidate = None
+        self.accepted_candidate = None
+        self.candidates = []
+
+        initial = initial_metadata or {}
+        title = initial.get('title', '')
+        authors = initial.get('authors') or []
+        artist = ', '.join(authors) if authors else ''
+        album = initial.get('series') or initial.get('album', '')
+        identifiers = initial.get('identifiers') or {}
+        direct_id = ''
+        for key in ('mb_recording', 'mb_release', 'olid', 'isbn'):
+            if key in identifiers and identifiers[key]:
+                direct_id = f"{key}:{identifiers[key]}"
+                break
+
+        layout = QVBoxLayout(self)
+
+        fields_layout = QVBoxLayout()
+
+        r1 = QHBoxLayout()
+        r1.addWidget(QLabel(_('Title:')))
+        self.title_edit = QLineEdit(title)
+        r1.addWidget(self.title_edit, 1)
+
+        r1.addWidget(QLabel(_('Artist / Author:')))
+        self.artist_edit = QLineEdit(artist)
+        r1.addWidget(self.artist_edit, 1)
+        fields_layout.addLayout(r1)
+
+        r2 = QHBoxLayout()
+        r2.addWidget(QLabel(_('Album:')))
+        self.album_edit = QLineEdit(album)
+        r2.addWidget(self.album_edit, 1)
+
+        r2.addWidget(QLabel(_('Direct Identifier:')))
+        self.id_edit = QLineEdit(direct_id)
+        self.id_edit.setPlaceholderText(_('MusicBrainz MBID, Open Library OLID, or ISBN'))
+        r2.addWidget(self.id_edit, 1)
+        fields_layout.addLayout(r2)
+
+        r3 = QHBoxLayout()
+        r3.addWidget(QLabel(_('Search in:')))
+        self.kind_combo = QComboBox()
+        self.kind_combo.addItem(_('Auto detect'), 'auto')
+        self.kind_combo.addItem(_('Music (MusicBrainz)'), 'music')
+        self.kind_combo.addItem(_('Audiobook (Open Library)'), 'audiobook')
+        self.kind_combo.addItem(_('Book (Open Library)'), 'book')
+        r3.addWidget(self.kind_combo)
+
+        self.search_btn = QPushButton(_('Search'))
+        r3.addWidget(self.search_btn)
+        r3.addStretch(1)
+        fields_layout.addLayout(r3)
+
+        layout.addLayout(fields_layout)
+
+        layout.addWidget(QLabel(_('Candidates / Direct ID Results:')))
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels([_('Title'), _('Artist / Author'), _('Album / Series'), _('Score'), _('Source')])
+        self.tree.setColumnWidth(0, 220)
+        self.tree.setColumnWidth(1, 180)
+        self.tree.setColumnWidth(2, 160)
+        self.tree.setColumnWidth(3, 70)
+        layout.addWidget(self.tree, 1)
+
+        preview_layout = QHBoxLayout()
+        self.cover_label = QLabel()
+        self.cover_label.setFixedSize(80, 110)
+        self.cover_label.setStyleSheet('border: 1px solid #ccc;')
+        self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.cover_label.setText(_('No cover'))
+        preview_layout.addWidget(self.cover_label)
+
+        self.details_label = QLabel(_('Select a candidate to view details.'))
+        self.details_label.setWordWrap(True)
+        preview_layout.addWidget(self.details_label, 1)
+        layout.addLayout(preview_layout)
+
+        self.buttons = QDialogButtonBox()
+        self.accept_btn = QPushButton(_('Use Selected Candidate'))
+        self.accept_btn.setEnabled(False)
+        self.buttons.addButton(self.accept_btn, QDialogButtonBox.ButtonRole.AcceptRole)
+        self.buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
+
+        self.search_btn.clicked.connect(self.do_search)
+        self.tree.itemSelectionChanged.connect(self.on_selection_changed)
+        self.accept_btn.clicked.connect(self.do_accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+
+        if title or artist or direct_id:
+            self.do_search()
+
+    def do_search(self):
+        title = self.title_edit.text().strip()
+        artist = self.artist_edit.text().strip()
+        album = self.album_edit.text().strip()
+        direct_id = self.id_edit.text().strip()
+        media_kind = self.kind_combo.currentData()
+
+        self.search_btn.setEnabled(False)
+        self.tree.clear()
+        self.details_label.setText(_('Searching…'))
+        QApplication.processEvents()
+
+        try:
+            cands = matching.manual_search(
+                self.http, options=self.options, title=title, artist=artist,
+                album=album, direct_id=direct_id, media_kind=media_kind
+            )
+            self.candidates = cands
+            for c in cands:
+                track_str = f" #{c['track']}" if c.get('track') else ''
+                album_str = (c.get('album') or '') + track_str
+                score_str = _('Direct ID') if c.get('by_id') else f"{c['score']:.0%}"
+                source_str = SOURCE_NAMES.get(c['source'], c['source'])
+                authors_str = ', '.join(c.get('authors') or [])
+
+                item = QTreeWidgetItem(self.tree, [c['title'], authors_str, album_str, score_str, source_str])
+                item.setData(0, Qt.ItemDataRole.UserRole, c)
+
+            if not cands:
+                self.details_label.setText(_('No candidates found matching search criteria.'))
+            else:
+                top = self.tree.topLevelItem(0)
+                self.tree.setCurrentItem(top)
+                top.setSelected(True)
+        except Exception as exc:
+            self.details_label.setText(_('Search error: {exc}').format(exc=exc))
+        finally:
+            self.search_btn.setEnabled(True)
+
+    def on_selection_changed(self):
+        items = self.tree.selectedItems()
+        if not items:
+            self.accept_btn.setEnabled(False)
+            self.selected_candidate = None
+            self.details_label.setText(_('Select a candidate to view details.'))
+            self.cover_label.setText(_('No cover'))
+            self.cover_label.setPixmap(QPixmap())
+            return
+
+        c = items[0].data(0, Qt.ItemDataRole.UserRole)
+        self.selected_candidate = c
+        self.accept_btn.setEnabled(True)
+
+        info = [
+            f"<b>{c['title']}</b>",
+            f"{_('By')}: {', '.join(c.get('authors') or [])}",
+        ]
+        if c.get('album'):
+            info.append(f"{_('Album')}: {c['album']}" + (f" #{c['track']}" if c.get('track') else ''))
+        if c.get('date'):
+            info.append(f"{_('Date')}: {c['date']}")
+        if c.get('source'):
+            info.append(f"{_('Source')}: {SOURCE_NAMES.get(c['source'], c['source'])}")
+
+        self.details_label.setText('<br>'.join(info))
+
+        if c.get('cover_urls'):
+            self.cover_label.setText(_('Loading…'))
+            QApplication.processEvents()
+            try:
+                img_data = sources.fetch_image(self.http, c['cover_urls'])
+                if img_data:
+                    pm = QPixmap()
+                    if pm.loadFromData(img_data):
+                        self.cover_label.setPixmap(pm.scaled(80, 110, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                        return
+            except Exception:
+                pass
+        self.cover_label.setText(_('No cover'))
+        self.cover_label.setPixmap(QPixmap())
+
+    def do_accept(self):
+        if self.selected_candidate:
+            self.accepted_candidate = self.selected_candidate
+            self.accept()
+
+
 class MediaMatcherAction(InterfaceAction):
     name = 'Media Matcher'
     action_spec = (_('Music & audiobooks'), None, _('Add music files and audiobooks, and match music, audiobooks and books against free databases'), None)
@@ -61,6 +249,7 @@ class MediaMatcherAction(InterfaceAction):
         self.qaction.setMenu(menu)
         self.create_menu_action(menu, 'media-matcher-add', _('Add music and audiobooks…'), triggered=self.add_dialog)
         self.create_menu_action(menu, 'media-matcher-match', _('Match with MusicBrainz / Open Library…'), triggered=self.match_dialog)
+        self.create_menu_action(menu, 'media-matcher-manual', _('Manual Search / Lookup by ID…'), triggered=self.manual_search_dialog)
 
     # -- reading and writing the library ------------------------------------------------------------------------------
     def books_for(self, ids):
@@ -431,6 +620,12 @@ class MediaMatcherAction(InterfaceAction):
         activity.setMaximumBlockCount(5000)
         activity.setPlaceholderText(_('Each book as it is looked up, what was searched for, and what came back.'))
         layout.addWidget(activity, 2)
+        tree_toolbar = QHBoxLayout()
+        tree_manual_btn = QPushButton(_('Manual Search / Lookup by ID…'))
+        tree_toolbar.addWidget(tree_manual_btn)
+        tree_toolbar.addStretch(1)
+        layout.addLayout(tree_toolbar)
+
         tree = QTreeWidget()
         tree.setHeaderLabels([_('Suggested change'), _('Match')])
         tree.setColumnWidth(0, 440)
@@ -667,6 +862,82 @@ class MediaMatcherAction(InterfaceAction):
             text = _('Restored {count} book(s).').format(count=len(done)) + ('\n\n' + _('Problems:') + '\n' + '\n'.join(errors[:10]) if errors else '')
             info_dialog(self.gui, 'Media Matcher', text, show=True)
 
+        def do_manual_search_for_item(item=None):
+            book_id = None
+            top = None
+            if item:
+                top = item.parent() or item
+                book_id = top.data(0, Qt.ItemDataRole.UserRole)
+            if not book_id and selected:
+                book_id = selected[0]
+
+            if not book_id:
+                return error_dialog(dialog, 'Media Matcher', _('Please select an item in the tree to perform a manual search.'), show=True)
+
+            books_found = self.books_for([book_id])
+            if not books_found:
+                return
+            book = books_found[0]
+
+            http = sources.Http(contact=contact.text().strip())
+            opts = options()
+
+            dlg = ManualSearchDialog(dialog, initial_metadata=book, http=http, options=opts)
+            dlg.exec()
+            if dlg.accepted_candidate:
+                cand = dlg.accepted_candidate
+                media_k = matching.classify(book, kind.currentData())
+                chg = matching.plan_changes(book, media_k, cand, chosen_fields())
+
+                suggestions[book_id] = {
+                    'id': book_id, 'title': book.get('title', ''), 'kind': media_k,
+                    'score': cand['score'], 'candidate': cand, 'changes': chg,
+                    'big': False, 'ambiguous': False
+                }
+
+                if top is None:
+                    for i in range(tree.topLevelItemCount()):
+                        t = tree.topLevelItem(i)
+                        if t.data(0, Qt.ItemDataRole.UserRole) == book_id:
+                            top = t
+                            break
+                if top is None:
+                    top = QTreeWidgetItem(tree)
+
+                while top.childCount() > 0:
+                    top.removeChild(top.child(0))
+
+                book_str = book.get('title') or _('book {id}').format(id=book_id)
+                top.setText(0, book_str)
+                top.setText(1, f"{cand['score']:.0%} {SOURCE_NAMES.get(cand['source'], cand['source'])}: "
+                               f"{cand['title']} — {', '.join(cand['authors'])}" + (f" / {cand['album']}" if cand.get('album') else ''))
+                top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
+                top.setData(0, Qt.ItemDataRole.UserRole, book_id)
+
+                for field, (old, new) in chg.items():
+                    shown = f'{SHOW[field]}:  {show_value(field, old)}  →  {show_value(field, new)}' if field != 'cover' else \
+                        f'{_("Cover")}:  {show_value(field, new)}'
+                    child = QTreeWidgetItem(top, [shown, ''])
+                    child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    child.setCheckState(0, Qt.CheckState.Checked)
+                    child.setData(0, Qt.ItemDataRole.UserRole, field)
+                    child.setData(0, Qt.ItemDataRole.UserRole + 1, (old, new))
+
+                top.setCheckState(0, Qt.CheckState.Checked)
+                top.setExpanded(True)
+                apply_btn.setEnabled(True)
+
+        def show_tree_context_menu(pos):
+            item = tree.itemAt(pos)
+            menu = QMenu(tree)
+            act = menu.addAction(_('Manual Search / Lookup by ID…'))
+            act.triggered.connect(lambda: do_manual_search_for_item(item or tree.currentItem()))
+            menu.exec(tree.mapToGlobal(pos))
+
+        tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        tree.customContextMenuRequested.connect(show_tree_context_menu)
+        tree_manual_btn.clicked.connect(lambda: do_manual_search_for_item(tree.currentItem()))
+
         for edit in (contact, acoustid, fpcalc):
             edit.editingFinished.connect(save_prefs)  # remembered as soon as typed, not only after a lookup
         dialog.finished.connect(lambda _result: save_prefs())
@@ -674,3 +945,43 @@ class MediaMatcherAction(InterfaceAction):
         apply_btn.clicked.connect(do_apply)
         undo_btn.clicked.connect(do_undo)
         dialog.exec()
+
+    def manual_search_dialog(self, book_id=None):
+        if book_id is None:
+            selected = list(self.gui.library_view.get_selected_ids())
+            if not selected:
+                return info_dialog(self.gui, 'Media Matcher', _('Please select a book in Calibre first.'), show=True)
+            book_id = selected[0]
+
+        books = self.books_for([book_id])
+        if not books:
+            return error_dialog(self.gui, 'Media Matcher', _('Could not read metadata for selected book.'), show=True)
+        book = books[0]
+
+        http = sources.Http(contact=prefs['contact'])
+        opts = {'kind': prefs['kind'], 'fields': tuple(prefs['fields'])}
+
+        dlg = ManualSearchDialog(self.gui, initial_metadata=book, http=http, options=opts)
+        dlg.exec()
+        if dlg.accepted_candidate:
+            cand = dlg.accepted_candidate
+            media_k = matching.classify(book, prefs['kind'])
+            chg = matching.plan_changes(book, media_k, cand, set(prefs['fields']))
+            if not chg:
+                return info_dialog(self.gui, 'Media Matcher', _('The selected candidate matches current metadata; nothing to change.'), show=True)
+
+            covers = {}
+            if 'cover' in chg and cand.get('cover_urls'):
+                img_data = sources.fetch_image(http, cand['cover_urls'])
+                if img_data:
+                    covers[book['id']] = img_data
+
+            done, errors, undo = self.write_changes([(book['id'], chg)], covers)
+            if undo:
+                prefs['undo'] = undo
+            self.refresh(done)
+
+            text = _('Updated book metadata successfully.') + _(' "Undo last run" can put the old values back.')
+            if errors:
+                text += '\n\n' + _('Problems:') + '\n' + '\n'.join(errors[:10])
+            info_dialog(self.gui, 'Media Matcher', text, show=True)

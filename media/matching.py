@@ -385,3 +385,112 @@ def _match_book(want, http, on_event, name):
         return None
     on_event('searching', name=name, query=f"{want['title']} / {want.get('artist', '')}")
     return best_book_candidate(sources.ol_search(http, want['title'], want.get('artist', '')), want)
+
+
+def manual_search(http, options=None, title='', artist='', album='', direct_id='', media_kind='auto'):
+    """Performs manual lookup using search terms or direct identifier.
+    Returns list of candidate dicts sorted by score.
+    """
+    options = options or {}
+    id_type, cleaned_id = sources.sanitize_identifier(direct_id)
+    want = {'title': title, 'artist': artist, 'album': album, 'track': None, 'year': None}
+
+    candidates = []
+
+    if id_type != 'invalid':
+        if id_type in ('mb_recording', 'mb_release'):
+            recs = sources.mb_search_recordings(
+                http,
+                recording_id=cleaned_id if id_type == 'mb_recording' else '',
+                release_id=cleaned_id if id_type == 'mb_release' else '',
+                limit=25
+            )
+            for rec in recs:
+                cand = score_recording(rec, want)
+                if cand is None:
+                    title_c = rec.get('title', '')
+                    credit = rec.get('artist-credit')
+                    names = credit_names(credit)
+                    releases = rec.get('releases') or []
+                    release = releases[0] if releases else None
+                    disc, number, total = _track_in(release) if release else (None, None, None)
+                    group = (release or {}).get('release-group') or {}
+                    cand = {
+                        'source': 'musicbrainz', 'score': 1.0, 'title': title_c, 'authors': names,
+                        'artist_credit': credit_text(credit),
+                        'artist_ids': [(c.get('artist') or {}).get('id', '') for c in credit or [] if isinstance(c, dict)],
+                        'album': (release or {}).get('title', ''), 'track': number, 'disc': disc, 'track_total': total,
+                        'date': (release or {}).get('date') or rec.get('first-release-date') or '', 'recording_id': rec.get('id', ''),
+                        'release_id': (release or {}).get('id', ''), 'group_id': group.get('id', ''),
+                        'cover_urls': sources.cover_art_url((release or {}).get('id', ''), group.get('id', '')) if release else [],
+                        'length': rec.get('length', 0) / 1000 if rec.get('length') else None, 'rank': 1.0,
+                        'year': _release_year(release) if release else None, 'by_id': True
+                    }
+                else:
+                    cand['score'] = max(cand['score'], 0.95)
+                    cand['by_id'] = True
+                candidates.append(cand)
+        elif id_type == 'isbn':
+            docs = sources.ol_search_by_isbn(http, cleaned_id)
+            for d in docs:
+                cand = _score_book_manual(d, want, by_id=True)
+                if cand:
+                    candidates.append(cand)
+        elif id_type == 'olid':
+            docs = sources.ol_search_by_olid(http, cleaned_id)
+            for d in docs:
+                cand = _score_book_manual(d, want, by_id=True)
+                if cand:
+                    candidates.append(cand)
+
+        if candidates:
+            candidates.sort(key=lambda c: -c['score'])
+            return candidates
+
+    kind = media_kind if media_kind in ('music', 'audiobook', 'book') else options.get('kind', 'auto')
+
+    if kind in ('music', 'auto'):
+        recs_map = {}
+        if title or artist or album:
+            found1 = sources.mb_search_recordings(http, title, artist, album)
+            for r in found1:
+                recs_map[r.get('id')] = r
+            if album and len(recs_map) < 5:
+                found2 = sources.mb_search_recordings(http, title, artist)
+                for r in found2:
+                    recs_map[r.get('id')] = r
+        for rec in recs_map.values():
+            cand = score_recording(rec, want)
+            if cand:
+                candidates.append(cand)
+
+    if not candidates and kind in ('book', 'audiobook', 'auto'):
+        if title or artist:
+            docs = sources.ol_search(http, title, artist)
+            for d in docs:
+                cand = _score_book_manual(d, want, by_id=False)
+                if cand:
+                    candidates.append(cand)
+
+    candidates.sort(key=lambda c: -c['score'])
+    return candidates
+
+
+def _score_book_manual(doc, want, by_id=False):
+    authors = doc.get('author_name') or []
+    doc_title = doc.get('title', '')
+    title_sim = similarity(want['title'], doc_title) if want.get('title') else 1.0
+    if not by_id and want.get('title') and title_sim < 0.3:
+        return None
+    score = 1.0 if by_id else title_sim
+    if not by_id and want.get('artist') and authors:
+        artist_sim = max([similarity(want['artist'], a) for a in authors] or [0.0])
+        score = title_sim * 0.6 + artist_sim * 0.4
+    year = doc.get('first_publish_year')
+    subjects = [s for s in (doc.get('subject') or []) if len(s) < 40][:MAX_BOOK_TAGS]
+    return {
+        'source': 'openlibrary', 'score': score, 'title': doc_title, 'authors': list(authors[:4]),
+        'date': str(year) if year else '', 'olid': doc.get('cover_edition_key') or '',
+        'work': (doc.get('key') or '').rsplit('/', 1)[-1], 'subjects': subjects,
+        'cover_urls': sources.ol_cover_urls(doc.get('cover_i')), 'by_id': by_id
+    }

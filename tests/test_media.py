@@ -857,5 +857,49 @@ class AudiobookEndToEndTests(unittest.TestCase):
         self.assertIn('title=Dune', fetch.calls[0][0])
 
 
+class ManualSearchTests(unittest.TestCase):
+    def test_sanitize_identifier(self):
+        kind, val = sources.sanitize_identifier('12345678-1234-1234-1234-123456789abc')
+        self.assertEqual((kind, val), ('mb_recording', '12345678-1234-1234-1234-123456789abc'))
+
+        kind, val = sources.sanitize_identifier('mb_release:87654321-4321-4321-4321-cba987654321')
+        self.assertEqual((kind, val), ('mb_release', '87654321-4321-4321-4321-cba987654321'))
+
+        kind, val = sources.sanitize_identifier('OL12345M')
+        self.assertEqual((kind, val), ('olid', 'OL12345M'))
+
+        kind, val = sources.sanitize_identifier('olid:OL12345W')
+        self.assertEqual((kind, val), ('olid', 'OL12345W'))
+
+        kind, val = sources.sanitize_identifier('0140328726')
+        self.assertEqual((kind, val), ('isbn', '0140328726'))
+
+        kind, val = sources.sanitize_identifier('isbn:978-0-14-032872-1')
+        self.assertEqual((kind, val), ('isbn', '9780140328721'))
+
+        kind, val = sources.sanitize_identifier('invalid-text')
+        self.assertEqual((kind, val), ('invalid', ''))
+
+    def test_manual_search_with_direct_id(self):
+        http, fetch, _ = make_http(routes={'musicbrainz.org/ws/2/recording': {'recordings': MB},
+                                           'openlibrary.org/search.json': {'docs': OL}})
+
+        cands_mb = matching.manual_search(http, direct_id='12345678-1234-1234-1234-123456789abc', media_kind='music')
+        self.assertGreater(len(cands_mb), 0)
+        self.assertTrue(cands_mb[0].get('by_id'))
+
+        cands_ol = matching.manual_search(http, direct_id='isbn:9780140328721', media_kind='book')
+        self.assertGreater(len(cands_ol), 0)
+        self.assertTrue(cands_ol[0].get('by_id'))
+
+    def test_manual_search_with_query_terms(self):
+        http, fetch, _ = make_http(routes={'musicbrainz.org/ws/2/recording': {'recordings': MB},
+                                           'openlibrary.org/search.json': {'docs': OL}})
+
+        cands = matching.manual_search(http, title='Yesterday', artist='Beatles', media_kind='music')
+        self.assertGreater(len(cands), 0)
+        self.assertEqual(cands[0]['title'], 'Yesterday')
+
+
 if __name__ == '__main__':
     unittest.main()

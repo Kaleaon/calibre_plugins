@@ -131,16 +131,63 @@ class HttpStatus(ServiceError):
 
 
 # -- MusicBrainz ---------------------------------------------------------------------------------------------------------
+UUID_REGEX = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+OLID_REGEX = re.compile(r'^OL\d+[A-Z]$', re.IGNORECASE)
+ISBN_CLEAN_REGEX = re.compile(r'[^0-9X]', re.IGNORECASE)
+
+
+def sanitize_identifier(raw_id):
+    """Sanitize and classify a direct ID string.
+    Returns (id_type, cleaned_value) where id_type is 'mb_recording', 'mb_release', 'olid', 'isbn', or 'invalid'.
+    """
+    if not raw_id:
+        return 'invalid', ''
+    text = str(raw_id).strip()
+
+    low = text.lower()
+    if low.startswith('mb_recording:') or low.startswith('recording:'):
+        val = text.split(':', 1)[1].strip()
+        if UUID_REGEX.match(val):
+            return 'mb_recording', val.lower()
+    elif low.startswith('mb_release:') or low.startswith('release:'):
+        val = text.split(':', 1)[1].strip()
+        if UUID_REGEX.match(val):
+            return 'mb_release', val.lower()
+    elif low.startswith('olid:') or low.startswith('openlibrary:'):
+        val = text.split(':', 1)[1].strip()
+        if OLID_REGEX.match(val):
+            return 'olid', val.upper()
+    elif low.startswith('isbn:') or low.startswith('isbn10:') or low.startswith('isbn13:'):
+        val = text.split(':', 1)[1].strip()
+        cleaned = ISBN_CLEAN_REGEX.sub('', val)
+        if len(cleaned) in (10, 13):
+            return 'isbn', cleaned.upper()
+
+    if UUID_REGEX.match(text):
+        return 'mb_recording', text.lower()
+
+    if OLID_REGEX.match(text):
+        return 'olid', text.upper()
+
+    cleaned_isbn = ISBN_CLEAN_REGEX.sub('', text)
+    if len(cleaned_isbn) in (10, 13) and (cleaned_isbn[:-1].isdigit() and (cleaned_isbn[-1].isdigit() or cleaned_isbn[-1].upper() == 'X')):
+        return 'isbn', cleaned_isbn.upper()
+
+    return 'invalid', ''
+
+
 def lucene_phrase(text):
     """A quoted Lucene phrase safe to embed in a MusicBrainz search query."""
     return '"' + re.sub(r'(["\\])', r'\\\1', text.replace('\n', ' ')).strip() + '"'
 
 
-def mb_search_recordings(http, title='', artist='', album='', recording_id='', limit=25):
+def mb_search_recordings(http, title='', artist='', album='', recording_id='', release_id='', limit=25):
     """Recording search results (each with its releases and the track's place on them). Searches the more specific
     title+artist+album first; the caller decides whether to broaden."""
     if recording_id:
         query = f'rid:{recording_id}'
+    elif release_id:
+        query = f'reid:{release_id}'
     else:
         parts = []
         if title:
@@ -255,6 +302,30 @@ def ol_search(http, title, author='', limit=6):
     if not docs and author:  # an author spelled differently from Open Library's would otherwise hide the book
         docs = http.json(OL_ROOT + '/search.json', {'title': title, 'limit': limit, 'fields': OL_FIELDS}).get('docs', [])
     return docs
+
+
+def ol_search_by_isbn(http, isbn, limit=6):
+    try:
+        docs = http.json(OL_ROOT + '/search.json', {'isbn': isbn, 'limit': limit, 'fields': OL_FIELDS}).get('docs', [])
+        if not docs:
+            docs = http.json(OL_ROOT + '/search.json', {'q': f'isbn:{isbn}', 'limit': limit, 'fields': OL_FIELDS}).get('docs', [])
+        return docs
+    except HttpStatus as exc:
+        if exc.code == 400:
+            return []
+        raise
+
+
+def ol_search_by_olid(http, olid, limit=6):
+    try:
+        docs = http.json(OL_ROOT + '/search.json', {'q': olid, 'limit': limit, 'fields': OL_FIELDS}).get('docs', [])
+        if not docs:
+            docs = http.json(OL_ROOT + '/search.json', {'q': f'key:/books/{olid}', 'limit': limit, 'fields': OL_FIELDS}).get('docs', [])
+        return docs
+    except HttpStatus as exc:
+        if exc.code == 400:
+            return []
+        raise
 
 
 def ol_cover_urls(cover_id):
