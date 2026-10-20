@@ -5,6 +5,8 @@ try:
     from qt.core import _
 except ImportError:
     _ = lambda s: s
+if not callable(_):
+    _ = lambda s: s
 
 try:
     from calibre_plugins.fanfic_downloader import engine, flaresolverr
@@ -226,6 +228,7 @@ class FlareSolverrSetupWizard(QWizard):
         self.addPage(MethodConfigPage(self))
         self.addPage(HealthCheckPage(self))
         self.addPage(ApplySettingsPage(self))
+        self.restart()
 
         self.show_enabled_state()
         self.refresh_program()
@@ -265,7 +268,9 @@ class FlareSolverrSetupWizard(QWizard):
         self._run(_('Loading Royal Road through FlareSolverr (up to a minute)…'), lambda task: flaresolverr.fetch_through(settings))
 
     def refresh_program(self):
-        path = prefs['flaresolverr_path']
+        path = prefs.get('flaresolverr_path', '')
+        if not isinstance(path, str):
+            path = ''
         running = flaresolverr.launcher.running()
         self.program.setText((_('Program: {path}').format(path=path) if path else _('No FlareSolverr program chosen. Download the Windows or Linux build from '
                               'FlareSolverr\'s releases page, unpack it, and choose the flaresolverr file.')) +
@@ -317,6 +322,14 @@ class FlareSolverrSetupWizard(QWizard):
             prefs['advanced_ini'] = new_text
         self.show_enabled_state()
         self.status.setText(self.status.text() + (_(' Saved when you press OK in the download window.') if changed else ''))
+        return new_text
+
+    def updated_ini(self):
+        if hasattr(self.advanced, 'toPlainText'):
+            return self.advanced.toPlainText()
+        if isinstance(self.advanced, str):
+            return self.advanced
+        return prefs['advanced_ini'] or self.enable()
 
 
 class SitesDialog(QDialog):
@@ -353,7 +366,10 @@ class DownloadDialog(QDialog):
         self.adult.setChecked(bool(prefs['allow_adult']))
         layout.addWidget(self.adult)
         layout.addWidget(QLabel(_('Extra domains to treat as adult sites (one per line):')))
-        self.extra = QPlainTextEdit(prefs['extra_adult'])
+        self.extra = QPlainTextEdit()
+        extra_val = prefs.get('extra_adult', '')
+        if isinstance(extra_val, str):
+            self.extra.setPlainText(extra_val)
         self.extra.setMaximumHeight(60)
         layout.addWidget(self.extra)
         self.skip = QCheckBox(_('Skip stories already in this library (matched by their address)'))
@@ -364,7 +380,10 @@ class DownloadDialog(QDialog):
         layout.addWidget(self.combine)
 
         layout.addWidget(QLabel(_('Advanced settings (FanFicFare personal.ini format) for logins, browser cache, proxies:')))
-        self.advanced = QPlainTextEdit(prefs['advanced_ini'])
+        self.advanced = QPlainTextEdit()
+        adv_val = prefs.get('advanced_ini', '')
+        if isinstance(adv_val, str):
+            self.advanced.setPlainText(adv_val)
         self.advanced.setPlaceholderText(ADVANCED_HELP)
         layout.addWidget(self.advanced, 2)
 

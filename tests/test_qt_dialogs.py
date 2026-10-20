@@ -1356,12 +1356,21 @@ class FanficDialogTests(QtCase):
 
     def setUp(self):
         super().setUp()
+        for k in [k for k in sys.modules if k.startswith('calibre_plugins.fanfic_downloader')]:
+            del sys.modules[k]
         package = self.load('fanfic_downloader')
         self.path = str(Path(self.tmp.name) / 'fanfic_downloader')
         sys.path.insert(0, self.path)  # what `with plugin:` does for the bundled third-party libraries
         zf = zipfile.ZipFile(self.built['fanfic_downloader'])
         builtins.get_resources = lambda name: zf.read(name)  # Calibre injects this into plugin modules
         self.package = package
+        config = importlib.import_module(package + '.config')
+        config.prefs['allow_adult'] = False
+        config.prefs['extra_adult'] = ''
+        config.prefs['skip_existing'] = True
+        config.prefs['combine_stories'] = False
+        config.prefs['advanced_ini'] = ''
+        config.prefs['flaresolverr_path'] = ''
 
     def tearDown(self):
         sys.path.remove(self.path)
