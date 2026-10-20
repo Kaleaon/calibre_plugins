@@ -346,7 +346,7 @@ class GeminiFixerAction(InterfaceAction):
                         db.set_field('languages', {book_id: tuple(new)})
                     elif field == 'isbn':
                         db.set_field('identifiers', {book_id: dict(db.field_for('identifiers', book_id) or {}, isbn=new)})
-                    saved[field] = [old[0], old[1]] if field == 'series' else old
+                    saved[field] = [old[0], old[1] if old[1] is not None else 1.0] if field == 'series' else old
                 done.append(book_id)
             except Exception as exc:
                 errors.append(f'{changes.get("title", ("", ""))[0] or book_id}: {exc}')
@@ -369,8 +369,7 @@ class GeminiFixerAction(InterfaceAction):
                         db.set_field('authors', {book_id: tuple(old)})
                     elif field == 'series':
                         db.set_field('series', {book_id: old[0] or None})
-                        if old[0] and old[1] is not None:
-                            db.set_field('series_index', {book_id: old[1]})
+                        db.set_field('series_index', {book_id: old[1] if old[1] is not None else 1.0})
                     elif field == 'tags':
                         db.set_field('tags', {book_id: tuple(old)})
                     elif field == 'language':
@@ -435,6 +434,15 @@ class GeminiFixerAction(InterfaceAction):
         models_btn = QPushButton(_('List models'))
         models_btn.setToolTip(_('Ask Google which models your key can use'))
         row.addWidget(models_btn)
+        layout.addLayout(row)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel(_('Instruction Template:')))
+        template_combo = QComboBox()
+        manage_templates_btn = QPushButton(_('Manage Templates...'))
+        manage_templates_btn.setToolTip(_('Create, edit, or delete instruction templates and presets'))
+        row.addWidget(template_combo, 1)
+        row.addWidget(manage_templates_btn)
         layout.addLayout(row)
 
         layout.addWidget(QLabel(_('Fix:')))

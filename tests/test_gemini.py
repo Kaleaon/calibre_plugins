@@ -791,6 +791,109 @@ class TemplateManagerDialogUiTests(unittest.TestCase):
         self.assertTrue(qt_core.QComboBox.called)
 
 
+class SeriesIndexNormalizationTests(unittest.TestCase):
+    def setUp(self):
+        self.saved_modules = dict(sys.modules)
+        for name in ('calibre', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config'):
+            sys.modules[name] = MagicMock()
+        sys.modules['calibre.gui2.actions'].InterfaceAction = object
+        qt_mod = MagicMock()
+        sys.modules['qt'] = qt_mod
+        sys.modules['qt.core'] = qt_mod.core
+
+        gemini_pkg = types.ModuleType('calibre_plugins.gemini_library_fixer')
+        gemini_pkg.engine = engine
+        gemini_pkg.config = MagicMock(prefs={
+            'api_key': '', 'model': 'gemini-1.5-flash', 'fields': ['title'],
+            'tags_remove': False, 'excerpt': False, 'covers': False,
+            'min_confidence': 'medium', 'batch_size': 5, 'min_interval': 7, 'undo': {},
+            'active_template': 'Default Ebook Cleanup',
+            'custom_templates': {}
+        })
+        gemini_pkg.guikit = MagicMock()
+        sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+        sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
+        sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine
+        sys.modules['calibre_plugins.gemini_library_fixer.config'] = gemini_pkg.config
+        sys.modules['calibre_plugins.gemini_library_fixer.guikit'] = gemini_pkg.guikit
+
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        self.action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.action_mod)
+
+    def tearDown(self):
+        for k in list(sys.modules.keys()):
+            if k not in self.saved_modules:
+                del sys.modules[k]
+        sys.modules.update(self.saved_modules)
+
+    def test_write_changes_normalizes_none_series_index(self):
+        action = self.action_mod.GeminiFixerAction()
+        mock_db = MagicMock()
+        action.gui = MagicMock(current_db=MagicMock(new_api=mock_db))
+
+        items = [(1, {'series': (('', None), ('Harry Potter', 3.0))})]
+        done, errors, undo = action.write_changes(items)
+
+        self.assertEqual(done, [1])
+        self.assertEqual(errors, [])
+        self.assertEqual(undo['1']['series'], ['', 1.0])
+        mock_db.set_field.assert_any_call('series', {1: 'Harry Potter'})
+        mock_db.set_field.assert_any_call('series_index', {1: 3.0})
+
+    def test_write_changes_preserves_existing_series_index(self):
+        action = self.action_mod.GeminiFixerAction()
+        mock_db = MagicMock()
+        action.gui = MagicMock(current_db=MagicMock(new_api=mock_db))
+
+        items = [(1, {'series': (('Dune', 2.0), ('Dune Chronicles', 2.0))})]
+        done, errors, undo = action.write_changes(items)
+
+        self.assertEqual(undo['1']['series'], ['Dune', 2.0])
+
+    def test_restore_unconditionally_resets_series_index(self):
+        action = self.action_mod.GeminiFixerAction()
+        mock_db = MagicMock()
+        mock_db.has_id.return_value = True
+        action.gui = MagicMock(current_db=MagicMock(new_api=mock_db))
+
+        undo = {'1': {'series': ['', 1.0]}}
+        done, errors = action.restore(undo)
+
+        self.assertEqual(done, [1])
+        self.assertEqual(errors, [])
+        mock_db.set_field.assert_any_call('series', {1: None})
+        mock_db.set_field.assert_any_call('series_index', {1: 1.0})
+
+    def test_restore_legacy_undo_object_with_none_index(self):
+        action = self.action_mod.GeminiFixerAction()
+        mock_db = MagicMock()
+        mock_db.has_id.return_value = True
+        action.gui = MagicMock(current_db=MagicMock(new_api=mock_db))
+
+        undo = {'1': {'series': ['', None]}}
+        done, errors = action.restore(undo)
+
+        self.assertEqual(done, [1])
+        self.assertEqual(errors, [])
+        mock_db.set_field.assert_any_call('series', {1: None})
+        mock_db.set_field.assert_any_call('series_index', {1: 1.0})
+
+    def test_restore_preserves_existing_series_and_index(self):
+        action = self.action_mod.GeminiFixerAction()
+        mock_db = MagicMock()
+        mock_db.has_id.return_value = True
+        action.gui = MagicMock(current_db=MagicMock(new_api=mock_db))
+
+        undo = {'1': {'series': ['Foundation', 3.0]}}
+        done, errors = action.restore(undo)
+
+        self.assertEqual(done, [1])
+        self.assertEqual(errors, [])
+        mock_db.set_field.assert_any_call('series', {1: 'Foundation'})
+        mock_db.set_field.assert_any_call('series_index', {1: 3.0})
+
+
 if __name__ == '__main__':
     unittest.main()
 
