@@ -19,7 +19,7 @@ SERVER = textwrap.dedent('''\
     #!{python}
     import http.server, json, os, subprocess, sys
     open({envfile!r}, 'w').write(os.environ.get('HOST', '') + ' ' + os.environ.get('PORT', ''))
-    child = subprocess.Popen(['sleep', '300'])  # stands in for the browser FlareSolverr starts
+    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])  # stands in for the browser FlareSolverr starts
     open({childfile!r}, 'w').write(str(child.pid))
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a): pass
@@ -40,12 +40,39 @@ def free_port():
 
 def alive(pid):
     try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    try:  # a zombie still answers signal 0; treat it as gone
-        return Path(f'/proc/{pid}/stat').read_text().split()[2] != 'Z'
-    except OSError:
+        import psutil
+        if not psutil.pid_exists(pid):
+            return False
+        p = psutil.Process(pid)
+        return p.status() != psutil.STATUS_ZOMBIE
+    except Exception:
+        pass
+
+    if sys.platform.startswith('win'):
+        try:
+            import ctypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            exit_code = ctypes.c_ulong()
+            success = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+            ctypes.windll.kernel32.CloseHandle(handle)
+            STILL_ACTIVE = 259
+            return bool(success and exit_code.value == STILL_ACTIVE)
+        except Exception:
+            return False
+    else:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        proc_stat = Path(f'/proc/{pid}/stat')
+        if proc_stat.exists():
+            try:
+                return proc_stat.read_text().split()[2] != 'Z'
+            except OSError:
+                return True
         return True
 
 
@@ -63,19 +90,21 @@ class ValidationTests(unittest.TestCase):
         self.assertIn('No FlareSolverr', fs.validate_executable(''))
         self.assertIn('does not exist', fs.validate_executable('/nonexistent/flaresolverr'))
         with tempfile.TemporaryDirectory() as d:
-            path = Path(d) / 'flaresolverr'
+            name = 'flaresolverr.exe' if sys.platform.startswith('win') else 'flaresolverr'
+            path = Path(d) / name
             path.write_text('#!/bin/sh\n')
             if POSIX:
                 path.chmod(0o644)
                 self.assertIn('chmod +x', fs.validate_executable(str(path)))
                 path.chmod(0o755)
                 self.assertEqual(fs.validate_executable(str(path)), '')
+            else:
+                self.assertEqual(fs.validate_executable(str(path)), '')
             self.assertIn('does not exist', fs.validate_executable(d))  # a folder is not a program
         self.assertTrue(fs.looks_like_flaresolverr('/x/FlareSolverr.exe'))
         self.assertFalse(fs.looks_like_flaresolverr('/x/some-other-tool'))
 
 
-@unittest.skipUnless(POSIX, 'launcher tests use a POSIX shell script')
 class LauncherTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -94,10 +123,19 @@ class LauncherTests(unittest.TestCase):
         self.launchers.append(launcher)
         return launcher
 
-    def program(self, body, name='flaresolverr'):
+    def program(self, py_body, name=None):
+        if name is None:
+            name = 'flaresolverr.bat' if sys.platform.startswith('win') else 'flaresolverr'
         path = self.dir / name
-        path.write_text(body)
-        path.chmod(path.stat().st_mode | stat.S_IXUSR)
+        if sys.platform.startswith('win'):
+            py_path = self.dir / f'{path.stem}_script.py'
+            py_path.write_text(py_body)
+            path.write_text(f'@"{sys.executable}" "{py_path.resolve()}" %*\n')
+        else:
+            if not py_body.startswith('#!'):
+                py_body = f'#!{sys.executable}\n' + py_body
+            path.write_text(py_body)
+            path.chmod(path.stat().st_mode | stat.S_IXUSR)
         return str(path)
 
     def server_program(self):
@@ -139,7 +177,8 @@ class LauncherTests(unittest.TestCase):
 
     def test_program_that_exits_reports_its_output(self):
         launcher = self.launcher()
-        ok, message = launcher.start(self.program('#!/bin/sh\necho boom: no chrome found\nexit 3\n'), self.settings, wait=20)
+        code = 'import sys\nprint("boom: no chrome found")\nsys.exit(3)\n'
+        ok, message = launcher.start(self.program(code), self.settings, wait=20)
         self.assertFalse(ok)
         self.assertIn('code 3', message)
         self.assertIn('boom: no chrome found', message)
@@ -147,14 +186,16 @@ class LauncherTests(unittest.TestCase):
 
     def test_program_that_never_answers_is_stopped(self):
         launcher = self.launcher()
-        ok, message = launcher.start(self.program('#!/bin/sh\nsleep 300\n'), self.settings, wait=2)
+        code = 'import time\ntime.sleep(300)\n'
+        ok, message = launcher.start(self.program(code), self.settings, wait=2)
         self.assertFalse(ok)
         self.assertIn('did not start answering', message)
         self.assertFalse(launcher.running())
 
     def test_cancel_stops_it(self):
         launcher = self.launcher()
-        ok, message = launcher.start(self.program('#!/bin/sh\nsleep 300\n'), self.settings, wait=30, cancelled=lambda: True)
+        code = 'import time\ntime.sleep(300)\n'
+        ok, message = launcher.start(self.program(code), self.settings, wait=30, cancelled=lambda: True)
         self.assertFalse(ok)
         self.assertIn('Cancelled', message)
         self.assertFalse(launcher.running())
