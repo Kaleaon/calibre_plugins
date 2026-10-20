@@ -71,12 +71,22 @@ from calibre_plugins.fanfic_downloader.config import prefs
 
 class FlareSolverrAutoSpawnTests(unittest.TestCase):
     def setUp(self):
+        self._orig_path = prefs.get('flaresolverr_path')
+        self._orig_ini = prefs.get('advanced_ini')
         self.tmp = tempfile.TemporaryDirectory()
         self.dummy_exe = Path(self.tmp.name) / 'flaresolverr'
         self.dummy_exe.write_text('#!/bin/sh\nexit 0\n')
         self.dummy_exe.chmod(self.dummy_exe.stat().st_mode | stat.S_IXUSR)
 
     def tearDown(self):
+        if self._orig_path is None:
+            prefs.pop('flaresolverr_path', None)
+        else:
+            prefs['flaresolverr_path'] = self._orig_path
+        if self._orig_ini is None:
+            prefs.pop('advanced_ini', None)
+        else:
+            prefs['advanced_ini'] = self._orig_ini
         self.tmp.cleanup()
 
     def test_preflight_autospawns_when_offline_and_path_exists(self):
