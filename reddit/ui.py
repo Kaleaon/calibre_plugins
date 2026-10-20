@@ -137,6 +137,110 @@ class ManifestDialog(QDialog):
         self.table.resizeColumnsToContents()
 
 
+class SourceEditDialog(QDialog):
+    """Add or edit one feed source rule for a series."""
+    def __init__(self, parent, source=None):
+        super().__init__(parent)
+        self.setWindowTitle(_('Feed source rule'))
+        self.resize(500, 260)
+        self.source = source or {}
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        src_text = core.source_text(self.source) if self.source.get('kind') else ''
+        self.where = QLineEdit(src_text)
+        self.where.setPlaceholderText(_('r/HFY   or   u/author   or search address'))
+        form.addRow(_('Where to look'), self.where)
+
+        self.title_filter = QLineEdit(self.source.get('title_filter', ''))
+        self.title_filter.setPlaceholderText(_('Only posts matching title (or re:regex)'))
+        form.addRow(_('Title contains'), self.title_filter)
+
+        self.author_filter = QLineEdit(self.source.get('author_filter', ''))
+        self.author_filter.setPlaceholderText(_('Only posts by author (optional)'))
+        form.addRow(_('Posted by'), self.author_filter)
+
+        self.flair_filter = QLineEdit(self.source.get('flair_filter', ''))
+        self.flair_filter.setPlaceholderText(_('Only posts with flair (optional)'))
+        form.addRow(_('Flair contains'), self.flair_filter)
+
+        layout.addLayout(form)
+        self.msg = QLabel('')
+        self.msg.setWordWrap(True)
+        layout.addWidget(self.msg)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.try_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def try_accept(self):
+        txt = self.where.text().strip()
+        if not txt:
+            self.msg.setText(_('Enter where to look.'))
+            return
+        try:
+            core.parse_source(txt)
+        except core.SourceError as exc:
+            self.msg.setText(str(exc))
+            return
+        self.accept()
+
+    def result_source(self):
+        parsed = core.parse_source(self.where.text().strip())
+        return {
+            'kind': parsed['kind'],
+            'subreddit': parsed.get('subreddit', ''),
+            'user': parsed.get('user', ''),
+            'query': parsed.get('query', ''),
+            'title_filter': self.title_filter.text().strip(),
+            'author_filter': self.author_filter.text().strip().lstrip('/').replace('u/', '', 1),
+            'flair_filter': self.flair_filter.text().strip()
+        }
+
+
+class ManifestDialog(QDialog):
+    """View post manifest entries and chapter order for a series."""
+    def __init__(self, parent, follow, action):
+        super().__init__(parent)
+        self.follow = follow
+        self.action = action
+        self.setWindowTitle(_('Chapter Manifest – {name}').format(name=follow['name']))
+        self.resize(780, 420)
+        layout = QVBoxLayout(self)
+
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels([_('Seq'), _('Chapter Title'), _('Author'), _('Created'), _('Link'), _('Status')])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.table, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.refresh()
+
+    def refresh(self):
+        reg = self.action.registry()
+        entries = reg.get_manifest(self.follow['id'])
+        self.table.setRowCount(len(entries))
+        for row, entry in enumerate(entries):
+            created_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(entry.get('created', 0.0)))
+            status = _('Duplicate') if entry.get('is_duplicate') else _('Canonical')
+            cells = [
+                str(entry.get('sequence_order', row + 1)),
+                entry.get('chapter_title') or entry.get('title', ''),
+                entry.get('author_attribution') or entry.get('author', ''),
+                created_str,
+                entry.get('link', ''),
+                status
+            ]
+            for col, txt in enumerate(cells):
+                self.table.setItem(row, col, QTableWidgetItem(txt))
+        self.table.resizeColumnsToContents()
+
+
 class FollowDialog(QDialog):
     """Add or edit one followed series with multi-source support."""
 
@@ -196,6 +300,26 @@ class FollowDialog(QDialog):
             self.layout_box.setCurrentIndex(1)
         form.addRow(_('Make'), self.layout_box)
         layout.addLayout(form)
+
+        # Multi-source section
+        layout.addWidget(QLabel(_('Additional Feed Sources (for multi-author or multi-subreddit series):')))
+        self.sources_table = QTableWidget(0, 4)
+        self.sources_table.setHorizontalHeaderLabels([_('Where'), _('Title filter'), _('Author filter'), _('Flair filter')])
+        self.sources_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.sources_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.sources_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.sources_table)
+
+        src_btn_row = QHBoxLayout()
+        add_src_btn = QPushButton(_('Add feed source…'))
+        add_src_btn.clicked.connect(self.add_source)
+        rem_src_btn = QPushButton(_('Remove feed source'))
+        rem_src_btn.clicked.connect(self.remove_source)
+        src_btn_row.addWidget(add_src_btn)
+        src_btn_row.addWidget(rem_src_btn)
+        src_btn_row.addStretch(1)
+        layout.addLayout(src_btn_row)
+
         self.title_from_body = QCheckBox(_('The first line of each post is its chapter title (use it to name the chapter)'))
         self.title_from_body.setToolTip(_('For authors who open every post with a short title line. The line becomes the chapter name and is taken out of the text; '
                                         'a note in brackets next to it becomes a boxed author\'s note; posts that do not open that way keep their own title.'))
@@ -621,14 +745,14 @@ class DiscoverDialog(QDialog):
 
 
 class ManageDialog(QDialog):
-    """The list of followed stories, with add, edit, remove and check buttons."""
-    COLUMNS = [_('Book'), _('Following'), _('Chapters'), _('Last checked'), _('Status')]
+    """The list of followed stories, with add, edit, manifest, remove and check buttons."""
+    COLUMNS = [_('Book'), _('Feed Sources'), _('Chapters'), _('Last checked'), _('Status')]
 
     def __init__(self, parent, action):
         super().__init__(parent)
         self.action = action
         self.setWindowTitle(_('Followed Reddit stories'))
-        self.resize(860, 460)
+        self.resize(880, 460)
         layout = QVBoxLayout(self)
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
@@ -639,7 +763,7 @@ class ManageDialog(QDialog):
         self.mode_label = QLabel('')
         layout.addWidget(self.mode_label)
         row = QHBoxLayout()
-        for label, slot in ((_('Find stories…'), self.find), (_('Add…'), self.add), (_('Edit…'), self.edit), (_('Remove'), self.remove), (_('Queue manager…'), self.open_queue_manager), (_('Test selected'), self.test_selected), (_('Check selected now'), self.check_selected),
+        for label, slot in ((_('Find stories…'), self.find), (_('Add…'), self.add), (_('Edit…'), self.edit), (_('Manifest…'), self.manifest), (_('Remove'), self.remove), (_('Queue manager…'), self.open_queue_manager), (_('Test selected'), self.test_selected), (_('Check selected now'), self.check_selected),
                             (_('Check all now'), self.check_all), (_('Settings…'), self.settings)):
             button = QPushButton(label)
             button.clicked.connect(slot)
@@ -664,7 +788,14 @@ class ManageDialog(QDialog):
         self.table.setRowCount(len(follows))
         for r, follow in enumerate(follows):
             checked = time.strftime('%Y-%m-%d %H:%M', time.localtime(follow['last_checked'])) if follow.get('last_checked') else _('never')
-            cells = [follow['name'], core.describe_source(follow['source']) + core.describe_filters(follow), str(self.action.chapter_count(follow)), checked, follow.get('last_status', '')]
+            sources = follow.get('sources') or ([follow.get('source')] if follow.get('source') else [])
+            if len(sources) > 1:
+                source_desc = f"{len(sources)} source(s) (" + ", ".join(core.describe_source(s) for s in sources[:2]) + (", …" if len(sources) > 2 else "") + ")"
+            elif sources:
+                source_desc = core.describe_source(sources[0])
+            else:
+                source_desc = core.describe_source(follow.get('source', {}))
+            cells = [follow['name'], source_desc + core.describe_filters(follow), str(self.action.chapter_count(follow)), checked, follow.get('last_status', '')]
             for c, text in enumerate(cells):
                 item = QTableWidgetItem(text)
                 item.setData(Qt.ItemDataRole.UserRole, follow['id'])
