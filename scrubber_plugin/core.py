@@ -447,6 +447,33 @@ def _drop_references(dropped, opf_name, opf_root, extra_docs, changes):
             changes.append(('toc entry removed', _resolve(name, target)))
 
 
+def get_document_diff_buffers(raw, matcher, file_name="", allowed_change_ids=None):
+    """Generate original and scrubbed text buffers for a given document's raw bytes."""
+    if isinstance(raw, bytes):
+        orig_str = raw.decode('utf-8', 'ignore')
+        raw_bytes = raw
+    else:
+        orig_str = str(raw)
+        raw_bytes = orig_str.encode('utf-8')
+
+    try:
+        if file_name and file_name.endswith('.opf'):
+            opf_root = _parse(raw_bytes)
+            _scrub_metadata(opf_root, matcher, [], opf_name=file_name, allowed_change_ids=allowed_change_ids, dry_run=False)
+            scrubbed_bytes = etree.tostring(opf_root, encoding='utf-8', xml_declaration=True)
+            scrub_str = scrubbed_bytes.decode('utf-8', 'ignore')
+        else:
+            root_copy = _parse(raw_bytes)
+            scrub_document(root_copy, matcher, file_name, allowed_change_ids=allowed_change_ids, dry_run=False)
+            scrubbed_bytes = _serialize(root_copy, raw_bytes)
+            scrub_str = scrubbed_bytes.decode('utf-8', 'ignore')
+    except Exception:
+        scrub_str = orig_str
+
+    buf = {'original': orig_str, 'scrubbed': scrub_str, 'before': orig_str, 'after': scrub_str}
+    return buf
+
+
 def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, allowed_change_ids=None, dry_run=False, profiles=None, profile=None):
     """Return (new_bytes_or_None, report). None means nothing needed changing."""
     try:
@@ -497,6 +524,8 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, a
             'changes': [],
             'skipped': [],
             'dropped_pages': [],
+            'xhtml_buffers': {},
+            'buffers': {},
             'active_profile': active_profile.get('name', 'Global Default'),
             'detected_domains': sorted(domains)
         }
@@ -518,6 +547,13 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, a
                 continue
             report['changes'] += found
             trees[name] = (root, raw)
+            if dry_run:
+                try:
+                    buf = get_document_diff_buffers(raw, matcher, name, allowed_change_ids=allowed_change_ids)
+                    report['xhtml_buffers'][name] = buf
+                    report['buffers'][name] = buf
+                except Exception:
+                    pass
             body = next((e for e in root.iter() if _local(e) == 'body'), None)
             if p_drop and body is not None and name not in nav_names and _is_empty(body):
                 change_id = f"{name}:page dropped:0"
@@ -547,6 +583,14 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, a
         meta_changes = []
         if opf_root is not None:
             _scrub_metadata(opf_root, matcher, meta_changes, opf_name=opf_name or '', allowed_change_ids=allowed_change_ids, dry_run=dry_run)
+            if dry_run and meta_changes and opf_name:
+                try:
+                    opf_raw = zf.read(opf_name)
+                    buf = get_document_diff_buffers(opf_raw, matcher, opf_name, allowed_change_ids=allowed_change_ids)
+                    report['xhtml_buffers'][opf_name] = buf
+                    report['buffers'][opf_name] = buf
+                except Exception:
+                    pass
             if dropped and not dry_run:
                 _drop_references(dropped, opf_name, opf_root, extra_docs, meta_changes)
         report['changes'] += meta_changes
