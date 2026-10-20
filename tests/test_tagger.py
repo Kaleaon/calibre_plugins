@@ -142,6 +142,7 @@ class TaggerDialogTests(unittest.TestCase):
         sys.modules['qt.core'] = qt_mod.core
 
         tagger_pkg = types.ModuleType('calibre_plugins.story_collection_tagger')
+        tagger_pkg.__path__ = [str(Path(__file__).resolve().parents[1] / 'tagger')]
         tagger_pkg.config = MagicMock(prefs={'add_source': True, 'source_prefix': 'Source.', 'series_prefix': 'Series.', 'scan_comments': False, 'rules': '', 'sites': ''})
         tagger_pkg.rules = rules
         tagger_pkg.error_handler = MagicMock()
@@ -149,11 +150,13 @@ class TaggerDialogTests(unittest.TestCase):
         tagger_pkg.guikit = MagicMock()
         tagger_pkg.guikit.DialogAction = DialogAction
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+        sys.modules['calibre_plugins'].__path__ = []
         sys.modules['calibre_plugins.story_collection_tagger'] = tagger_pkg
         sys.modules['calibre_plugins.story_collection_tagger.config'] = tagger_pkg.config
         sys.modules['calibre_plugins.story_collection_tagger.rules'] = tagger_pkg.rules
         sys.modules['calibre_plugins.story_collection_tagger.error_handler'] = tagger_pkg.error_handler
         sys.modules['calibre_plugins.story_collection_tagger.guikit'] = tagger_pkg.guikit
+        sys.modules['error_handler'] = tagger_pkg.error_handler
 
     def tearDown(self):
         for k in list(sys.modules.keys()):
@@ -464,6 +467,101 @@ class UiSyncTests(unittest.TestCase):
         # Selection state confirms Book 1 has LitRPG active, Book 2 does not
         self.assertTrue(sel.is_tag_active(1, 'LitRPG'))
         self.assertFalse(sel.is_tag_active(2, 'LitRPG'))
+
+
+try:
+    from PyQt6 import QtCore, QtGui, QtWidgets
+    HAVE_QT = True
+except ImportError:
+    HAVE_QT = False
+
+
+@unittest.skipUnless(HAVE_QT, 'PyQt6 is required for UI tests')
+class TaggerPreviewDialogUITests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    def setUp(self):
+        spec_ui = importlib.util.spec_from_file_location('tagger_ui', Path(__file__).resolve().parents[1] / 'tagger/ui.py')
+        self.tagger_ui = importlib.util.module_from_spec(spec_ui)
+        spec_ui.loader.exec_module(self.tagger_ui)
+
+    def sample_plan(self):
+        return [
+            {
+                'id': 1,
+                'title': 'Book One',
+                'add': ['Source.Metabods', 'Theme.Growth'],
+                'tags': ['Fiction', 'Source.Metabods', 'Theme.Growth']
+            },
+            {
+                'id': 2,
+                'title': 'Book Two',
+                'add': ['LitRPG'],
+                'tags': ['Sci-Fi', 'LitRPG']
+            }
+        ]
+
+    def test_tree_populates_correctly(self):
+        dialog = self.tagger_ui.TaggerPreviewDialog(None, self.sample_plan())
+        self.assertEqual(dialog.tree.topLevelItemCount(), 2)
+
+        book1_item = dialog.tree.topLevelItem(0)
+        self.assertEqual(book1_item.text(0), 'Book One')
+        self.assertEqual(book1_item.childCount(), 2)
+        self.assertEqual(book1_item.child(0).text(0), 'Source.Metabods')
+        self.assertEqual(book1_item.child(1).text(0), 'Theme.Growth')
+
+        book2_item = dialog.tree.topLevelItem(1)
+        self.assertEqual(book2_item.text(0), 'Book Two')
+        self.assertEqual(book2_item.childCount(), 1)
+        self.assertEqual(book2_item.child(0).text(0), 'LitRPG')
+
+    def test_checkbox_propagation(self):
+        dialog = self.tagger_ui.TaggerPreviewDialog(None, self.sample_plan())
+        book1_item = dialog.tree.topLevelItem(0)
+
+        # Uncheck book 1 -> child tag items should become unchecked
+        book1_item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+        self.assertEqual(book1_item.child(0).checkState(0), QtCore.Qt.CheckState.Unchecked)
+        self.assertEqual(book1_item.child(1).checkState(0), QtCore.Qt.CheckState.Unchecked)
+
+        # Check child item 0 -> book item should become PartiallyChecked
+        book1_item.child(0).setCheckState(0, QtCore.Qt.CheckState.Checked)
+        self.assertEqual(book1_item.checkState(0), QtCore.Qt.CheckState.PartiallyChecked)
+
+    def test_select_all_and_deselect_all(self):
+        dialog = self.tagger_ui.TaggerPreviewDialog(None, self.sample_plan())
+
+        dialog.deselect_all()
+        selected_plan = dialog.get_selected_plan()
+        self.assertEqual(len(selected_plan), 0)
+
+        ok_btn = dialog.button_box.button(QtWidgets.QDialogButtonBox.StandardButton.Ok)
+        self.assertFalse(ok_btn.isEnabled())
+
+        dialog.select_all()
+        selected_plan = dialog.get_selected_plan()
+        self.assertEqual(len(selected_plan), 2)
+        self.assertTrue(ok_btn.isEnabled())
+
+    def test_get_selected_plan_filtering(self):
+        dialog = self.tagger_ui.TaggerPreviewDialog(None, self.sample_plan())
+
+        # Uncheck Theme.Growth on Book One
+        book1_item = dialog.tree.topLevelItem(0)
+        book1_item.child(1).setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+
+        # Uncheck Book Two completely
+        book2_item = dialog.tree.topLevelItem(1)
+        book2_item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
+
+        filtered = dialog.get_selected_plan()
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0]['id'], 1)
+        self.assertEqual(filtered[0]['add'], ['Source.Metabods'])
+        self.assertEqual(filtered[0]['tags'], ['Fiction', 'Source.Metabods'])
 
 
 if __name__ == '__main__':

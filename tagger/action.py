@@ -12,6 +12,14 @@ except (ImportError, AttributeError):
         except ImportError:
             from common.error_handler import show_friendly_error_dialog
 
+try:
+    from calibre_plugins.story_collection_tagger.ui import TaggerPreviewDialog
+except ImportError:
+    try:
+        from .ui import TaggerPreviewDialog
+    except ImportError:
+        from ui import TaggerPreviewDialog
+
 from calibre_plugins.story_collection_tagger import rules as rules_mod
 from calibre_plugins.story_collection_tagger.config import prefs
 from calibre_plugins.story_collection_tagger.guikit import DialogAction

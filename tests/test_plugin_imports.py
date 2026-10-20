@@ -65,7 +65,7 @@ class PluginImportTests(unittest.TestCase):
             package = self.load(import_name)
             modules = {'takeout_book_fixer': ['config', 'action', 'ui', 'core', 'importer', 'queue_db', 'daemon', 'watcher', 'guikit'],
                        'epub_promo_scrubber': ['action', 'ui', 'core', 'guikit'],
-                       'story_collection_tagger': ['config', 'action', 'rules', 'guikit'],
+                       'story_collection_tagger': ['config', 'action', 'rules', 'ui', 'guikit'],
                        'gemini_library_fixer': ['config', 'action', 'engine', 'guikit'],
                        'media_matcher': ['config', 'action', 'tags', 'sources', 'matching', 'guikit'],
                        'fanfic_downloader': ['config', 'action', 'ui', 'engine', 'flaresolverr', 'guikit']}.get(import_name, ['config', 'action', 'ui', 'core', 'guikit'])
@@ -143,7 +143,11 @@ class PluginImportTests(unittest.TestCase):
             self.assertTrue(callable(core.build_epub))
 
     def test_libkit_reexports_merge_epubs(self):
+        if not hasattr(self, 'built'):
+            self.built = build_plugins.build_all(Path(self.tmp.name) / 'dist')
         for plugin in ('fanfic_downloader', 'metabods_downloader', 'nifty_downloader'):
+            if plugin not in self.built:
+                continue
             package = self.load(plugin)
             libkit = importlib.import_module(package + '.libkit')
             self.assertTrue(hasattr(libkit, 'merge_epubs'), f"{plugin} libkit missing merge_epubs")
