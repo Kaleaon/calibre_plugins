@@ -227,7 +227,10 @@ class Launcher:
             kwargs['start_new_session'] = True  # its own process group, so stopping it also stops the browser it starts
         try:
             with os.fdopen(handle, 'wb') as log:
-                self.process = subprocess.Popen([path], cwd=os.path.dirname(path), env=env, stdin=subprocess.DEVNULL,
+                cmd = [path]
+                if sys.platform.startswith('win') and path.lower().endswith(('.bat', '.cmd')):
+                    cmd = ['cmd.exe', '/c', path]
+                self.process = subprocess.Popen(cmd, cwd=os.path.dirname(path), env=env, stdin=subprocess.DEVNULL,
                                                 stdout=log, stderr=subprocess.STDOUT, **kwargs)
         except OSError as exc:
             self.process = None
