@@ -72,6 +72,13 @@ jobs:
           print(f'Successfully verified all {len(expected_zips)} plugin archives in dist/.')
           "
 
+      - name: Upload plugin packages artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: calibre-plugin-packages
+          path: dist/*.zip
+          retention-days: 14
+
       - name: Run unit test suite
         run: |
           python -m pytest tests/
