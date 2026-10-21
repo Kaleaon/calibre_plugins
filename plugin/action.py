@@ -191,10 +191,11 @@ class TakeoutAction(MergeSelectedActionMixin, InterfaceAction):
             info_dialog(
                 self.gui,
                 'Takeout recovery cancelled',
-                f'Recovery cancelled by user.
-{len(files)} books recovered or already present before cancellation.
-Output: {output}
-Report: {report_path}',
+                (
+                    f'Recovery cancelled by user.\n'
+                    f'{len(files)} books recovered or already present before cancellation.\n'
+                    f'Output: {output}\nReport: {report_path}'
+                ),
                 show=True,
             )
             return
@@ -210,10 +211,11 @@ Report: {report_path}',
         info_dialog(
             self.gui,
             'Takeout recovery complete',
-            f'{len(files)} books recovered or already present; {errors} recovery errors.
-{len(imported)} imported into Calibre; {len(import_errors)} import errors.
-Output: {output}
-Report: {report_path}',
+            (
+                f'{len(files)} books recovered or already present; {errors} recovery errors.\n'
+                f'{len(imported)} imported into Calibre; {len(import_errors)} import errors.\n'
+                f'Output: {output}\nReport: {report_path}'
+            ),
             show=True,
         )
 
