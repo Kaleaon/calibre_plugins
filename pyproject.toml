@@ -1,12 +1,9 @@
 [tool.ruff]
-target-version = "py310"
-line-length = 120
-
-exclude = [
-    ".git",
-    ".venv",
-    "build",
+target-version = "py312"
+line-length = 88
+extend-exclude = [
     "dist",
+    "build",
     "third_party",
 ]
 
@@ -14,12 +11,28 @@ exclude = [
 select = [
     "E",   # pycodestyle errors
     "F",   # Pyflakes
-    "W",   # pycodestyle warnings
     "I",   # isort
+    "W",   # pycodestyle warnings
     "UP",  # pyupgrade
 ]
+ignore = ["E501", "UP038"]
 
-ignore = [
-    "E501",  # line-too-long handled by ruff format
-    "UP038", # isinstance tuple-union syntax deprecation
+[tool.ruff.lint.isort]
+known-first-party = [
+    "common",
+    "fanfic",
+    "gemini",
+    "media",
+    "metabods",
+    "nifty",
+    "plugin",
+    "reddit",
+    "scrubber_plugin",
+    "tagger",
 ]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
