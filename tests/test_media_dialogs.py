@@ -77,7 +77,7 @@ class MediaDialogTests(QtCase):
 
         action = type('A', (Base, self.action_mod.MediaMatcherAction), {})()
         action.genesis()
-        self.assertEqual([m[0] for m in made], ['media-matcher-add', 'media-matcher-match'])
+        self.assertEqual([m[0] for m in made], ['media-matcher-add', 'media-matcher-match', 'media-matcher-manual'])
         self.assertIsNotNone(action.qaction.menu())
 
     def test_add_files_from_a_folder_then_skip_them_the_second_time(self):
@@ -469,6 +469,66 @@ class MediaDialogTests(QtCase):
         self.assertTrue(shown_info)
         self.assertIn('Updated 1 book(s)', shown_info[0])
 
+    def test_standalone_manual_search_updates_book_and_supports_undo(self):
+        self.services()
+        db = MediaDb({
+            1: dict(title='yesterday', authors=['Beatles'], series='', series_index=1.0, tags=['Rock'], identifiers={}, formats=['MP3'])
+        })
+        gui = make_gui(db, [1])
+        action = self.action_mod.MediaMatcherAction()
+        action.gui = gui
+        prefs = self.action_mod.prefs
+        seen = {}
+
+        def drive(dialog):
+            b = buttons(dialog)
+            tree = dialog.findChild(QtWidgets.QTreeWidget)
+            seen['count_before'] = tree.topLevelItemCount()
+            if tree.topLevelItemCount() > 0:
+                tree.setCurrentItem(tree.topLevelItem(0))
+            self.assertTrue(b['Use Selected Candidate'].isEnabled())
+            b['Use Selected Candidate'].click()
+
+        run_dialog(lambda: action.manual_search_dialog(1), drive)
+        self.assertGreater(seen['count_before'], 0)
+        writes = {name: list(m.values())[0] for name, m in db.writes}
+        self.assertEqual(writes['title'], 'Yesterday')
+        self.assertIn('1', prefs['undo'])
+
+    def test_batch_preview_tree_manual_search_button(self):
+        self.services()
+        db = MediaDb({
+            1: dict(title='unmatched title', authors=['Unknown'], series='', series_index=1.0, tags=[], identifiers={}, formats=['MP3'])
+        })
+        gui = make_gui(db, [1])
+        action = self.action_mod.MediaMatcherAction()
+        action.gui = gui
+        seen = {}
+
+        def drive(dialog):
+            b = buttons(dialog)
+            b['Look up'].click()
+            tree = dialog.findChild(QtWidgets.QTreeWidget)
+            seen['count_after_lookup'] = tree.topLevelItemCount()
+
+            def drive_manual(manual_dlg):
+                m_edits = manual_dlg.findChildren(QtWidgets.QLineEdit)
+                m_edits[0].setText('yesterday')
+                m_buttons = buttons(manual_dlg)
+                m_buttons['Search'].click()
+                m_tree = manual_dlg.findChild(QtWidgets.QTreeWidget)
+                if m_tree.topLevelItemCount() > 0:
+                    m_tree.setCurrentItem(m_tree.topLevelItem(0))
+                m_buttons['Use Selected Candidate'].click()
+
+            run_dialog(lambda: b['Manual Search / Lookup by ID…'].click(), drive_manual)
+            seen['count_after_manual'] = tree.topLevelItemCount()
+            self.assertTrue(b['Apply ticked changes'].isEnabled())
+
+        run_dialog(action.match_dialog, drive)
+        self.assertEqual(seen['count_after_manual'], 1)
+
 
 if __name__ == '__main__':
     unittest.main()
+
