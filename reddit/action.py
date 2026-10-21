@@ -102,17 +102,26 @@ class FollowerAction(InterfaceAction):
         if getattr(self, '_registry', None) is None:
             return
         try:
-            from .migration import migrate_json_to_sqlite
+            from calibre_plugins.reddit_follower.migration import migrate_json_to_sqlite
         except ImportError:
             try:
-                from migration import migrate_json_to_sqlite
+                from .migration import migrate_json_to_sqlite
             except ImportError:
-                import sys as _sys, os as _os
-                _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
-                if _pkg_dir not in _sys.path:
-                    _sys.path.insert(0, _pkg_dir)
-                from migration import migrate_json_to_sqlite
-        migrate_json_to_sqlite(self._registry, prefs, self.cache_dir())
+                try:
+                    from migration import migrate_json_to_sqlite
+                except ImportError:
+                    try:
+                        import sys as _sys, os as _os
+                        _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
+                        if _pkg_dir not in _sys.path:
+                            _sys.path.insert(0, _pkg_dir)
+                        from migration import migrate_json_to_sqlite
+                    except ImportError:
+                        return
+        try:
+            migrate_json_to_sqlite(self._registry, prefs, self.cache_dir())
+        except Exception:
+            pass
 
     def get_follows(self):
         self._migrate()

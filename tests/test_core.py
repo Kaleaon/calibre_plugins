@@ -104,4 +104,50 @@ class RecoveryTests(unittest.TestCase):
             finally:
                 core.MAX_MEMBER = old
 
+    def test_recover_cancelled_halts_immediately(self):
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / 'input'
+            source.mkdir()
+            output = Path(d) / 'output'
+            (source / 'book1.pdf').write_bytes(epub())
+            (source / 'book2.pdf').write_bytes(epub())
+            (source / 'book3.pdf').write_bytes(epub())
+
+            # Cancel immediately
+            files, rows, report_path = core.recover(source, output, cancelled=lambda: True)
+            self.assertEqual(len(files), 0)
+            self.assertTrue(Path(report_path).exists())
+
+            # Cancel after first file is processed
+            cancelled = False
+            def progress(name):
+                nonlocal cancelled
+                if name.endswith('book1.pdf'):
+                    cancelled = True
+
+            output2 = Path(d) / 'output2'
+            files2, rows2, report_path2 = core.recover(source, output2, progress=progress, cancelled=lambda: cancelled)
+            self.assertEqual(len(files2), 1)
+            self.assertTrue(Path(report_path2).exists())
+
+    def test_recover_zip_cancelled_halts_immediately(self):
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / 'takeout.zip'
+            with zipfile.ZipFile(source, 'w') as z:
+                z.writestr('book1.pdf', epub())
+                z.writestr('book2.pdf', epub())
+                z.writestr('book3.pdf', epub())
+            output = Path(d) / 'output'
+
+            cancelled = False
+            def progress(name):
+                nonlocal cancelled
+                if name == 'book1.pdf':
+                    cancelled = True
+
+            files, rows, report_path = core.recover(source, output, progress=progress, cancelled=lambda: cancelled)
+            self.assertEqual(len(files), 1)
+            self.assertTrue(Path(report_path).exists())
+
+
 if __name__ == '__main__': unittest.main()

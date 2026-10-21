@@ -35,12 +35,9 @@ def buttons(dialog):
 
 
 def run_dialog(show, drive):
-    original = QtWidgets.QDialog.exec
-    QtWidgets.QDialog.exec = drive
-    try:
+    from unittest.mock import patch
+    with patch.object(QtWidgets.QDialog, 'exec', drive):
         show()
-    finally:
-        QtWidgets.QDialog.exec = original
 
 
 @unittest.skipUnless(HAVE_QT, 'PyQt6 (with its system libraries) is not installed')

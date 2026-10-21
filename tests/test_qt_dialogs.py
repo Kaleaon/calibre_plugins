@@ -104,8 +104,11 @@ class QtCase(unittest.TestCase):
                 setattr(qtcore, name, getattr(module, name))
         sys.modules['qt'] = types.ModuleType('qt')
         sys.modules['qt.core'] = qtcore
-        for name in ('calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils'):
+        for name in ('calibre', 'calibre.customize', 'calibre.gui2', 'calibre.utils'):
             sys.modules[name] = MagicMock()
+        actions = types.ModuleType('calibre.gui2.actions')
+        actions.InterfaceAction = type('InterfaceAction', (object,), {'__init__': lambda self, gui, name: setattr(self, 'gui', gui)})
+        sys.modules['calibre.gui2.actions'] = actions
         for name in ('calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.book'):
             sys.modules[name] = MagicMock()
         base = types.ModuleType('calibre.ebooks.metadata.book.base')
@@ -120,14 +123,19 @@ class QtCase(unittest.TestCase):
     def tearDown(self):
         if hasattr(builtins, 'get_resources'):
             del builtins.get_resources
-        for key in [k for k in sys.modules if k.startswith(('calibre', 'qt'))]:
+        for key in [k for k in sys.modules if k.startswith(('calibre', 'qt', 'calibre_plugins'))]:
             del sys.modules[key]
         sys.modules.update(self.saved)
 
     def load(self, import_name):
+        prefix = f'calibre_plugins.{import_name}'
+        for key in list(sys.modules):
+            if key == prefix or key.startswith(prefix + '.'):
+                del sys.modules[key]
         target = Path(self.tmp.name) / import_name
-        if not target.exists():
-            zipfile.ZipFile(self.built[import_name]).extractall(target)
+        if target.exists():
+            shutil.rmtree(target)
+        zipfile.ZipFile(self.built[import_name]).extractall(target)
         package = types.ModuleType(f'calibre_plugins.{import_name}')
         package.__path__ = [str(target)]
         sys.modules[package.__name__] = package
@@ -162,6 +170,71 @@ class TaskAndTagSearchTests(QtCase):
         task = guikit.run_task(None, 'Working…', work)
         self.assertTrue(task.cancelled())
         self.assertEqual(task.result, 'stopped early')
+
+    def test_takeout_action_run_recovery_cancelled(self):
+        package = self.load('takeout_book_fixer')
+        action_mod = importlib.import_module(package + '.action')
+
+        def make_epub():
+            b = io.BytesIO()
+            with zipfile.ZipFile(b, 'w') as z:
+                z.writestr('mimetype', 'application/epub+zip')
+                z.writestr('META-INF/container.xml', '<container/>')
+            return b.getvalue()
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            source = root / 'takeout.zip'
+            sample = make_epub()
+            with zipfile.ZipFile(source, 'w') as z:
+                z.writestr('book1.pdf', sample)
+                z.writestr('book2.pdf', sample)
+                z.writestr('book3.pdf', sample)
+            output = root / 'output'
+
+            def accept_options_dialog():
+                for widget in QtWidgets.QApplication.topLevelWidgets():
+                    if isinstance(widget, QtWidgets.QDialog) and not isinstance(widget, QtWidgets.QProgressDialog):
+                        widget.accept()
+                        return
+                QtCore.QTimer.singleShot(10, accept_options_dialog)
+
+            def press_cancel():
+                for widget in QtWidgets.QApplication.topLevelWidgets():
+                    if isinstance(widget, QtWidgets.QProgressDialog) and widget.isVisible():
+                        button = widget.findChild(QtWidgets.QPushButton)
+                        if button:
+                            button.click()
+                            return
+                QtCore.QTimer.singleShot(10, press_cancel)
+
+            QtCore.QTimer.singleShot(0, accept_options_dialog)
+            QtCore.QTimer.singleShot(20, press_cancel)
+
+            window = QtWidgets.QMainWindow()
+            window.library_view = MagicMock()
+            window.tags_view = MagicMock()
+            action = action_mod.TakeoutAction(window, None)
+            action.qaction = QtGui.QAction(window)
+            action.genesis()
+
+            orig_recover = action_mod.recover
+            def slow_recover(*args, **kwargs):
+                time.sleep(0.2)
+                return orig_recover(*args, **kwargs)
+
+            with patch.object(action_mod, 'QFileDialog') as mock_file_dialog, \
+                 patch.object(action_mod, 'recover', side_effect=slow_recover), \
+                 patch.object(action_mod, 'info_dialog') as mock_info, \
+                 patch.object(action_mod, 'show_friendly_error_dialog') as mock_error:
+
+                mock_file_dialog.getOpenFileName.return_value = (str(source), '')
+                mock_file_dialog.getExistingDirectory.return_value = str(output)
+
+                action.run_recovery(True)
+                self.assertFalse(mock_error.called)
+                self.assertTrue(mock_info.called)
+                self.assertIn('cancelled', mock_info.call_args[0][1].lower())
 
     def test_metabods_tag_search_fills_the_story_list(self):
         package = self.load('metabods_downloader')
@@ -1148,12 +1221,8 @@ class GeminiDialogTests(QtCase):
             seen['writes_after_apply'] = list(db.writes)
             button('Undo last run').click()
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, 'exec', drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
 
 
         log = seen['log']
@@ -1277,12 +1346,8 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs['batch_dir'] = self.tmp_batch_dir.name
 
         def run(drive):
-            original_exec = QtWidgets.QDialog.exec
-            QtWidgets.QDialog.exec = drive
-            try:
+            with patch.object(QtWidgets.QDialog, 'exec', drive):
                 action.show_dialog()
-            finally:
-                QtWidgets.QDialog.exec = original_exec
         return action_mod, run, sent
 
     @staticmethod
@@ -1415,12 +1480,8 @@ class GeminiDialogTests(QtCase):
             seen['log'] = next(e for e in dialog.findChildren(QtWidgets.QPlainTextEdit) if e.isReadOnly()).toPlainText()
             seen['check_enabled'] = next(b for b in dialog.findChildren(QtWidgets.QPushButton) if b.text() == 'Check books').isEnabled()
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, 'exec', drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
         self.assertEqual(len(calls), 1, 'the second and third requests never start')
         self.assertIn('Cancel pressed', seen['log'])
         self.assertTrue(seen['check_enabled'], 'the window is usable again afterwards')
@@ -1456,12 +1517,8 @@ class GeminiDialogTests(QtCase):
             seen['tree_count'] = dialog.findChild(QtWidgets.QTreeWidget).topLevelItemCount()
             seen['log'] = next(e for e in dialog.findChildren(QtWidgets.QPlainTextEdit) if e.isReadOnly()).toPlainText()
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, 'exec', drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
 
         self.assertEqual(seen['tree_count'], 1, 'partial suggestion for book 1 rendered in results tree')
         self.assertIn('Stopped early due to an error', seen['log'])
@@ -1485,12 +1542,8 @@ class GeminiDialogTests(QtCase):
             edit.setText('  my-secret-key  ')
             dialog.reject()  # closed without pressing Check books
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, 'exec', drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
         self.assertEqual(action_mod.prefs['api_key'], 'my-secret-key')
 
 
