@@ -432,3 +432,49 @@ def classify_site(incoming_site, local_sites):
                 return 'Conflict'
     return 'New'
 
+
+def export_rule_set_package(rules_text='', sites_text='', add_source=True, source_prefix='Source.', series_prefix='', scan_comments=False):
+    """Package rules, site definitions, and prefix settings into a JSON-serializable dictionary."""
+    return {
+        'version': 1,
+        'plugin': 'Story Collection Tagger',
+        'rules': rules_text,
+        'sites': sites_text,
+        'add_source': bool(add_source),
+        'source_prefix': str(source_prefix or ''),
+        'series_prefix': str(series_prefix or ''),
+        'scan_comments': bool(scan_comments),
+    }
+
+
+def merge_text_lines(current_text, imported_text):
+    """Combine multiline raw rule or site strings line-by-line while avoiding duplicate non-comment lines."""
+    if not current_text or not current_text.strip():
+        return imported_text or ''
+    if not imported_text or not imported_text.strip():
+        return current_text or ''
+
+    current_lines = [line for line in current_text.splitlines()]
+    existing_set = {line.strip() for line in current_lines if line.strip() and not line.strip().startswith('#')}
+
+    merged_lines = list(current_lines)
+    for line in imported_text.splitlines():
+        sline = line.strip()
+        if sline and not sline.startswith('#'):
+            if sline not in existing_set:
+                merged_lines.append(line)
+                existing_set.add(sline)
+        elif sline.startswith('#'):
+            merged_lines.append(line)
+
+    return '\n'.join(merged_lines)
+
+
+def validate_rule_set(rules_text, sites_text):
+    """Validate syntax of rules and site definitions using parse_rules and parse_sites.
+
+    Returns a list of error string messages.
+    """
+    _, rule_errors = parse_rules(rules_text)
+    _, site_errors = parse_sites(sites_text)
+    return rule_errors + site_errors

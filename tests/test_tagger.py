@@ -131,6 +131,37 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(plan[1]['add'], ['Source.Royal Road'])
 
 
+class JsonExportImportTests(unittest.TestCase):
+    def test_export_package_format(self):
+        pkg = rules.export_rule_set_package('tag:=A => B', 'example.com => Ex', True, 'Source.', 'Series.', True)
+        self.assertEqual(pkg['version'], 1)
+        self.assertEqual(pkg['plugin'], 'Story Collection Tagger')
+        self.assertEqual(pkg['rules'], 'tag:=A => B')
+        self.assertEqual(pkg['sites'], 'example.com => Ex')
+        self.assertTrue(pkg['add_source'])
+        self.assertEqual(pkg['source_prefix'], 'Source.')
+        self.assertEqual(pkg['series_prefix'], 'Series.')
+        self.assertTrue(pkg['scan_comments'])
+
+    def test_merge_text_lines_deduplicates_exact_rules_and_preserves_comments(self):
+        cur = '# Current\ntag:=A => B\nsource:Royal => RR'
+        imp = '# Imported\ntag:=A => B\ntag:=C => D'
+        merged = rules.merge_text_lines(cur, imp)
+        lines = merged.splitlines()
+        self.assertIn('tag:=A => B', lines)
+        self.assertIn('tag:=C => D', lines)
+        self.assertEqual(lines.count('tag:=A => B'), 1)
+        self.assertIn('# Current', lines)
+        self.assertIn('# Imported', lines)
+
+    def test_validate_rule_set_returns_errors(self):
+        valid_errs = rules.validate_rule_set('tag:=A => B', 'example.com => Ex')
+        self.assertEqual(valid_errs, [])
+
+        invalid_errs = rules.validate_rule_set('re:(( => Bad', 'broken_site')
+        self.assertEqual(len(invalid_errs), 2)
+
+
 class TaggerDialogTests(unittest.TestCase):
     def setUp(self):
         self.saved_modules = dict(sys.modules)
@@ -141,11 +172,37 @@ class TaggerDialogTests(unittest.TestCase):
         sys.modules['qt'] = qt_mod
         sys.modules['qt.core'] = qt_mod.core
 
+        def make_plain_text_edit(text=''):
+            m = MagicMock()
+            m._text = str(text or '')
+            m.toPlainText.side_effect = lambda: m._text
+            m.setPlainText.side_effect = lambda t: setattr(m, '_text', str(t or ''))
+            return m
+
+        def make_line_edit(text=''):
+            m = MagicMock()
+            m._text = str(text or '')
+            m.text.side_effect = lambda: m._text
+            m.setText.side_effect = lambda t: setattr(m, '_text', str(t or ''))
+            return m
+
+        def make_check_box(text=''):
+            m = MagicMock()
+            m._checked = False
+            m.isChecked.side_effect = lambda: m._checked
+            m.setChecked.side_effect = lambda c: setattr(m, '_checked', bool(c))
+            return m
+
+        qt_mod.core.QPlainTextEdit.side_effect = lambda *args: make_plain_text_edit(args[0] if args else '')
+        qt_mod.core.QLineEdit.side_effect = lambda *args: make_line_edit(args[0] if args else '')
+        qt_mod.core.QCheckBox.side_effect = lambda *args: make_check_box(args[0] if args else '')
+
         tagger_pkg = types.ModuleType('calibre_plugins.story_collection_tagger')
         tagger_pkg.__path__ = [str(Path(__file__).resolve().parents[1] / 'tagger')]
         tagger_pkg.config = MagicMock(prefs={'add_source': True, 'source_prefix': 'Source.', 'series_prefix': 'Series.', 'scan_comments': False, 'rules': '', 'sites': ''})
         tagger_pkg.rules = rules
-        tagger_pkg.error_handler = MagicMock()
+        error_handler_mod = MagicMock()
+        tagger_pkg.error_handler = error_handler_mod
         from common.guikit import DialogAction
         tagger_pkg.guikit = MagicMock()
         tagger_pkg.guikit.DialogAction = DialogAction
@@ -648,11 +705,39 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             def __init__(self, *a, **k): pass
             def setWindowTitle(self, t): pass
             def resize(self, w, h): pass
+            def setMinimumWidth(self, w): pass
+            def setMinimumHeight(self, h): pass
             def accept(self): pass
             def reject(self): pass
+            def exec(self): return 1
+            def exec_(self): return 1
+
+        def make_plain_text_edit(text=''):
+            m = MagicMock()
+            m._text = str(text or '')
+            m.toPlainText.side_effect = lambda: m._text
+            m.setPlainText.side_effect = lambda t: setattr(m, '_text', str(t or ''))
+            return m
+
+        def make_line_edit(text=''):
+            m = MagicMock()
+            m._text = str(text or '')
+            m.text.side_effect = lambda: m._text
+            m.setText.side_effect = lambda t: setattr(m, '_text', str(t or ''))
+            return m
+
+        def make_check_box(text=''):
+            m = MagicMock()
+            m._checked = False
+            m.isChecked.side_effect = lambda: m._checked
+            m.setChecked.side_effect = lambda c: setattr(m, '_checked', bool(c))
+            return m
 
         qt_mod = MagicMock()
         qt_mod.core.QDialog = StubDialog
+        qt_mod.core.QPlainTextEdit.side_effect = lambda *args: make_plain_text_edit(args[0] if args else '')
+        qt_mod.core.QLineEdit.side_effect = lambda *args: make_line_edit(args[0] if args else '')
+        qt_mod.core.QCheckBox.side_effect = lambda *args: make_check_box(args[0] if args else '')
         sys.modules['qt'] = qt_mod
         sys.modules['qt.core'] = qt_mod.core
 
@@ -660,10 +745,14 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         tagger_pkg.__path__ = [str(Path(__file__).resolve().parents[1] / 'tagger')]
         tagger_pkg.config = MagicMock(prefs={'add_source': True, 'source_prefix': 'Source.', 'series_prefix': 'Series.', 'scan_comments': False, 'rules': 'litrpg => LitRPG', 'sites': 'sol.net => Stories Online'})
         tagger_pkg.rules = rules
+        from common.guikit import DialogAction
+        tagger_pkg.guikit = MagicMock()
+        tagger_pkg.guikit.DialogAction = DialogAction
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins.story_collection_tagger'] = tagger_pkg
         sys.modules['calibre_plugins.story_collection_tagger.config'] = tagger_pkg.config
         sys.modules['calibre_plugins.story_collection_tagger.rules'] = tagger_pkg.rules
+        sys.modules['calibre_plugins.story_collection_tagger.guikit'] = tagger_pkg.guikit
 
     def tearDown(self):
         for k in list(sys.modules.keys()):
@@ -744,6 +833,237 @@ class RuleSetManagerDialogTests(unittest.TestCase):
 
         dlg._on_accept()
         dlg.accept.assert_not_called()
+
+    def test_export_rule_set_writes_json_file(self):
+        import tempfile
+        import json
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = []
+
+        with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as tf:
+            export_path = tf.name
+
+        qt_core = sys.modules['qt.core']
+        qt_core.QFileDialog.getSaveFileName.return_value = (export_path, 'JSON files (*.json)')
+
+        action.show_dialog()
+
+        # Find the do_export click connection or invoke it through export button
+        # Search for QPushButton created with 'Export Rule Set'
+        export_btn = None
+        for call in qt_core.QPushButton.call_args_list:
+            if call[0] and call[0][0] == 'Export Rule Set':
+                export_btn = call
+                break
+        self.assertIsNotNone(export_btn)
+
+        # Connect callback was registered on export_btn.clicked.connect
+        connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
+        # Trigger export callback
+        do_export = None
+        for c in connect_call:
+            if getattr(c[0][0], '__name__', '') == 'do_export':
+                do_export = c[0][0]
+                break
+        if do_export is None and connect_call:
+            do_export = connect_call[0][0][0]
+
+        do_export()
+
+        with open(export_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        self.assertEqual(data['plugin'], 'Story Collection Tagger')
+        self.assertIn('rules', data)
+        self.assertIn('sites', data)
+
+    def test_import_rule_set_replace_mode(self):
+        import tempfile
+        import json
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = []
+
+        import_data = {
+            'rules': 'tag:=New => TagNew',
+            'sites': 'newsite.org => New Site',
+            'add_source': False,
+            'source_prefix': 'Src.',
+            'series_prefix': 'Ser.',
+            'scan_comments': True,
+        }
+        with tempfile.NamedTemporaryFile(suffix='.json', mode='w', encoding='utf-8', delete=False) as tf:
+            json.dump(import_data, tf)
+            import_path = tf.name
+
+        qt_core = sys.modules['qt.core']
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, 'JSON files (*.json)')
+
+        # Mock QMessageBox clickedButton to simulate clicking 'Replace'
+        msg_mock = MagicMock()
+        qt_core.QMessageBox.return_value = msg_mock
+
+        # Setup buttons
+        btn_count = [0]
+        def add_button_mock(*args, **kwargs):
+            btn_count[0] += 1
+            btn = MagicMock()
+            btn.name = args[0] if args else f'btn{btn_count[0]}'
+            return btn
+
+        msg_mock.addButton = add_button_mock
+        # The second button added in do_import is replace_btn
+        def exec_mock():
+            # clicked button will be replace_btn (second added)
+            msg_mock.clickedButton.return_value = msg_mock.addButton.call_args_list[1][0][0]
+
+        # Let's collect buttons added
+        added_btns = []
+        msg_mock.addButton = lambda name, role=None: added_btns.append(name) or name
+
+        def get_clicked():
+            # Return replace_btn
+            return added_btns[1] if len(added_btns) > 1 else 'Replace'
+
+        msg_mock.clickedButton.side_effect = get_clicked
+
+        action.show_dialog()
+
+        # Find do_import callback
+        connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], '__name__', '') == 'do_import'), None)
+        self.assertIsNotNone(do_import)
+
+        do_import()
+
+        prefs = sys.modules['calibre_plugins.story_collection_tagger.config'].prefs
+        self.assertEqual(prefs['rules'], 'tag:=New => TagNew')
+        self.assertEqual(prefs['sites'], 'newsite.org => New Site')
+
+    def test_import_rule_set_merge_mode(self):
+        import tempfile
+        import json
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = []
+
+        prefs = sys.modules['calibre_plugins.story_collection_tagger.config'].prefs
+        prefs['rules'] = 'tag:=Existing => TagOld'
+        prefs['sites'] = 'oldsite.org => Old Site'
+
+        import_data = {
+            'rules': 'tag:=New => TagNew',
+            'sites': 'newsite.org => New Site',
+        }
+        with tempfile.NamedTemporaryFile(suffix='.json', mode='w', encoding='utf-8', delete=False) as tf:
+            json.dump(import_data, tf)
+            import_path = tf.name
+
+        qt_core = sys.modules['qt.core']
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, 'JSON files (*.json)')
+
+        msg_mock = MagicMock()
+        qt_core.QMessageBox.return_value = msg_mock
+        added_btns = []
+        msg_mock.addButton = lambda name, role=None: added_btns.append(name) or name
+        # Return merge_btn (first added button)
+        msg_mock.clickedButton.side_effect = lambda: added_btns[0] if added_btns else 'Merge'
+
+        action.show_dialog()
+
+        connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], '__name__', '') == 'do_import'), None)
+
+        do_import()
+
+        self.assertTrue('tag:=Existing => TagOld' in prefs['rules'] or 'tags:=Existing => TagOld' in prefs['rules'])
+        self.assertIn('tag:=New => TagNew', prefs['rules'])
+        self.assertIn('oldsite.org => Old Site', prefs['sites'])
+        self.assertIn('newsite.org => New Site', prefs['sites'])
+
+    def test_import_rule_set_syntax_error_does_not_corrupt_prefs(self):
+        import tempfile
+        import json
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = []
+
+        bad_data = {
+            'rules': 're:(( => InvalidRegex',
+            'sites': 'broken_site_line',
+        }
+        with tempfile.NamedTemporaryFile(suffix='.json', mode='w', encoding='utf-8', delete=False) as tf:
+            json.dump(bad_data, tf)
+            import_path = tf.name
+
+        qt_core = sys.modules['qt.core']
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, 'JSON files (*.json)')
+
+        msg_mock = MagicMock()
+        qt_core.QMessageBox.return_value = msg_mock
+        added_btns = []
+        msg_mock.addButton = lambda name, role=None: added_btns.append(name) or name
+        msg_mock.clickedButton.side_effect = lambda: added_btns[1] if len(added_btns) > 1 else 'Replace'
+
+        action.show_dialog()
+
+        connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], '__name__', '') == 'do_import'), None)
+
+        prefs = sys.modules['calibre_plugins.story_collection_tagger.config'].prefs
+        original_rules = prefs['rules']
+
+        do_import()
+
+        # Prefs should remain unchanged
+        self.assertEqual(prefs['rules'], original_rules)
+
+    def test_import_rule_set_invalid_json_does_not_corrupt_prefs(self):
+        import tempfile
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = []
+
+        with tempfile.NamedTemporaryFile(suffix='.json', mode='w', encoding='utf-8', delete=False) as tf:
+            tf.write("THIS IS NOT VALID JSON")
+            import_path = tf.name
+
+        qt_core = sys.modules['qt.core']
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, 'JSON files (*.json)')
+
+        action.show_dialog()
+
+        connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], '__name__', '') == 'do_import'), None)
+
+        prefs = sys.modules['calibre_plugins.story_collection_tagger.config'].prefs
+        original_rules = prefs['rules']
+
+        do_import()
+
+        # Prefs should remain unchanged
+        self.assertEqual(prefs['rules'], original_rules)
 
 
 if __name__ == '__main__':
