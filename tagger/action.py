@@ -1,7 +1,8 @@
+import json
 from calibre.gui2 import error_dialog, info_dialog
 from calibre.gui2.actions import InterfaceAction
-from qt.core import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
-                     QPushButton, QRadioButton, QVBoxLayout)
+from qt.core import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
+                     QMessageBox, QPlainTextEdit, QPushButton, QRadioButton, QVBoxLayout)
 try:
     from calibre_plugins.story_collection_tagger.error_handler import show_friendly_error_dialog
 except ImportError:
@@ -89,6 +90,14 @@ class TaggerAction(InterfaceAction):
         builtin_label.setWordWrap(True)
         layout.addWidget(builtin_label)
 
+        rule_set_box = QHBoxLayout()
+        export_btn = QPushButton('Export Rule Set')
+        import_btn = QPushButton('Import Rule Set')
+        rule_set_box.addWidget(export_btn)
+        rule_set_box.addWidget(import_btn)
+        rule_set_box.addStretch()
+        layout.addLayout(rule_set_box)
+
         preview = QPlainTextEdit()
         preview.setReadOnly(True)
         preview.setPlaceholderText('Press Preview to see which books would get which tags.')
@@ -111,6 +120,103 @@ class TaggerAction(InterfaceAction):
             prefs['scan_comments'] = scan.isChecked()
             prefs['rules'] = rules_edit.toPlainText()
             prefs['sites'] = sites_edit.toPlainText()
+
+        def do_export():
+            path, _ = QFileDialog.getSaveFileName(dialog, 'Export Rule Set', 'tagger_rules.json', 'JSON files (*.json);;All files (*)')
+            if not path:
+                return
+            package = rules_mod.export_rule_set_package(
+                rules_text=rules_edit.toPlainText(),
+                sites_text=sites_edit.toPlainText(),
+                add_source=add_source.isChecked(),
+                source_prefix=prefix.text(),
+                series_prefix=series_prefix.text(),
+                scan_comments=scan.isChecked(),
+            )
+            try:
+                with open(path, 'w', encoding='utf-8') as f:
+                    json.dump(package, f, indent=2)
+                info_dialog(dialog, 'Export Rule Set', 'Rule set exported successfully.', show=True)
+            except Exception as exc:
+                show_friendly_error_dialog(dialog, 'Export Rule Set', exc, det_msg='Could not write export file.', show=True)
+
+        def do_import():
+            path, _ = QFileDialog.getOpenFileName(dialog, 'Import Rule Set', '', 'JSON files (*.json);;All files (*)')
+            if not path:
+                return
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    raise ValueError('Imported file must contain a JSON object.')
+            except Exception as exc:
+                show_friendly_error_dialog(dialog, 'Import Rule Set', exc, det_msg='Could not read or parse the JSON file.', show=True)
+                return
+
+            imported_rules = data.get('rules', '')
+            if isinstance(imported_rules, list):
+                imported_rules = '\n'.join(str(r) for r in imported_rules)
+            elif not isinstance(imported_rules, str):
+                imported_rules = str(imported_rules or '')
+
+            imported_sites = data.get('sites', '')
+            if isinstance(imported_sites, list):
+                imported_sites = '\n'.join(str(s) for s in imported_sites)
+            elif not isinstance(imported_sites, str):
+                imported_sites = str(imported_sites or '')
+
+            msg = QMessageBox(dialog)
+            msg.setWindowTitle('Import Rule Set')
+            msg.setText('Choose how to apply the imported rule set:')
+            msg.setInformativeText('Merge: Combine imported rules and sites with current active preferences.\n'
+                                   'Replace: Overwrite current active rules, sites, and prefix settings.')
+            merge_btn = msg.addButton('Merge', QMessageBox.ButtonRole.AcceptRole)
+            replace_btn = msg.addButton('Replace', QMessageBox.ButtonRole.DestructiveRole)
+            cancel_btn = msg.addButton(QMessageBox.StandardButton.Cancel)
+            msg.exec()
+
+            clicked = msg.clickedButton()
+            if clicked == cancel_btn or clicked is None:
+                return
+
+            mode = 'merge' if clicked == merge_btn else 'replace'
+
+            if mode == 'merge':
+                target_rules = rules_mod.merge_text_lines(rules_edit.toPlainText(), imported_rules)
+                target_sites = rules_mod.merge_text_lines(sites_edit.toPlainText(), imported_sites)
+            else:
+                target_rules = imported_rules
+                target_sites = imported_sites
+
+            errors = rules_mod.validate_rule_set(target_rules, target_sites)
+            if errors:
+                show_friendly_error_dialog(
+                    dialog,
+                    'Import Rule Set - Syntax Error',
+                    'The rule set contains invalid syntax and was not applied:',
+                    det_msg='\n'.join(errors),
+                    show=True
+                )
+                return
+
+            rules_edit.setPlainText(target_rules)
+            sites_edit.setPlainText(target_sites)
+
+            if mode == 'replace':
+                if 'add_source' in data:
+                    add_source.setChecked(bool(data['add_source']))
+                if 'source_prefix' in data:
+                    prefix.setText(str(data['source_prefix']))
+                if 'series_prefix' in data:
+                    series_prefix.setText(str(data['series_prefix']))
+                if 'scan_comments' in data:
+                    scan.setChecked(bool(data['scan_comments']))
+
+            save_prefs()
+            info_dialog(dialog, 'Import Rule Set', 'Rule set imported successfully.', show=True)
+
+        export_btn.clicked.connect(do_export)
+        import_btn.clicked.connect(do_import)
 
         def do_preview():
             save_prefs()
