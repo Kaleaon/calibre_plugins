@@ -11,7 +11,7 @@ except ImportError:
     from calibre.gui2 import error_dialog, info_dialog, question_dialog
     warning_dialog = error_dialog
 from qt.core import (QApplication, QBuffer, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QIODevice, QImage, QLabel,
-                     QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSpinBox, QSplitter, Qt, QTreeWidget,
+                     QLineEdit, QListWidget, QListWidgetItem, QMenu, QPlainTextEdit, QProgressBar, QPushButton, QRadioButton, QScrollArea, QSpinBox, QSplitter, Qt, QTimer, QTreeWidget,
                      QTreeWidgetItem, QVBoxLayout, QWidget)
 try:
     from qt.core import _
@@ -20,6 +20,16 @@ except ImportError:
 
 from calibre_plugins.gemini_library_fixer import engine
 from calibre_plugins.gemini_library_fixer.config import prefs
+try:
+    from calibre_plugins.gemini_library_fixer import providers
+except ImportError:
+    try:
+        from . import providers
+    except ImportError:
+        try:
+            import providers
+        except ImportError:
+            providers = None
 try:
     from calibre_plugins.gemini_library_fixer.guikit import (
         DialogAction,
@@ -431,7 +441,7 @@ class GeminiFixerAction(DialogAction):
     action_spec = (_('Gemini fix books'), None, _('Rename, sort and fix book metadata with the Google Gemini API'), None)
 
     # -- reading and writing the library ------------------------------------------------------------------------------
-    def books_for(self, ids, with_excerpt, on_book=lambda index, total, book: None, should_stop=lambda: False, with_covers=False, max_workers=None):
+    def books_for(self, ids, with_excerpt, on_book=lambda index, total, book: None, should_stop=lambda: False, with_covers=False, max_workers=None, with_providers=True):
         db = self.gui.current_db.new_api
         if not ids:
             return []
@@ -493,20 +503,27 @@ class GeminiFixerAction(DialogAction):
                                         break
                             except Exception:
                                 continue
-                return {
+                book_data = {
                     'id': book_id,
-                    'title': (mi.title if mi else '') or '',
-                    'authors': list(mi.authors or []) if mi else [],
-                    'identifiers': dict(mi.identifiers or {}) if mi else {},
+                    'title': (getattr(mi, 'title', '') if mi else '') or '',
+                    'authors': list(getattr(mi, 'authors', []) or []) if mi else [],
+                    'identifiers': dict(getattr(mi, 'identifiers', {}) or {}) if mi else {},
                     'images': images,
-                    'series': (mi.series if mi else '') or '',
-                    'series_index': (mi.series_index if mi and mi.series else None),
-                    'tags': list(mi.tags or []) if mi else [],
-                    'languages': list(mi.languages or []) if mi else [],
-                    'publisher': (mi.publisher if mi else '') or '',
+                    'series': (getattr(mi, 'series', '') if mi else '') or '',
+                    'series_index': (getattr(mi, 'series_index', None) if mi and getattr(mi, 'series', '') else None),
+                    'tags': list(getattr(mi, 'tags', []) or []) if mi else [],
+                    'languages': list(getattr(mi, 'languages', []) or []) if mi else [],
+                    'publisher': (getattr(mi, 'publisher', '') if mi else '') or '',
                     'filenames': names,
-                    'excerpt': excerpt
+                    'excerpt': excerpt,
+                    'comments': (getattr(mi, 'comments', '') if mi else '') or ''
                 }
+                if with_providers and providers:
+                    try:
+                        providers.enrich_books_with_providers([book_data], timeout=4)
+                    except Exception:
+                        pass
+                return book_data
             except Exception:
                 return {
                     'id': book_id,
@@ -520,7 +537,8 @@ class GeminiFixerAction(DialogAction):
                     'languages': [],
                     'publisher': '',
                     'filenames': [],
-                    'excerpt': ''
+                    'excerpt': '',
+                    'comments': ''
                 }
 
         executor = ThreadPoolExecutor(max_workers=max_workers)
@@ -724,6 +742,10 @@ class GeminiFixerAction(DialogAction):
         covers.setChecked(bool(prefs['covers']))
         covers.setToolTip(_('Gemini reads the title, author, series, volume and ISBN printed on the pictures. Calibre keeps only a front cover, so a back cover is found only inside the file: an EPUB image named back/rear, or the last page of a CBZ.'))
         layout.addWidget(covers)
+        provider_enrich = QCheckBox(_('Query metadata providers (FanFicFare, Nifty, Metabods) when metadata is sparse'))
+        provider_enrich.setChecked(bool(prefs.get('provider_metadata', True)))
+        provider_enrich.setToolTip(_('If a book lacks metadata or is from a known web novel/fanfic/archive source (such as Royal Road, AO3, FanFiction.net, ScribbleHub, Nifty, or Metabods), query the source site or providers directly to enrich title, author, series, tags, and summary before asking Gemini.'))
+        layout.addWidget(provider_enrich)
         row = QHBoxLayout()
         row.addWidget(QLabel(_('Minimum confidence:')))
         confidence = QComboBox()
@@ -902,6 +924,7 @@ class GeminiFixerAction(DialogAction):
             prefs['tags_remove'] = tags_remove.isChecked()
             prefs['excerpt'] = excerpt.isChecked()
             prefs['covers'] = covers.isChecked()
+            prefs['provider_metadata'] = provider_enrich.isChecked()
             prefs['min_confidence'] = confidence.currentText()
             prefs['batch_size'] = batch.value()
             prefs['min_interval'] = interval.value()
@@ -1104,35 +1127,87 @@ class GeminiFixerAction(DialogAction):
                 return error_dialog(dialog, _('Gemini'), _('Enter your Google AI API key first.'), show=True)
             if not chosen_fields():
                 return error_dialog(dialog, _('Gemini'), _('Tick at least one thing to fix.'), show=True)
-            ids = selected if scope_selected.isChecked() else sorted(self.gui.current_db.new_api.all_book_ids())
+            all_lib_ids = sorted(self.gui.current_db.new_api.all_book_ids())
+            ids = selected if scope_selected.isChecked() else all_lib_ids
+            current_scope = 'selected' if scope_selected.isChecked() else 'all'
             if not ids:
                 return info_dialog(dialog, _('Gemini'), _('No books found to check.'), show=True)
 
             b_dir = get_batch_dir()
             existing_batches = engine.list_batch_files(b_dir)
+            scan_state = engine.load_scan_state(b_dir)
             resume_mode = False
+            all_scan_ids = list(ids)
 
             if existing_batches:
                 completed_ids = engine.get_completed_batch_book_ids(b_dir)
+
+                # Check if there was an interrupted full library scan, but scope_selected is currently active
+                if scan_state and scan_state.get('scope') == 'all' and scope_selected.isChecked():
+                    interrupted_rem = [bid for bid in all_lib_ids if bid not in completed_ids]
+                    if interrupted_rem and completed_ids:
+                        msg = _(
+                            "A previous complete library scan was interrupted with {done_count} of {total_count} books completed ({rem_count} remaining).\n\n"
+                            "You currently have 'Selected books' chosen in the dialog.\n\n"
+                            "Would you like to switch to 'Entire library' and resume the interrupted complete library scan?"
+                        ).format(
+                            done_count=len(completed_ids),
+                            total_count=len(all_lib_ids),
+                            rem_count=len(interrupted_rem)
+                        )
+                        if question_dialog(dialog, _('Resume Complete Library Scan?'), msg, yes_text=_('Resume Library Scan'), no_text=_('Check Selected Books Only')):
+                            scope_all.setChecked(True)
+                            ids = all_lib_ids
+                            current_scope = 'all'
+                            all_scan_ids = list(ids)
+
                 remaining_ids = [bid for bid in ids if bid not in completed_ids]
-                if remaining_ids and completed_ids:
-                    prompt_msg = _(
-                        "Found {batch_count} saved batch output(s) from a previous run ({done_count} book(s) already checked).\n\n"
-                        "• Click Yes to Resume: check the remaining {remaining_count} book(s) in batches and compile them together.\n"
-                        "• Click No to Start Fresh: clear previous batches and start checking all {total_count} book(s)."
-                    ).format(
-                        batch_count=len(existing_batches),
-                        done_count=len(completed_ids),
-                        remaining_count=len(remaining_ids),
-                        total_count=len(ids)
-                    )
-                    if question_dialog(dialog, _('Resume Previous Run?'), prompt_msg, yes_text=_('Resume'), no_text=_('Start Fresh')):
-                        resume_mode = True
-                        ids = remaining_ids
+                already_done_in_scope = [bid for bid in ids if bid in completed_ids]
+
+                if already_done_in_scope:
+                    if remaining_ids:
+                        prompt_msg = _(
+                            "Found {batch_count} saved batch output(s) from a previous run ({done_count} of {total_count} books in this scope already checked).\n\n"
+                            "• Click Yes to Resume: check the remaining {remaining_count} book(s) in batches and compile them together.\n"
+                            "• Click No to Start Fresh: clear previous batches and start checking all {total_count} book(s)."
+                        ).format(
+                            batch_count=len(existing_batches),
+                            done_count=len(already_done_in_scope),
+                            remaining_count=len(remaining_ids),
+                            total_count=len(ids)
+                        )
+                        if question_dialog(dialog, _('Resume Previous Run?'), prompt_msg, yes_text=_('Resume'), no_text=_('Start Fresh')):
+                            resume_mode = True
+                            all_scan_ids = list(ids)
+                            ids = remaining_ids
+                        else:
+                            engine.clear_batch_outputs(b_dir)
+                            all_scan_ids = list(ids)
                     else:
-                        engine.clear_batch_outputs(b_dir)
+                        # All books in this scope were already completed!
+                        prompt_msg = _(
+                            "All {total_count} book(s) in the chosen scope have already been checked in {batch_count} saved batch(es).\n\n"
+                            "• Click Review Suggestions: compile and display the results collected so far.\n"
+                            "• Click Start Fresh: clear saved batches and check these books again from scratch."
+                        ).format(total_count=len(ids), batch_count=len(existing_batches))
+                        if question_dialog(dialog, _('Books Already Checked'), prompt_msg, yes_text=_('Review Suggestions'), no_text=_('Start Fresh')):
+                            do_compile_saved()
+                            return
+                        else:
+                            engine.clear_batch_outputs(b_dir)
+                            all_scan_ids = list(ids)
                 else:
-                    engine.clear_batch_outputs(b_dir)
+                    # Previous batches exist, but for different books
+                    prompt_msg = _(
+                        "Found {batch_count} saved batch output(s) from another run ({done_count} other books checked).\n\n"
+                        "Starting a new check will clear previous batches.\n\n"
+                        "Do you want to clear previous batches and continue?"
+                    ).format(batch_count=len(existing_batches), done_count=len(completed_ids))
+                    if question_dialog(dialog, _('Clear Previous Batches?'), prompt_msg, yes_text=_('Clear & Continue'), no_text=_('Cancel')):
+                        engine.clear_batch_outputs(b_dir)
+                        all_scan_ids = list(ids)
+                    else:
+                        return
 
             tree.clear()
             update_ticked()
@@ -1190,7 +1265,7 @@ class GeminiFixerAction(DialogAction):
                     return finish_run(None, len(ids))
 
                 while True:
-                    result, error = ask_gemini_batched(ids, b_dir, resume=resume_mode)
+                    result, error = ask_gemini_batched(ids, b_dir, resume=resume_mode, all_scan_ids=all_scan_ids, scan_scope=current_scope)
                     if isinstance(error, engine.GeminiBatchPausedError):
                         rec_dialog = GeminiRecoveryDialog(dialog, paused_error=error)
                         rec_dialog.exec()
@@ -1201,7 +1276,7 @@ class GeminiFixerAction(DialogAction):
                             interval.setValue(new_interval)
                             save_prefs()
                             completed_ids = engine.get_completed_batch_book_ids(b_dir)
-                            remaining_ids = [bid for bid in ids if bid not in completed_ids]
+                            remaining_ids = [bid for bid in all_scan_ids if bid not in completed_ids]
                             if remaining_ids:
                                 ids = remaining_ids
                                 resume_mode = True
@@ -1222,19 +1297,29 @@ class GeminiFixerAction(DialogAction):
                 set_busy(False)
             return finish_run(result, len(ids), error)
 
-        def ask_gemini_batched(target_ids, b_dir, resume=False):
+        def ask_gemini_batched(target_ids, b_dir, resume=False, all_scan_ids=None, scan_scope='selected'):
             """Processes books in batches, saves each batch output separately to disk, then compiles them together."""
             messages = queue.Queue()
             box = {}
             total_books = len(target_ids)
             total = total_books
+            if all_scan_ids is None:
+                all_scan_ids = list(target_ids)
             bsize = max(1, batch.value())
             per_request = min(bsize, 8) if covers.isChecked() else bsize
             chunks = [target_ids[i:i + per_request] for i in range(0, len(target_ids), per_request)]
             total_chunks = len(chunks)
 
             existing = engine.list_batch_files(b_dir) if resume else []
-            start_batch_num = len(existing) + 1
+            existing_indices = []
+            for f in existing:
+                m = re.search(r'batch_(\d+)', os.path.basename(f))
+                if m:
+                    try:
+                        existing_indices.append(int(m.group(1)))
+                    except ValueError:
+                        pass
+            start_batch_num = (max(existing_indices) + 1) if existing_indices else 1
             total_all_batches = total_chunks + len(existing)
 
             log(_('Processing {total_books} book(s) in {total_chunks} batch(es) of {per_request}. Each batch is saved separately to disk.').format(
@@ -1249,6 +1334,8 @@ class GeminiFixerAction(DialogAction):
                     active_text = get_active_template_text()
                     tpl_vars = get_current_sample_vars()
                     books_done = 0
+                    completed_ids_set = set(engine.get_completed_batch_book_ids(b_dir)) if resume else set()
+                    engine.save_scan_state(b_dir, all_scan_ids, completed_ids_set, scope=scan_scope, status='running')
 
                     for offset, chunk_ids in enumerate(chunks):
                         if cancel_flag.is_set():
@@ -1267,7 +1354,8 @@ class GeminiFixerAction(DialogAction):
                             excerpt.isChecked(),
                             on_book=lambda index, total, book: messages.put(('read_progress', (index, total, book))),
                             should_stop=cancel_flag.is_set,
-                            with_covers=covers.isChecked()
+                            with_covers=covers.isChecked(),
+                            with_providers=provider_enrich.isChecked()
                         )
                         if cancel_flag.is_set():
                             break
@@ -1293,6 +1381,9 @@ class GeminiFixerAction(DialogAction):
                             total_batches=total_all_batches
                         )
                         books_done += len(chunk_ids)
+                        completed_ids_set.update(chunk_ids)
+                        engine.save_scan_state(b_dir, all_scan_ids, completed_ids_set, scope=scan_scope, status='running')
+
                         messages.put(('batch_saved', {
                             'batch_idx': curr_batch_idx,
                             'total_batches': total_all_batches,
@@ -1311,6 +1402,8 @@ class GeminiFixerAction(DialogAction):
                     messages.put(('compiling', {}))
                     compiled = engine.compile_batch_outputs(b_dir)
                     box['result'] = (compiled.suggestions, compiled.skipped)
+                    if not cancel_flag.is_set():
+                        engine.save_scan_state(b_dir, all_scan_ids, completed_ids_set, scope=scan_scope, status='completed')
                 except Exception as exc:
                     compiled = engine.compile_batch_outputs(b_dir)
                     suggs = list(compiled.suggestions)
@@ -1520,4 +1613,22 @@ class GeminiFixerAction(DialogAction):
         check_btn.clicked.connect(do_check)
         apply_btn.clicked.connect(do_apply)
         undo_btn.clicked.connect(do_undo)
+
+        # Check if there is a crashed / interrupted scan state from a previous session
+        b_dir = get_batch_dir()
+        initial_scan_state = engine.load_scan_state(b_dir)
+        if initial_scan_state and initial_scan_state.get('status') == 'running':
+            rem = initial_scan_state.get('remaining_ids', [])
+            all_bids = initial_scan_state.get('all_ids', [])
+            saved_scope = initial_scan_state.get('scope', 'all')
+            if rem and all_bids:
+                if saved_scope == 'all':
+                    scope_all.setChecked(True)
+                log(_('⚠ Detected an interrupted {scope} scan ({done} of {total} books completed, {rem} remaining). Click "Check books" to resume where it stopped.').format(
+                    scope=_('complete library') if saved_scope == 'all' else _('selected books'),
+                    done=len(initial_scan_state.get('completed_ids', [])),
+                    total=len(all_bids),
+                    rem=len(rem)
+                ))
+
         dialog.exec()

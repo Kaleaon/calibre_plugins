@@ -2160,8 +2160,268 @@ class FieldLevelQuickActionsTests(unittest.TestCase):
         self.assertLess(elapsed_ms, 100.0, f"Execution time {elapsed_ms:.2f}ms exceeded 100ms threshold")
 
 
+providers_spec = importlib.util.spec_from_file_location('providers', Path(__file__).resolve().parents[1] / 'gemini/providers.py')
+providers = importlib.util.module_from_spec(providers_spec)
+providers_spec.loader.exec_module(providers)
+
+
+class ProviderMetadataTests(unittest.TestCase):
+    def test_detect_provider_metabods(self):
+        b = {'identifiers': {'url': 'https://metabods.com/story.php?id=12345'}}
+        self.assertEqual(providers.detect_provider(b), ('metabods', '12345'))
+
+        b2 = {'comments': '<p>Read at https://www.metabods.com/story.php?id=999</p>'}
+        self.assertEqual(providers.detect_provider(b2), ('metabods', '999'))
+
+    def test_detect_provider_nifty(self):
+        b = {'identifiers': {'nifty': 'https://www.nifty.org/nifty/erotica/romance/story-01.html'}}
+        self.assertEqual(providers.detect_provider(b), ('nifty', 'https://www.nifty.org/nifty/erotica/romance/story-01.html'))
+
+    def test_detect_provider_fanficfare(self):
+        urls = [
+            'https://www.royalroad.com/fiction/12345/super-story',
+            'https://archiveofourown.org/works/987654',
+            'https://www.fanfiction.net/s/54321/1/Epic-Tales',
+            'https://www.scribblehub.com/series/11223/adventures/',
+        ]
+        for u in urls:
+            b = {'identifiers': {'url': u}}
+            detected, val = providers.detect_provider(b)
+            self.assertEqual(detected, 'fanficfare', f"Failed for {u}")
+            self.assertEqual(val, u)
+
+    def test_detect_provider_openlibrary(self):
+        b = {'identifiers': {'isbn': '9780140328721'}}
+        self.assertEqual(providers.detect_provider(b), ('openlibrary', '9780140328721'))
+
+    def test_fetch_metabods_metadata_parsing(self):
+        sample_html = """
+        <html>
+        <head><title>Metabods - The Champion by Arnold S.</title></head>
+        <body>
+        <h1>The Champion</h1>
+        <h2>By: Arnold S.</h2>
+        <div class="summary">A thrilling tale of growth and triumph in the gym.</div>
+        <div class="tags"><a href="#">Muscle Growth</a>, <a href="#">Fantasy</a></div>
+        </body>
+        </html>
+        """
+        with patch.object(providers, '_http_get', return_value=sample_html):
+            meta = providers.fetch_metabods_metadata('12345')
+            self.assertIsNotNone(meta)
+            self.assertEqual(meta['provider'], 'metabods')
+            self.assertEqual(meta['title'], 'The Champion')
+            self.assertEqual(meta['authors'], ['Arnold S.'])
+            self.assertIn('Muscle Growth', meta['tags'])
+            self.assertIn('thrilling tale', meta['description'])
+
+    def test_fetch_nifty_metadata_parsing(self):
+        sample_html = """
+        <html>
+        <head>
+          <title>A Summer Romance - Nifty Erotic Stories</title>
+          <meta name="author" content="Jane Doe">
+        </head>
+        <body>
+          <div class="story">Once upon a warm July afternoon...</div>
+        </body>
+        </html>
+        """
+        with patch.object(providers, '_http_get', return_value=sample_html):
+            meta = providers.fetch_nifty_metadata('https://www.nifty.org/nifty/erotica/romance/story-01.html')
+            self.assertIsNotNone(meta)
+            self.assertEqual(meta['provider'], 'nifty')
+            self.assertEqual(meta['title'], 'A Summer Romance')
+            self.assertEqual(meta['authors'], ['Jane Doe'])
+
+    def test_fetch_openlibrary_metadata_parsing(self):
+        sample_json = json.dumps({
+            'ISBN:9780140328721': {
+                'title': 'Fantastic Mr Fox',
+                'authors': [{'name': 'Roald Dahl'}],
+                'publishers': [{'name': 'Puffin'}],
+                'publish_date': '1988'
+            }
+        })
+        with patch.object(providers, '_http_get', return_value=sample_json):
+            meta = providers.fetch_openlibrary_metadata('9780140328721')
+            self.assertIsNotNone(meta)
+            self.assertEqual(meta['provider'], 'openlibrary')
+            self.assertEqual(meta['title'], 'Fantastic Mr Fox')
+            self.assertEqual(meta['authors'], ['Roald Dahl'])
+            self.assertEqual(meta['publisher'], 'Puffin')
+
+    def test_is_metadata_sparse(self):
+        sparse_book = {'id': 1, 'title': 'chapter_01.epub', 'authors': ['Unknown'], 'tags': [], 'series': ''}
+        self.assertTrue(providers.is_metadata_sparse(sparse_book))
+
+        full_book = {'id': 2, 'title': 'Dune', 'authors': ['Frank Herbert'], 'tags': ['Sci-Fi', 'Classic'], 'series': 'Dune'}
+        self.assertFalse(providers.is_metadata_sparse(full_book))
+
+    def test_enrich_books_with_providers(self):
+        b = {
+            'id': 1,
+            'title': 'story_123',
+            'authors': [],
+            'tags': [],
+            'identifiers': {'url': 'https://metabods.com/story.php?id=555'},
+            'comments': ''
+        }
+        mock_meta = {
+            'provider': 'metabods',
+            'title': 'True Titan',
+            'authors': ['Hercules'],
+            'tags': ['Fantasy', 'Growth'],
+            'description': 'The story of becoming huge.'
+        }
+        with patch.object(providers, 'get_provider_metadata', return_value=mock_meta):
+            providers.enrich_books_with_providers([b])
+            self.assertIn('provider_metadata', b)
+            self.assertIn('provider_info', b)
+            self.assertEqual(b['provider_info']['provider'], 'metabods')
+            self.assertEqual(b['provider_metadata']['title'], 'True Titan')
+            self.assertIn('Growth', b['tags'])
+            self.assertEqual(b['authors'], ['Hercules'])
+
+
+class PromptProviderEnrichmentTests(unittest.TestCase):
+    def test_describe_book_includes_provider(self):
+        b = book(1, title='Titan Story', provider_info={'provider': 'metabods'})
+        desc = engine.describe_book(b)
+        self.assertIn('+ provider: metabods', desc)
+
+    def test_build_prompt_includes_provider_info(self):
+        b = book(1, title='Unknown Story', provider_metadata={
+            'provider': 'metabods',
+            'title': 'Verified Title',
+            'authors': ['Verified Author'],
+            'series': 'Titan Saga',
+            'tags': ['Epic', 'Fantasy'],
+            'description': 'A detailed summary from the provider.'
+        })
+        prompt = engine.build_prompt([b])
+        self.assertIn('provider_metadata', prompt)
+        self.assertIn('Verified Title', prompt)
+        self.assertIn('Verified Author', prompt)
+        self.assertIn('Titan Saga', prompt)
+        self.assertIn('A detailed summary from the provider.', prompt)
+
+
+class CrashResumptionScanStateTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    def test_save_and_load_scan_state(self):
+        all_ids = [1, 2, 3, 4, 5]
+        completed = [1, 2]
+        saved_file = engine.save_scan_state(self.tmp_dir, all_ids, completed, scope='all', status='running')
+        self.assertTrue(os.path.isfile(saved_file))
+
+        state = engine.load_scan_state(self.tmp_dir)
+        self.assertIsNotNone(state)
+        self.assertEqual(state['scope'], 'all')
+        self.assertEqual(state['status'], 'running')
+        self.assertEqual(state['total_books'], 5)
+        self.assertEqual(state['completed_count'], 2)
+        self.assertEqual(state['completed_ids'], [1, 2])
+        self.assertEqual(state['remaining_ids'], [3, 4, 5])
+
+    def test_clear_scan_state(self):
+        engine.save_scan_state(self.tmp_dir, [1, 2], [1], status='running')
+        self.assertIsNotNone(engine.load_scan_state(self.tmp_dir))
+        engine.clear_scan_state(self.tmp_dir)
+        self.assertIsNone(engine.load_scan_state(self.tmp_dir))
+
+    def test_clear_batch_outputs_clears_scan_state(self):
+        engine.save_batch_output(self.tmp_dir, 1, [{'id': 1}], book_ids=[1])
+        engine.save_scan_state(self.tmp_dir, [1, 2], [1], status='running')
+        engine.clear_batch_outputs(self.tmp_dir)
+        self.assertEqual(len(engine.list_batch_files(self.tmp_dir)), 0)
+        self.assertIsNone(engine.load_scan_state(self.tmp_dir))
+
+    def test_plan_fixes_batched_creates_and_updates_scan_state(self):
+        # 4 books, batch size 2 -> 2 batches
+        books_db = {
+            1: book(1, title='Old Book 1'),
+            2: book(2, title='Old Book 2'),
+            3: book(3, title='Old Book 3'),
+            4: book(4, title='Old Book 4'),
+        }
+
+        transport = Scripted(
+            reply([{'id': 1, 'title': 'Fixed Book 1', 'confidence': 'high'},
+                   {'id': 2, 'title': 'Fixed Book 2', 'confidence': 'high'}]),
+            reply([{'id': 3, 'title': 'Fixed Book 3', 'confidence': 'high'},
+                   {'id': 4, 'title': 'Fixed Book 4', 'confidence': 'high'}])
+        )
+
+        with patch.object(engine, '_post', transport):
+            result = engine.plan_fixes_batched(
+                fetch_books_fn=lambda ids: [books_db[i] for i in ids],
+                ids=[1, 2, 3, 4],
+                api_key='fake-key',
+                batch_dir=self.tmp_dir,
+                batch_size=2
+            )
+
+        self.assertEqual(len(result.suggestions), 4)
+        state = engine.load_scan_state(self.tmp_dir)
+        self.assertIsNotNone(state)
+        self.assertEqual(state['status'], 'completed')
+        self.assertEqual(state['completed_count'], 4)
+        self.assertEqual(len(state['remaining_ids']), 0)
+
+    def test_plan_fixes_batched_resumes_crashed_run(self):
+        # Simulate a crash: batch 1 (books 1, 2) was already saved to disk, but books 3, 4 remain
+        engine.save_batch_output(
+            self.tmp_dir, 1,
+            [{'id': 1, 'title': 'Fixed 1', 'confidence': 'high', 'big': False, 'changes': {'title': ('Old 1', 'Fixed 1')}, 'reason': 'x'},
+             {'id': 2, 'title': 'Fixed 2', 'confidence': 'high', 'big': False, 'changes': {'title': ('Old 2', 'Fixed 2')}, 'reason': 'x'}],
+            book_ids=[1, 2],
+            total_batches=2
+        )
+        engine.save_scan_state(self.tmp_dir, [1, 2, 3, 4], [1, 2], status='running')
+
+        books_db = {
+            1: book(1, title='Old 1'),
+            2: book(2, title='Old 2'),
+            3: book(3, title='Old 3'),
+            4: book(4, title='Old 4'),
+        }
+
+        # The transport should ONLY be called ONCE for the remaining batch (books 3 and 4)!
+        transport = Scripted(
+            reply([{'id': 3, 'title': 'Fixed 3', 'confidence': 'high'},
+                   {'id': 4, 'title': 'Fixed 4', 'confidence': 'high'}])
+        )
+
+        with patch.object(engine, '_post', transport):
+            result = engine.plan_fixes_batched(
+                fetch_books_fn=lambda ids: [books_db[i] for i in ids],
+                ids=[1, 2, 3, 4],
+                api_key='fake-key',
+                batch_dir=self.tmp_dir,
+                batch_size=2,
+                resume=True
+            )
+
+        # All 4 suggestions compiled together
+        self.assertEqual(len(result.suggestions), 4)
+        self.assertEqual(len(transport.calls), 1, "Only remaining books should have been sent to Gemini!")
+        state = engine.load_scan_state(self.tmp_dir)
+        self.assertIsNotNone(state)
+        self.assertEqual(state['status'], 'completed')
+        self.assertEqual(state['completed_count'], 4)
+        self.assertEqual(len(state['remaining_ids']), 0)
+
+
 if __name__ == '__main__':
     unittest.main()
+
 
 
 

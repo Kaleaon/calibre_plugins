@@ -18,3 +18,4 @@ prefs.defaults['system_instruction_mode'] = 'append'
 prefs.defaults['custom_system_instructions'] = ''
 prefs.defaults['enable_fallback'] = True
 prefs.defaults['fallback_model'] = 'gemini-2.5-flash-lite'
+prefs.defaults['provider_metadata'] = True

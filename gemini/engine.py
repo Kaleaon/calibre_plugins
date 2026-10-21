@@ -327,6 +327,8 @@ def describe_book(book):
         parts.append('files: ' + ', '.join(book['filenames']))
     if book.get('excerpt'):
         parts.append(f"+ {len(book['excerpt'])} characters of opening text")
+    if book.get('provider_info'):
+        parts.append(f"+ provider: {book['provider_info'].get('provider', 'external')}")
     if book.get('images'):
         parts.append('+ picture: ' + ', '.join(i['label'] for i in book['images']))
     return ' | '.join(parts)
@@ -520,6 +522,11 @@ def build_prompt(books):
             row['numbering_in_title'] = {'volume': float(found[0]), 'title_without_it': found[1]}
         if b.get('excerpt'):
             row['opening_text'] = b['excerpt']
+        prov = b.get('provider_info') or b.get('provider_metadata')
+        if prov:
+            row['provider_metadata'] = prov
+        elif b.get('comments'):
+            row['description'] = b['comments']
         rows.append(row)
     return 'Books to check:\n' + json.dumps(rows, ensure_ascii=False, indent=1)
 
@@ -1282,14 +1289,68 @@ def compile_batch_outputs(batch_dir_or_files):
     return CompiledBatchResult(all_suggestions, all_skipped, metadata=meta, batch_files=files)
 
 
+def save_scan_state(batch_dir, all_ids, completed_ids, scope='all', status='running', metadata=None):
+    """Persist high-level scan state so interrupted or crashed scans can resume exactly where they stopped."""
+    os.makedirs(batch_dir, exist_ok=True)
+    state_file = os.path.join(batch_dir, 'scan_state.json')
+    tmp_file = state_file + '.tmp'
+    comp_set = set(completed_ids)
+    all_list = list(all_ids)
+    data = {
+        'version': 1,
+        'scope': scope,
+        'status': status,
+        'all_ids': all_list,
+        'completed_ids': list(completed_ids),
+        'remaining_ids': [bid for bid in all_list if bid not in comp_set],
+        'total_books': len(all_list),
+        'completed_count': len(completed_ids),
+        'updated_at': time.time(),
+        'metadata': dict(metadata or {})
+    }
+    with open(tmp_file, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_file, state_file)
+    return state_file
+
+
+def load_scan_state(batch_dir):
+    """Load persistent scan state from batch_dir/scan_state.json if present."""
+    if not batch_dir:
+        return None
+    state_file = os.path.join(batch_dir, 'scan_state.json')
+    if not os.path.isfile(state_file):
+        return None
+    try:
+        with open(state_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def clear_scan_state(batch_dir):
+    """Clear scan_state.json from batch_dir."""
+    if not batch_dir:
+        return
+    state_file = os.path.join(batch_dir, 'scan_state.json')
+    tmp_file = state_file + '.tmp'
+    for p in (state_file, tmp_file):
+        try:
+            if os.path.isfile(p):
+                os.remove(p)
+        except OSError:
+            pass
+
+
 def clear_batch_outputs(batch_dir):
-    """Removes all batch_*.json and batch_*.json.tmp files in batch_dir.
+    """Removes all batch_*.json, batch_*.json.tmp, and scan_state.json files in batch_dir.
     Returns the count of deleted files."""
     if not batch_dir or not os.path.isdir(batch_dir):
         return 0
+    clear_scan_state(batch_dir)
     count = 0
     for name in os.listdir(batch_dir):
-        if name.startswith('batch_') and (name.endswith('.json') or name.endswith('.tmp')):
+        if (name.startswith('batch_') and (name.endswith('.json') or name.endswith('.tmp'))) or name.startswith('scan_state.'):
             try:
                 os.remove(os.path.join(batch_dir, name))
                 count += 1
@@ -1356,18 +1417,30 @@ def plan_fixes_batched(fetch_books_fn, ids, api_key, batch_dir, batch_size=10, m
     if resume:
         completed_ids = get_completed_batch_book_ids(batch_dir)
         target_ids = [bid for bid in ids if bid not in completed_ids]
+        completed_so_far = set(completed_ids)
         if completed_ids:
             on_event('notice', text=f'Resuming: {len(completed_ids)} book(s) previously saved in batches, {len(target_ids)} remaining.')
     else:
         clear_batch_outputs(batch_dir)
         target_ids = list(ids)
+        completed_so_far = set()
+
+    save_scan_state(batch_dir, ids, completed_so_far, status='running')
 
     size = max(1, int(batch_size or 10))
     chunks = [target_ids[i:i + size] for i in range(0, len(target_ids), size)]
     total_batches = len(chunks)
 
     existing_files = list_batch_files(batch_dir) if resume else []
-    start_batch_num = len(existing_files) + 1
+    existing_indices = []
+    for f in existing_files:
+        m = re.search(r'batch_(\d+)', os.path.basename(f))
+        if m:
+            try:
+                existing_indices.append(int(m.group(1)))
+            except ValueError:
+                pass
+    start_batch_num = (max(existing_indices) + 1) if existing_indices else 1
 
     for idx_offset, chunk_ids in enumerate(chunks):
         if cancelled():
@@ -1398,6 +1471,8 @@ def plan_fixes_batched(fetch_books_fn, ids, api_key, batch_dir, batch_size=10, m
             skipped=batch_skipped, book_ids=chunk_ids,
             total_batches=total_batches + len(existing_files)
         )
+        completed_so_far.update(chunk_ids)
+        save_scan_state(batch_dir, ids, completed_so_far, status='running')
         on_event(
             'batch_saved',
             batch_index=current_batch_num,
@@ -1407,6 +1482,9 @@ def plan_fixes_batched(fetch_books_fn, ids, api_key, batch_dir, batch_size=10, m
             skipped_count=len(batch_skipped),
             book_ids=chunk_ids
         )
+
+    if not cancelled():
+        save_scan_state(batch_dir, ids, completed_so_far, status='completed')
 
     return compile_batch_outputs(batch_dir)
 
