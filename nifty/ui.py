@@ -420,7 +420,13 @@ class NiftyPreviewDialog(QDialog):
         self.setWindowTitle('Preview Series & Chapter Groupings')
         self.resize(760, 560)
         import copy
-        self.groups = copy.deepcopy(groups)
+        raw_groups = copy.deepcopy(groups)
+        if isinstance(raw_groups, dict):
+            self.groups = [raw_groups]
+        elif isinstance(raw_groups, list):
+            self.groups = raw_groups
+        else:
+            self.groups = []
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel('Review and customize chapter order, exclude unwanted chapters, or split/merge story groups before downloading.'))
@@ -486,7 +492,8 @@ class NiftyPreviewDialog(QDialog):
             grp_enabled = sum(1 for c in chs if c.get('enabled', True))
             enabled_ch += grp_enabled
 
-            parent = QTreeWidgetItem([group['title'], f"{len(chs)} chapter(s)"])
+            g_title = group.get('title') or group.get('name') or 'Untitled Series'
+            parent = QTreeWidgetItem([g_title, f"{len(chs)} chapter(s)"])
             parent.setFlags(parent.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
             parent.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'group', 'g_idx': g_idx})
 
@@ -501,7 +508,9 @@ class NiftyPreviewDialog(QDialog):
                 parent.setCheckState(0, Qt.CheckState.Checked)
 
             for c_idx, chapter in enumerate(chs):
-                child = QTreeWidgetItem([chapter['title'], chapter['file']])
+                c_title = chapter.get('title') or 'Chapter'
+                c_file = chapter.get('file') or ''
+                child = QTreeWidgetItem([c_title, c_file])
                 child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 child.setCheckState(0, Qt.CheckState.Checked if chapter.get('enabled', True) else Qt.CheckState.Unchecked)
                 child.setData(0, Qt.ItemDataRole.UserRole, {'kind': 'chapter', 'g_idx': g_idx, 'c_idx': c_idx})

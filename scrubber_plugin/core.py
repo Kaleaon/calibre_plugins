@@ -56,6 +56,51 @@ except ImportError:
                     resolve_profile,
                 )
 
+try:
+    from calibre_plugins.epub_promo_scrubber.image_classifier import (
+        classify_image_context,
+        get_image_info,
+    )
+except ImportError:
+    try:
+        from calibre_plugins.scrubber_plugin.image_classifier import (
+            classify_image_context,
+            get_image_info,
+        )
+    except ImportError:
+        try:
+            from .image_classifier import classify_image_context, get_image_info
+        except ImportError:
+            import importlib.util
+            from pathlib import Path
+
+            img_path = Path(__file__).parent / 'image_classifier.py'
+            if img_path.exists():
+                spec = importlib.util.spec_from_file_location('image_classifier', img_path)
+                img_mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(img_mod)
+                classify_image_context = img_mod.classify_image_context
+                get_image_info = img_mod.get_image_info
+            else:
+                def classify_image_context(*args, **kwargs):
+                    return {
+                        'category': 'illustration',
+                        'is_promo': False,
+                        'confidence': 'low',
+                        'reason': 'Image classifier unavailable',
+                        'suggested_action': 'keep'
+                    }
+
+                def get_image_info(*args, **kwargs):
+                    return {
+                        'width': None,
+                        'height': None,
+                        'format': 'unknown',
+                        'aspect_ratio': None,
+                        'size_bytes': 0,
+                        'filename': ''
+                    }
+
 DEFAULT_PATTERNS = [r'oceanofpdf', r'pdfdrive', r'z-?library', r'1lib', r'libgen', r'library\s+genesis']
 MAX_BLOCK_CHARS = 250
 MAX_TOTAL_BYTES = 1 << 30
@@ -166,7 +211,7 @@ def _snippet(text):
     return text if len(text) <= 120 else text[:117] + '...'
 
 
-def scrub_document(root, matcher, file_name="", allowed_change_ids=None, dry_run=False):
+def scrub_document(root, matcher, file_name="", allowed_change_ids=None, dry_run=False, image_context_resolver=None, image_stats_collector=None):
     """Scrub one parsed XHTML tree in place or collect proposed changes.
 
     Returns a list of change item dicts.
@@ -187,8 +232,71 @@ def scrub_document(root, matcher, file_name="", allowed_change_ids=None, dry_run
                 'category': 'HTML Comments'
             })
 
-    # 2. short blocks that are promotion from top to bottom, innermost first
+    # 2. promotional images, pirate watermarks, and ad banners
     body = next((e for e in root.iter() if _local(e) == 'body'), root)
+    for img_el in list(root.iter()):
+        if not isinstance(img_el.tag, str):
+            continue
+        tag = _local(img_el)
+        if tag not in ('img', 'image'):
+            continue
+
+        if tag == 'img':
+            src = img_el.get('src') or ''
+        else:
+            src = img_el.get('{http://www.w3.org/1999/xlink}href') or img_el.get('href') or ''
+
+        if not src:
+            continue
+
+        a_parent = next((p for p in img_el.iterancestors() if _local(p) == 'a'), None)
+        is_linked = a_parent is not None
+        link_href = unquote(a_parent.get('href') or '') if is_linked else ''
+        alt_text = img_el.get('alt') or img_el.get('title') or ''
+
+        block_parent = next((p for p in img_el.iterancestors() if _local(p) in BLOCK_TAGS), root)
+        surrounding_text = _norm(''.join(block_parent.itertext()))
+
+        img_ctx = {
+            'page_file': file_name,
+            'surrounding_text': surrounding_text,
+            'is_linked': is_linked,
+            'link_href': link_href,
+            'alt_text': alt_text,
+        }
+
+        img_data = None
+        if image_context_resolver is not None:
+            extra_ctx, img_data = image_context_resolver(file_name, src)
+            if extra_ctx:
+                img_ctx.update(extra_ctx)
+
+        classification = classify_image_context(img_data, src, img_ctx)
+
+        # Also trigger if user matcher pattern matches the image src or link href
+        if not classification.get('is_promo') and (matcher.hit(src) or (is_linked and matcher.hit(link_href))):
+            classification['is_promo'] = True
+            classification['category'] = 'ad'
+            classification['reason'] = f'Image source or link matches promotional filter ({src})'
+
+        cat = classification.get('category', 'illustration')
+        if image_stats_collector is not None:
+            image_stats_collector(cat)
+
+        if classification.get('is_promo'):
+            candidates.append({
+                'type': 'image',
+                'node': img_el,
+                'parent_a': a_parent,
+                'src': src,
+                'action': 'promo image removed',
+                'text': src,
+                'detail': f"Promotional image ({cat}) removed: {src}\nReason: {classification.get('reason')}",
+                'category': 'Promotional Images & Ads',
+                'classification': classification
+            })
+
+    # 3. short blocks that are promotion from top to bottom, innermost first
     for el in [e for e in body.iter() if _local(e) in LEAF_BLOCKS]:
         if el.getparent() is None or any(_local(d) in BLOCK_TAGS for d in el.iterdescendants()):
             continue
@@ -204,7 +312,7 @@ def scrub_document(root, matcher, file_name="", allowed_change_ids=None, dry_run
                 'category': 'Content Blocks'
             })
 
-    # 3. hyperlinks pointing at a promotional site
+    # 4. hyperlinks pointing at a promotional site
     for a in [e for e in root.iter() if _local(e) == 'a']:
         href = a.get('href') or ''
         if not matcher.hit(unquote(href)) or a.getparent() is None:
@@ -227,7 +335,7 @@ def scrub_document(root, matcher, file_name="", allowed_change_ids=None, dry_run
             'category': 'Hyperlinks'
         })
 
-    # 4. leftover mentions inside longer text
+    # 5. leftover mentions inside longer text
     for el in root.iter():
         if not isinstance(el.tag, str):
             continue
@@ -269,6 +377,26 @@ def scrub_document(root, matcher, file_name="", allowed_change_ids=None, dry_run
             node = cand['node']
             if node.getparent() is not None:
                 _remove(node)
+                changes.append(item)
+        elif ctype == 'image':
+            img_node = cand['node']
+            a_parent = cand.get('parent_a')
+            parent = img_node.getparent()
+            if parent is not None:
+                if a_parent is not None and a_parent.getparent() is not None:
+                    _remove(img_node)
+                    if not ''.join(a_parent.itertext()).strip() and not list(a_parent):
+                        a_grand = a_parent.getparent()
+                        _remove(a_parent)
+                        parent = a_grand
+                else:
+                    _remove(img_node)
+
+                while parent is not None and parent is not body and parent.getparent() is not None and _is_empty(parent) \
+                        and _local(parent) in BLOCK_TAGS | {'span', 'p', 'div', 'center', 'figure'}:
+                    grand = parent.getparent()
+                    _remove(parent)
+                    parent = grand
                 changes.append(item)
         elif ctype == 'block':
             el = cand['node']
@@ -511,15 +639,82 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, a
         matcher = Matcher(p_extra, p_heuristic)
 
         manifest, nav_names, ncx_names = {}, set(), set()
+        cover_image_paths = set()
+        cover_id = None
+        spine_items = []
         if opf_root is not None:
+            for meta in opf_root.iter():
+                if _local(meta) == 'meta' and meta.get('name') == 'cover':
+                    cover_id = meta.get('content')
+
             for item in opf_root.iter():
                 if _local(item) == 'item' and item.get('href'):
                     path = _resolve(opf_name, item.get('href'))
-                    manifest[path] = item.get('media-type', '')
-                    if 'nav' in (item.get('properties') or '').split():
+                    mtype = item.get('media-type', '')
+                    item_id = item.get('id', '')
+                    manifest[path] = mtype
+                    props = (item.get('properties') or '').split()
+                    if 'nav' in props:
                         nav_names.add(path)
-                    if item.get('media-type') == NCX_TYPE:
+                    if mtype == NCX_TYPE:
                         ncx_names.add(path)
+                    if 'cover-image' in props or (cover_id and item_id == cover_id):
+                        cover_image_paths.add(path)
+
+            for itemref in opf_root.iter():
+                if _local(itemref) == 'itemref':
+                    idref = itemref.get('idref')
+                    for item in opf_root.iter():
+                        if _local(item) == 'item' and item.get('id') == idref and item.get('href'):
+                            spine_items.append(_resolve(opf_name, item.get('href')))
+
+        # Pre-count image frequency across XHTML docs
+        image_frequencies = {}
+        for info in zf.infolist():
+            name = info.filename
+            is_doc = manifest.get(name) in DOC_TYPES or (not manifest and name.lower().endswith(('.xhtml', '.html', '.htm')))
+            if not is_doc:
+                continue
+            try:
+                doc_raw = zf.read(name)
+                for m in re.finditer(r'(?:src|href)=["\']([^"\']+\.(?:png|jpe?g|gif|webp|svg))["\']', doc_raw.decode('utf-8', 'ignore'), re.I):
+                    res_path = _resolve(name, m.group(1))
+                    image_frequencies[res_path] = image_frequencies.get(res_path, 0) + 1
+            except Exception:
+                pass
+
+        total_spine = len(spine_items)
+        image_stats = {'covers': 0, 'logos': 0, 'ornaments': 0, 'illustrations': 0, 'ads': 0, 'misplaced': 0}
+
+        def make_image_resolver(doc_name):
+            def resolver(page_file, img_src):
+                full_img_path = _resolve(page_file, img_src)
+                freq = image_frequencies.get(full_img_path, 1)
+                is_cover = full_img_path in cover_image_paths or 'cover' in full_img_path.lower()
+                spine_idx = spine_items.index(page_file) if page_file in spine_items else None
+                img_data = None
+                try:
+                    if full_img_path in zf.namelist():
+                        img_data = zf.read(full_img_path)
+                except Exception:
+                    pass
+                ctx = {
+                    'page_file': page_file,
+                    'frequency': freq,
+                    'is_cover_manifest': is_cover,
+                    'spine_index': spine_idx,
+                    'total_spine': total_spine,
+                }
+                return ctx, img_data
+            return resolver
+
+        def record_stat(category):
+            cat_key = 'ads' if category in ('ad', 'misplaced_image') else f"{category}s"
+            if cat_key in image_stats:
+                image_stats[cat_key] += 1
+            elif category in image_stats:
+                image_stats[category] += 1
+
         report = {
             'changes': [],
             'skipped': [],
@@ -527,7 +722,8 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, a
             'xhtml_buffers': {},
             'buffers': {},
             'active_profile': active_profile.get('name', 'Global Default'),
-            'detected_domains': sorted(domains)
+            'detected_domains': sorted(domains),
+            'image_stats': image_stats,
         }
         replacements, trees, empties = {}, {}, []
         for info in zf.infolist():
@@ -542,7 +738,14 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, a
                 if matcher.hit(raw.decode('utf-8', 'ignore')):
                     report['skipped'].append(f'{name}: not well-formed XML, left unchanged but mentions a blocked site')
                 continue
-            found = scrub_document(root, matcher, name, allowed_change_ids=allowed_change_ids, dry_run=dry_run)
+
+            found = scrub_document(
+                root, matcher, name,
+                allowed_change_ids=allowed_change_ids,
+                dry_run=dry_run,
+                image_context_resolver=make_image_resolver(name),
+                image_stats_collector=record_stat
+            )
             if not found:
                 continue
             report['changes'] += found
@@ -580,6 +783,64 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, a
             for name, (root, raw) in trees.items():
                 if name not in dropped and name not in extra_docs:
                     extra_docs[name] = root
+
+        # Check for unreferenced/orphaned images
+        remaining_docs = [
+            n for n in zf.namelist()
+            if (manifest.get(n) in DOC_TYPES or n.lower().endswith(('.xhtml', '.html', '.htm', '.css'))) and n not in dropped
+        ]
+        remaining_referenced_images = set()
+        for doc_name in remaining_docs:
+            if doc_name in trees:
+                doc_root, _ = trees[doc_name]
+                for el in doc_root.iter():
+                    t = _local(el)
+                    if t == 'img':
+                        s = el.get('src')
+                        if s:
+                            remaining_referenced_images.add(_resolve(doc_name, s))
+                    elif t == 'image':
+                        s = el.get('{http://www.w3.org/1999/xlink}href') or el.get('href')
+                        if s:
+                            remaining_referenced_images.add(_resolve(doc_name, s))
+            else:
+                try:
+                    doc_bytes = zf.read(doc_name)
+                    doc_text = doc_bytes.decode('utf-8', 'ignore')
+                    for item_path in manifest:
+                        if manifest.get(item_path, '').startswith('image/'):
+                            if posixpath.basename(item_path) in doc_text:
+                                remaining_referenced_images.add(item_path)
+                except Exception:
+                    pass
+
+        orphaned_images = set()
+        for item_path, mtype in manifest.items():
+            if mtype.startswith('image/') and item_path not in remaining_referenced_images and item_path not in cover_image_paths:
+                orphaned_images.add(item_path)
+
+        for img_path in sorted(orphaned_images):
+            cid = f"{img_path}:unreferenced image removed:0"
+            cand_item = {
+                'file': img_path,
+                'action': 'unreferenced image removed',
+                'text': img_path,
+                'id': cid,
+                'detail': f'Orphaned promotional image removed from archive: {img_path}',
+                'category': 'Promotional Images & Ads'
+            }
+            if dry_run:
+                report['changes'].append(cand_item)
+            elif allowed_change_ids is None or cid in allowed_change_ids:
+                report['changes'].append(cand_item)
+            else:
+                orphaned_images.remove(img_path)
+
+        if not dry_run and orphaned_images and opf_root is not None:
+            for item in list(opf_root.iter()):
+                if _local(item) == 'item' and _resolve(opf_name, item.get('href', '')) in orphaned_images:
+                    _remove(item)
+
         meta_changes = []
         if opf_root is not None:
             _scrub_metadata(opf_root, matcher, meta_changes, opf_name=opf_name or '', allowed_change_ids=allowed_change_ids, dry_run=dry_run)
@@ -618,15 +879,15 @@ def scrub_epub(data, extra_patterns=(), heuristic=True, drop_empty_pages=True, a
             if name in dropped:
                 continue
             replacements[name] = _serialize(root, raw)
-        if meta_changes and opf_root is not None:
+        if (meta_changes or dropped or orphaned_images) and opf_root is not None:
             replacements[opf_name] = etree.tostring(opf_root, encoding='utf-8', xml_declaration=True)
         for name, root in extra_docs.items():
-            if name not in trees and name != opf_name and meta_changes:
+            if name not in trees and name != opf_name and (meta_changes or dropped):
                 replacements[name] = etree.tostring(root, encoding='utf-8', xml_declaration=True)
         out = io.BytesIO()
         with zipfile.ZipFile(out, 'w') as new:
             for info in zf.infolist():
-                if info.filename in dropped:
+                if info.filename in dropped or info.filename in orphaned_images:
                     continue
                 payload = replacements.get(info.filename)
                 if payload is None:

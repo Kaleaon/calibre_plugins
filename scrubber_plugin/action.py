@@ -62,6 +62,8 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
         menu = QMenu(self.gui)
         self.qaction.setMenu(menu)
         for title, slot in [('Scrub selected books in Calibre', self.scrub_selected),
+                            ('Automated Library Scanner (Promos & Images)…', self.scan_entire_library),
+                            ('Scan selected books for promos & misplaced images…', self.scan_selected_library),
                             ('Scrub EPUB file or folder to a new folder…', self.scrub_folder),
                             ('Merge selected books into one EPUB…', self.merge_selected),
                             ('Merge EPUB files from folder…', self.merge_folder),
@@ -76,6 +78,37 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
         default_prof = resolve_profile([], profiles)
         extra = [line.strip() for line in default_prof.get('extra_patterns', '').splitlines() if line.strip()]
         return extra, default_prof.get('heuristic', True), default_prof.get('drop_empty_pages', True)
+
+    def scan_entire_library(self):
+        try:
+            from .ui import LibraryScannerDialog
+        except ImportError:
+            try:
+                from calibre_plugins.epub_promo_scrubber.ui import LibraryScannerDialog
+            except ImportError:
+                from ui import LibraryScannerDialog
+
+        db = self.gui.current_db.new_api
+        dialog = LibraryScannerDialog(self.gui, db, prefs, selected_book_ids=None)
+        dialog.exec()
+
+    def scan_selected_library(self):
+        ids = list(self.gui.library_view.get_selected_ids())
+        if not ids:
+            info_dialog(self.gui, 'EPUB Promo Scrubber', 'Select one or more books in Calibre first.', show=True)
+            return
+
+        try:
+            from .ui import LibraryScannerDialog
+        except ImportError:
+            try:
+                from calibre_plugins.epub_promo_scrubber.ui import LibraryScannerDialog
+            except ImportError:
+                from ui import LibraryScannerDialog
+
+        db = self.gui.current_db.new_api
+        dialog = LibraryScannerDialog(self.gui, db, prefs, selected_book_ids=ids)
+        dialog.exec()
 
     def settings(self):
         try:

@@ -15,9 +15,11 @@ def set_override_db_path(path):
 
 def get_queue_db_path(db_path=None):
     if db_path:
-        return Path(db_path)
+        p = Path(db_path)
+        return p / 'takeout_queue.db' if p.is_dir() else p
     if _OVERRIDE_DB_PATH:
-        return Path(_OVERRIDE_DB_PATH)
+        p = Path(_OVERRIDE_DB_PATH)
+        return p / 'takeout_queue.db' if p.is_dir() else p
     try:
         from calibre.utils.config import config_dir
         base_dir = Path(config_dir) / 'plugins' / 'takeout_book_fixer'

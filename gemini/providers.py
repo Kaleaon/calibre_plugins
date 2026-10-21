@@ -61,7 +61,11 @@ def detect_provider(
         (provider_key, identifier_or_url) or None
         where provider_key in ('metabods', 'nifty', 'fanficfare', 'openlibrary')
     """
-    if isinstance(identifiers, dict) and any(k in identifiers for k in ('id', 'title', 'comments', 'identifiers', 'tags', 'filenames', 'publisher')):
+    if isinstance(identifiers, str):
+        url_val = identifiers
+        identifiers = {'url': url_val} if ('://' in url_val or '.' in url_val) else {}
+        comments = comments or url_val
+    elif isinstance(identifiers, dict) and any(k in identifiers for k in ('id', 'title', 'comments', 'identifiers', 'tags', 'filenames', 'publisher')):
         book = identifiers
         identifiers = book.get('identifiers')
         comments = book.get('comments', '')
@@ -69,7 +73,12 @@ def detect_provider(
         publisher = book.get('publisher', '')
         title = book.get('title', '')
 
-    idents = {str(k).lower(): str(v) for k, v in (identifiers or {}).items()}
+    if isinstance(identifiers, dict):
+        idents = {str(k).lower(): str(v) for k, v in identifiers.items()}
+    elif isinstance(identifiers, str):
+        idents = {'url': identifiers}
+    else:
+        idents = {}
     comments_str = comments or ''
     filenames_str = ' '.join(filenames or [])
     all_text = f"{comments_str} {filenames_str} {publisher} {title}"
