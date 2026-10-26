@@ -474,12 +474,19 @@ def list_models(api_key, **kw):
     token = ''
     while True:
         data = _request('GET', f'{API_ROOT}/models?pageSize=100' + (f'&pageToken={token}' if token else ''), api_key, **kw)
-        for m in data.get('models', []):
-            if 'generateContent' in m.get('supportedGenerationMethods', []):
-                names.append(m['name'].split('/', 1)[-1])
+        if not isinstance(data, dict):
+            break
+        for m in data.get('models') or []:
+            if isinstance(m, dict):
+                methods = m.get('supportedGenerationMethods') or []
+                if 'generateContent' in methods:
+                    m_name = m.get('name') or ''
+                    if m_name and is_usable_model(m_name):
+                        names.append(m_name.split('/', 1)[-1])
         token = data.get('nextPageToken')
         if not token:
-            return sorted(names)
+            break
+    return sorted(names)
 
 
 # ------------------------------------------------------------------------------------------------------------- input
@@ -1296,6 +1303,9 @@ def save_scan_state(batch_dir, all_ids, completed_ids, scope='all', status='runn
     tmp_file = state_file + '.tmp'
     comp_set = set(completed_ids)
     all_list = list(all_ids)
+    meta = dict(metadata or {})
+    # Lets load_completed_ids_fast() trust this file instead of re-reading every batch file.
+    meta['batch_count'] = len(list_batch_files(batch_dir))
     data = {
         'version': 1,
         'scope': scope,
@@ -1306,12 +1316,36 @@ def save_scan_state(batch_dir, all_ids, completed_ids, scope='all', status='runn
         'total_books': len(all_list),
         'completed_count': len(completed_ids),
         'updated_at': time.time(),
-        'metadata': dict(metadata or {})
+        'metadata': meta
     }
     with open(tmp_file, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump(data, f, ensure_ascii=False)
     os.replace(tmp_file, state_file)
     return state_file
+
+
+def load_completed_ids_fast(batch_dir):
+    """The set of book ids already checked, read from scan_state.json when it is in step with the batch files on disk
+    (cheap), or None when it cannot be trusted and the batch files must be read with get_completed_batch_book_ids()."""
+    state = load_scan_state(batch_dir)
+    if not state or not isinstance(state.get('completed_ids'), list):
+        return None
+    expected = (state.get('metadata') or {}).get('batch_count')
+    if expected is None or expected != len(list_batch_files(batch_dir)):
+        return None
+    return set(state['completed_ids'])
+
+
+NON_TEXT_MODEL = re.compile(r'(?:^|[-_.])(?:tts|embedding|embed|aqa|imagen|veo|image-generation|native-audio|live|audio|lyria)(?:$|[-_.])', re.I)
+
+
+def is_usable_model(name):
+    """False for models that cannot answer a JSON text request (text-to-speech, embeddings, image/video/audio
+    generation, live audio). Picking one of these made every request fail."""
+    name = str(name or '').strip()
+    if not name:
+        return False
+    return not NON_TEXT_MODEL.search(name.split('/', 1)[-1])
 
 
 def load_scan_state(batch_dir):

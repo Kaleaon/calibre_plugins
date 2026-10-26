@@ -1,5 +1,6 @@
 import base64
 from concurrent.futures import ThreadPoolExecutor
+import json
 import os
 import queue
 import re
@@ -338,6 +339,77 @@ def get_batch_dir():
     return base
 
 
+# -- undo history ---------------------------------------------------------------------------------------------------
+# The undo history used to live in prefs['undo'], which made the plugin's settings file grow to ~1 MB; Calibre rewrites
+# that whole file on every single prefs assignment, on the GUI thread. It now lives in its own file, written only when
+# changes are applied or undone.
+
+def _undo_path():
+    try:
+        from calibre.utils.config import config_dir
+        base = os.path.join(config_dir, 'plugins')
+    except Exception:
+        import tempfile
+        base = tempfile.gettempdir()
+    return os.path.join(base, 'gemini_library_fixer_undo.json')
+
+
+def load_undo():
+    """The undo history ({book_id: {field: old}}), migrating it out of prefs the first time."""
+    path = _undo_path()
+    try:
+        legacy = prefs.get('undo') or {}
+    except Exception:
+        legacy = {}
+    if legacy:
+        save_undo(legacy)
+        try:
+            prefs['undo'] = {}
+        except Exception:
+            pass
+        return dict(legacy)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_undo(undo):
+    path = _undo_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if not undo:
+            if os.path.exists(path):
+                os.remove(path)
+            return
+        tmp = path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(undo, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    except Exception:
+        pass
+
+
+def update_prefs(values):
+    """Writes only the settings that changed, in one commit when Calibre's config supports it."""
+    changed = {k: v for k, v in values.items() if prefs.get(k) != v}
+    if not changed:
+        return
+    batch = hasattr(prefs, '__enter__') and hasattr(prefs, '__exit__')
+    if batch:
+        try:
+            with prefs:
+                for k, v in changed.items():
+                    prefs[k] = v
+            return
+        except Exception:
+            pass
+    for k, v in changed.items():
+        prefs[k] = v
+
+
 class _DummyDialog:
     def __init__(self, parent=None): pass
     def setWindowTitle(self, title): pass
@@ -591,71 +663,120 @@ class GeminiFixerAction(DialogAction):
 
         return books
 
+    @staticmethod
+    def _apply_field_batches(db, per_book):
+        """per_book: {book_id: {db_field: value}}. Writes each field for all books in one set_field call (one transaction
+        instead of one per book); if a batch fails, that field is retried book by book so one bad book does not sink the rest.
+        Returns {book_id: error_text} for the books that failed."""
+        failed = {}
+        fields = {}
+        for book_id, values in per_book.items():
+            for name, value in values.items():
+                fields.setdefault(name, {})[book_id] = value
+        # series must exist before its index is set
+        order = sorted(fields, key=lambda n: (n == 'series_index', n))
+        for name in order:
+            mapping = {bid: v for bid, v in fields[name].items() if bid not in failed}
+            if not mapping:
+                continue
+            try:
+                db.set_field(name, mapping)
+            except Exception:
+                for bid, v in mapping.items():
+                    try:
+                        db.set_field(name, {bid: v})
+                    except Exception as exc:
+                        failed[bid] = f'{name}: {exc}'
+        return failed
+
     def write_changes(self, items):
         """items: [(book_id, {field: (old, new)})]. Returns (changed_ids, errors, undo)."""
         db = self.gui.current_db.new_api
-        done, errors, undo = [], [], {}
+        per_book, saved_by_book, labels = {}, {}, {}
         for book_id, changes in items:
-            saved = {}
-            try:
-                for field, (old, new) in changes.items():
-                    if field == 'title':
-                        db.set_field('title', {book_id: new})
-                    elif field == 'authors':
-                        db.set_field('authors', {book_id: tuple(new)})
-                    elif field == 'series':
-                        db.set_field('series', {book_id: new[0]})
-                        db.set_field('series_index', {book_id: new[1]})
-                    elif field == 'tags':
-                        db.set_field('tags', {book_id: tuple(new)})
-                    elif field == 'language':
-                        db.set_field('languages', {book_id: tuple(new)})
-                    elif field == 'isbn':
-                        db.set_field('identifiers', {book_id: dict(db.field_for('identifiers', book_id) or {}, isbn=new)})
-                    saved[field] = [old[0], old[1] if old[1] is not None else 1.0] if field == 'series' else old
-                done.append(book_id)
-            except Exception as exc:
-                errors.append(f'{changes.get("title", ("", ""))[0] or book_id}: {exc}')
-            if saved:
-                undo[str(book_id)] = saved
+            values, saved = {}, {}
+            labels[book_id] = changes.get('title', ('', ''))[0] or book_id
+            for field, (old, new) in changes.items():
+                if field == 'title':
+                    values['title'] = new
+                elif field == 'authors':
+                    values['authors'] = tuple(new)
+                elif field == 'series':
+                    values['series'] = new[0]
+                    values['series_index'] = new[1]
+                elif field == 'tags':
+                    values['tags'] = tuple(new)
+                elif field == 'language':
+                    values['languages'] = tuple(new)
+                elif field == 'isbn':
+                    values['identifiers'] = dict(db.field_for('identifiers', book_id) or {}, isbn=new)
+                else:
+                    continue
+                saved[field] = [old[0], old[1] if old[1] is not None else 1.0] if field == 'series' else old
+            if values:
+                per_book[book_id] = values
+                saved_by_book[book_id] = saved
+        failed = self._apply_field_batches(db, per_book)
+        done = [bid for bid in per_book if bid not in failed]
+        errors = [f'{labels.get(bid, bid)}: {why}' for bid, why in failed.items()]
+        undo = {str(bid): saved_by_book[bid] for bid in per_book if saved_by_book.get(bid)}
         return done, errors, undo
 
     def restore(self, undo):
         db = self.gui.current_db.new_api
-        done, errors = [], []
+        per_book = {}
         for key, saved in undo.items():
             book_id = int(key)
-            try:
-                if not db.has_id(book_id):
-                    continue
-                for field, old in saved.items():
-                    if field == 'title':
-                        db.set_field('title', {book_id: old})
-                    elif field == 'authors':
-                        db.set_field('authors', {book_id: tuple(old)})
-                    elif field == 'series':
-                        db.set_field('series', {book_id: old[0] or None})
-                        db.set_field('series_index', {book_id: old[1] if old[1] is not None else 1.0})
-                    elif field == 'tags':
-                        db.set_field('tags', {book_id: tuple(old)})
-                    elif field == 'language':
-                        db.set_field('languages', {book_id: tuple(old)})
-                    elif field == 'isbn':
-                        ids = dict(db.field_for('identifiers', book_id) or {})
-                        if old:
-                            ids['isbn'] = old
-                        else:
-                            ids.pop('isbn', None)
-                        db.set_field('identifiers', {book_id: ids})
-                done.append(book_id)
-            except Exception as exc:
-                errors.append(f'book {book_id}: {exc}')
+            if not db.has_id(book_id):
+                continue
+            values = {}
+            for field, old in saved.items():
+                if field == 'title':
+                    values['title'] = old
+                elif field == 'authors':
+                    values['authors'] = tuple(old)
+                elif field == 'series':
+                    values['series'] = old[0] or None
+                    values['series_index'] = old[1] if old[1] is not None else 1.0
+                elif field == 'tags':
+                    values['tags'] = tuple(old)
+                elif field == 'language':
+                    values['languages'] = tuple(old)
+                elif field == 'isbn':
+                    ids = dict(db.field_for('identifiers', book_id) or {})
+                    if old:
+                        ids['isbn'] = old
+                    else:
+                        ids.pop('isbn', None)
+                    values['identifiers'] = ids
+            if values:
+                per_book[book_id] = values
+        failed = self._apply_field_batches(db, per_book)
+        done = [bid for bid in per_book if bid not in failed]
+        errors = [f'book {bid}: {why}' for bid, why in failed.items()]
         return done, errors
 
     def refresh(self, ids):
         if ids:
-            self.gui.library_view.model().refresh_ids(ids)
-            self.gui.tags_view.recount()
+            try:
+                m = self.gui.library_view.model()
+                m.refresh_ids(list(ids))
+                current = self.gui.library_view.currentIndex()
+                if hasattr(self.gui, 'refresh_cover_browser'):
+                    self.gui.refresh_cover_browser()
+                if hasattr(m, 'current_changed') and current.isValid():
+                    m.current_changed(current, current)
+                if hasattr(self.gui, 'tags_view'):
+                    if hasattr(self.gui.tags_view, 'recount_after_metadata_edit'):
+                        self.gui.tags_view.recount_after_metadata_edit()
+                    else:
+                        self.gui.tags_view.recount()
+            except Exception:
+                try:
+                    self.gui.library_view.model().refresh_ids(list(ids))
+                    self.gui.tags_view.recount()
+                except Exception:
+                    pass
 
     # -- the window ---------------------------------------------------------------------------------------------------
     def show_dialog(self):
@@ -697,6 +818,7 @@ class GeminiFixerAction(DialogAction):
         model.setEditable(True)
         model.addItem(prefs['model'])
         model.setCurrentText(prefs['model'])
+        row.addWidget(model, 1)
         models_btn = create_token_button(_('List models'), tool_tip=_('Ask Google which models your key can use'))
         row.addWidget(models_btn)
         layout.addLayout(row)
@@ -743,6 +865,10 @@ class GeminiFixerAction(DialogAction):
         covers.setChecked(bool(prefs['covers']))
         covers.setToolTip(_('Gemini reads the title, author, series, volume and ISBN printed on the pictures. Calibre keeps only a front cover, so a back cover is found only inside the file: an EPUB image named back/rear, or the last page of a CBZ.'))
         layout.addWidget(covers)
+        embed_updated = QCheckBox(_('Embed updated metadata into book files (EPUB/AZW3/MOBI) on Apply'))
+        embed_updated.setChecked(bool(prefs.get('embed_updated', True)))
+        embed_updated.setToolTip(_('When ticked, applying changes automatically updates the title, author, and metadata directly inside the EPUB/AZW3 files in your library, not just in Calibre\'s database.'))
+        layout.addWidget(embed_updated)
         provider_enrich = QCheckBox(_('Query metadata providers (FanFicFare, Nifty, Metabods) when metadata is sparse'))
         provider_enrich.setChecked(bool(prefs.get('provider_metadata', True)))
         provider_enrich.setToolTip(_('If a book lacks metadata or is from a known web novel/fanfic/archive source (such as Royal Road, AO3, FanFiction.net, ScribbleHub, Nifty, or Metabods), query the source site or providers directly to enrich title, author, series, tags, and summary before asking Gemini.'))
@@ -851,8 +977,9 @@ class GeminiFixerAction(DialogAction):
         open_batch_dir_btn = create_token_button(_('Open batch folder'), tool_tip=_('Open the directory where separate batch outputs are saved'))
         apply_btn = create_token_button(_('Apply ticked changes'))
         apply_btn.setEnabled(False)
+        undo_state = [load_undo()]
         undo_btn = create_token_button(_('Undo last run'))
-        undo_btn.setEnabled(bool(prefs['undo']))
+        undo_btn.setEnabled(bool(undo_state[0]))
         buttons.addButton(check_btn, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.addButton(compile_btn, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.addButton(open_batch_dir_btn, QDialogButtonBox.ButtonRole.ActionRole)
@@ -917,24 +1044,27 @@ class GeminiFixerAction(DialogAction):
         manage_templates_btn.clicked.connect(do_manage_templates)
 
         def save_prefs():
-            prefs['api_key'] = key.text().strip()
-            prefs['model'] = model.currentText().strip() or engine.DEFAULT_MODEL
-            prefs['enable_fallback'] = enable_fallback.isChecked()
-            prefs['fallback_model'] = fallback_model.currentText().strip() or 'gemini-2.5-flash-lite'
-            prefs['fields'] = list(chosen_fields())
-            prefs['tags_remove'] = tags_remove.isChecked()
-            prefs['excerpt'] = excerpt.isChecked()
-            prefs['covers'] = covers.isChecked()
-            prefs['provider_metadata'] = provider_enrich.isChecked()
-            prefs['min_confidence'] = confidence.currentText()
-            prefs['batch_size'] = batch.value()
-            prefs['min_interval'] = interval.value()
-            prefs['active_template'] = template_combo.currentText().strip() or 'Default Ebook Cleanup'
             mode_data = instruction_mode.currentData()
             if not mode_data:
                 mode_data = 'override' if instruction_mode.currentIndex() == 1 else 'append'
-            prefs['system_instruction_mode'] = mode_data
-            prefs['custom_system_instructions'] = custom_instructions_edit.toPlainText()
+            update_prefs({
+                'api_key': key.text().strip(),
+                'model': model.currentText().strip() or engine.DEFAULT_MODEL,
+                'enable_fallback': enable_fallback.isChecked(),
+                'fallback_model': fallback_model.currentText().strip() or 'gemini-2.5-flash-lite',
+                'fields': list(chosen_fields()),
+                'tags_remove': tags_remove.isChecked(),
+                'excerpt': excerpt.isChecked(),
+                'covers': covers.isChecked(),
+                'embed_updated': embed_updated.isChecked(),
+                'provider_metadata': provider_enrich.isChecked(),
+                'min_confidence': confidence.currentText(),
+                'batch_size': batch.value(),
+                'min_interval': interval.value(),
+                'active_template': template_combo.currentText().strip() or 'Default Ebook Cleanup',
+                'system_instruction_mode': mode_data,
+                'custom_system_instructions': custom_instructions_edit.toPlainText(),
+            })
 
         def do_reset_instructions():
             custom_instructions_edit.setPlainText('')
@@ -1073,7 +1203,7 @@ class GeminiFixerAction(DialogAction):
             for w in (all_btn, none_btn, safe_btn, field_btn):
                 w.setEnabled(not busy)
             for w in (check_btn, apply_btn, undo_btn, models_btn, compile_btn, open_batch_dir_btn):
-                w.setEnabled(not busy and (w is not apply_btn) and (w is not undo_btn or bool(prefs['undo'])))
+                w.setEnabled(not busy and (w is not apply_btn) and (w is not undo_btn or bool(undo_state[0])))
             stop_btn.setEnabled(busy)
             buttons.button(QDialogButtonBox.StandardButton.Close).setEnabled(not busy)
 
@@ -1086,17 +1216,28 @@ class GeminiFixerAction(DialogAction):
                 return error_dialog(dialog, _('Gemini'), _('Enter your API key first.'), show=True)
             task = run_task(dialog, _('Asking Google for the model list…'), lambda t: engine.list_models(api_key(), cancelled=t.cancelled))
             if task.error:
+                if task.cancelled() or 'Cancelled' in str(task.error):
+                    return
                 return error_dialog(dialog, _('Gemini'), str(task.error), show=True)
+            if task.cancelled():
+                return
             if task.result:
-                current = model.currentText()
+                current = model.currentText().strip()
                 model.clear()
                 model.addItems(task.result)
-                model.setCurrentText(current)
+                if current and current not in task.result:
+                    model.addItem(current)
+                model.setCurrentText(current or (task.result[0] if task.result else engine.DEFAULT_MODEL))
 
-                current_fb = fallback_model.currentText()
+                current_fb = fallback_model.currentText().strip()
                 fallback_model.clear()
                 fallback_model.addItems(task.result)
-                fallback_model.setCurrentText(current_fb)
+                if current_fb and current_fb not in task.result:
+                    fallback_model.addItem(current_fb)
+                fallback_model.setCurrentText(current_fb or ('gemini-2.5-flash-lite' if 'gemini-2.5-flash-lite' in task.result else task.result[0]))
+                info_dialog(dialog, _('Gemini'), _('Retrieved {count} model(s) from Google.').format(count=len(task.result)), show=True)
+            else:
+                info_dialog(dialog, _('Gemini'), _('No models supporting content generation were found for this API key.'), show=True)
 
         def do_compile_saved():
             b_dir = get_batch_dir()
@@ -1141,7 +1282,9 @@ class GeminiFixerAction(DialogAction):
             all_scan_ids = list(ids)
 
             if existing_batches:
-                completed_ids = engine.get_completed_batch_book_ids(b_dir)
+                completed_ids = engine.load_completed_ids_fast(b_dir)
+                if completed_ids is None:
+                    completed_ids = engine.get_completed_batch_book_ids(b_dir)
 
                 # Check if there was an interrupted full library scan, but scope_selected is currently active
                 if scan_state and scan_state.get('scope') == 'all' and scope_selected.isChecked():
@@ -1528,26 +1671,38 @@ class GeminiFixerAction(DialogAction):
             log(_('Done: {count} of {total} book(s) have suggested changes{note}. Tick what you want below, then press Apply.').format(
                 count=len(suggestions), total=count, note=cancelled_note))
             seen_ids = set()
-            for s in suggestions:
-                if s['id'] in seen_ids:
-                    continue
-                seen_ids.add(s['id'])
-                top = QTreeWidgetItem(tree, [
-                    s['title'] or _('book {id}').format(id=s['id']),
-                    _('{confidence} confidence{big}').format(confidence=s['confidence'], big=_('; BIG CHANGE') if s['big'] else '')
-                ])
-                top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
-                want = Qt.CheckState.Unchecked if s['big'] else Qt.CheckState.Checked  # adding a child resets an auto-tristate parent, so set the parent last
-                top.setData(0, Qt.ItemDataRole.UserRole, s['id'])
-                top.setData(0, Qt.ItemDataRole.UserRole + 2, bool(s['big']))
-                for field, (old, new) in s['changes'].items():
-                    child = QTreeWidgetItem(top, [f'{SHOW[field]}:  {show_value(field, old)}  →  {show_value(field, new)}', s['reason'] if field == 'title' else ''])
-                    child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                    child.setCheckState(0, want)
-                    child.setData(0, Qt.ItemDataRole.UserRole, field)
-                    child.setData(0, Qt.ItemDataRole.UserRole + 1, (old, new))
-                top.setCheckState(0, want)
-                top.setExpanded(True)
+            # Thousands of rows used to be added with signals live: every setCheckState fired itemChanged -> update_ticked(),
+            # which walks the whole tree, so filling it was O(n^2) on the GUI thread and froze Calibre. Fill it silently.
+            expand = len(suggestions) <= 300
+            tree.blockSignals(True)
+            tree.setUpdatesEnabled(False)
+            try:
+                for n, s in enumerate(suggestions):
+                    if s['id'] in seen_ids:
+                        continue
+                    seen_ids.add(s['id'])
+                    top = QTreeWidgetItem(tree, [
+                        s['title'] or _('book {id}').format(id=s['id']),
+                        _('{confidence} confidence{big}').format(confidence=s['confidence'], big=_('; BIG CHANGE') if s['big'] else '')
+                    ])
+                    top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
+                    want = Qt.CheckState.Unchecked if s['big'] else Qt.CheckState.Checked  # adding a child resets an auto-tristate parent, so set the parent last
+                    top.setData(0, Qt.ItemDataRole.UserRole, s['id'])
+                    top.setData(0, Qt.ItemDataRole.UserRole + 2, bool(s['big']))
+                    for field, (old, new) in s['changes'].items():
+                        child = QTreeWidgetItem(top, [f'{SHOW.get(field, field)}:  {show_value(field, old)}  →  {show_value(field, new)}', s['reason'] if field == 'title' else ''])
+                        child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                        child.setCheckState(0, want)
+                        child.setData(0, Qt.ItemDataRole.UserRole, field)
+                        child.setData(0, Qt.ItemDataRole.UserRole + 1, (old, new))
+                    top.setCheckState(0, want)
+                    if expand:
+                        top.setExpanded(True)
+                    if n % 500 == 499:
+                        QApplication.processEvents()
+            finally:
+                tree.setUpdatesEnabled(True)
+                tree.blockSignals(False)
             text = _('{count} of {total} book(s) have suggested changes{note}.').format(
                 count=len(suggestions), total=count, note=cancelled_note)
             if skipped:
@@ -1577,9 +1732,17 @@ class GeminiFixerAction(DialogAction):
                 return error_dialog(dialog, _('Gemini'), _('Nothing is ticked.'), show=True)
             done, errors, undo = self.write_changes(items)
             if undo:
-                prefs['undo'] = undo
+                undo_state[0] = undo
+                save_undo(undo)
                 undo_btn.setEnabled(True)
             self.refresh(done)
+            if embed_updated.isChecked() and done:
+                try:
+                    embed_action = self.gui.iactions.get('Embed Metadata')
+                    if embed_action and hasattr(embed_action, 'do_embed'):
+                        embed_action.do_embed(tuple(done))
+                except Exception as embed_exc:
+                    errors.append(f'Metadata embed: {embed_exc}')
             text = _('Updated {count} book(s). "Undo last run" can put the old values back.').format(count=len(done))
             if errors:
                 text += _('\n\nProblems:\n') + '\n'.join(errors[:10])
@@ -1595,13 +1758,14 @@ class GeminiFixerAction(DialogAction):
             update_ticked()
 
         def do_undo():
-            undo = dict(prefs['undo'])
+            undo = dict(undo_state[0])
             if not undo or not question_dialog(dialog, _('Gemini'), _('Put back the old values for {count} book(s) changed in the last run?').format(count=len(undo))):
                 return
             done, errors = self.restore(undo)
             self.refresh(done)
             if not errors:
-                prefs['undo'] = {}
+                undo_state[0] = {}
+                save_undo({})
                 undo_btn.setEnabled(False)
             text = _('Restored {count} book(s).').format(count=len(done)) + (_('\n\nProblems:\n') + '\n'.join(errors[:10]) if errors else '')
             info_dialog(self.gui, _('Gemini'), text, show=True)

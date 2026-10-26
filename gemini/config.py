@@ -11,6 +11,7 @@ prefs.defaults['excerpt'] = False
 prefs.defaults['undo'] = {}
 prefs.defaults['min_interval'] = 7
 prefs.defaults['covers'] = False
+prefs.defaults['embed_updated'] = True
 prefs.defaults['active_template'] = 'Default Ebook Cleanup'
 prefs.defaults['custom_templates'] = {}
 prefs.defaults['batch_dir'] = ''
