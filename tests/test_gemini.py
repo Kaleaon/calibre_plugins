@@ -881,6 +881,53 @@ class AdaptiveDowngradeTests(unittest.TestCase):
         self.assertFalse(engine.is_rate_limit_error(engine.QuotaExhausted('Quota exhausted')))
         self.assertFalse(engine.is_rate_limit_error(engine.GeminiError('Cancelled')))
 
+    def test_service_unavailable_error_detection(self):
+        self.assertTrue(engine.is_service_unavailable_error(http_error(503, 'Service Unavailable')))
+        self.assertTrue(engine.is_service_unavailable_error(engine.GeminiError('Google returned an error (503): This model is currently experiencing high demand.')))
+        self.assertTrue(engine.is_service_unavailable_error(engine.GeminiError('The model is temporarily unavailable.')))
+        self.assertFalse(engine.is_service_unavailable_error(engine.GeminiError('Cancelled')))
+        self.assertFalse(engine.is_service_unavailable_error(http_error(400, 'Bad Request')))
+
+    def test_service_unavailable_503_fallback_success(self):
+        notices = []
+        err_503 = http_error(503, 'This model is currently experiencing high demand.')
+        t = Scripted(err_503, reply([{'id': 1, 'title': 'Fixed 503', 'confidence': 'high'}]))
+        out, skipped = engine.plan_fixes(
+            [book(1, title='Old Title')],
+            'KEY',
+            model='gemini-3.8-flash',
+            fallback_model='gemini-flash-lite-latest',
+            batch_size=1,
+            transport=t,
+            retries=0,
+            sleep=lambda s: None,
+            on_event=lambda kind, **i: notices.append(i.get('text', '')) if kind == 'notice' else None
+        )
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]['changes']['title'][1], 'Fixed 503')
+        self.assertEqual(skipped, [])
+        self.assertTrue(any('high demand' in n and 'Falling back to gemini-flash-lite-latest' in n for n in notices))
+
+    def test_service_unavailable_503_chained_fallback(self):
+        notices = []
+        err_503_1 = http_error(503, 'Model 3.8 high demand')
+        err_503_2 = http_error(503, 'Model flash-latest high demand')
+        t = Scripted(err_503_1, err_503_2, reply([{'id': 1, 'title': 'Fixed Chained', 'confidence': 'high'}]))
+        out, skipped = engine.plan_fixes(
+            [book(1, title='Old Title')],
+            'KEY',
+            model='gemini-3.8-flash',
+            fallback_model='gemini-flash-latest',
+            batch_size=1,
+            transport=t,
+            retries=0,
+            sleep=lambda s: None,
+            on_event=lambda kind, **i: notices.append(i.get('text', '')) if kind == 'notice' else None
+        )
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]['changes']['title'][1], 'Fixed Chained')
+        self.assertTrue(any('Falling back to lightweight model gemini-flash-lite-latest' in n for n in notices))
+
     def test_batch_split_and_model_downgrade_on_rate_limit(self):
         notices = []
         rate_limit_err1 = http_error(429, 'Resource exhausted rate limit key=SECRET123')

@@ -31,18 +31,35 @@ RETRY_STATUS = {429, 500, 502, 503, 504}
 BIG_CHANGE_RATIO = 0.5
 IMAGE_TOKENS_PER_IMAGE = 258
 MODEL_COST_PER_1M = {
+    'gemini-flash-lite-latest': 0.0375,
+    'gemini-flash-latest': 0.075,
+    'gemini-pro-latest': 1.25,
+    'gemini-3.8-flash': 0.075,
+    'gemini-3.5-flash': 0.075,
+    'gemini-3.5-flash-lite': 0.0375,
+    'gemini-3.1-flash-lite': 0.0375,
+    'gemini-3-flash-preview': 0.075,
     'gemini-2.5-flash': 0.075,
-    'gemini-1.5-flash': 0.075,
     'gemini-2.5-flash-lite': 0.0375,
-    'gemini-1.5-flash-lite': 0.0375,
     'gemini-2.5-pro': 1.25,
+    'gemini-1.5-flash': 0.075,
+    'gemini-1.5-flash-lite': 0.0375,
     'gemini-1.5-pro': 1.25,
 }
 
 MODEL_FALLBACKS = {
+    'gemini-flash-latest': 'gemini-flash-lite-latest',
+    'gemini-pro-latest': 'gemini-flash-lite-latest',
+    'gemini-3.8-flash': 'gemini-flash-lite-latest',
+    'gemini-3.7-flash': 'gemini-flash-lite-latest',
+    'gemini-3.6-flash': 'gemini-flash-lite-latest',
+    'gemini-3.5-flash': 'gemini-3.5-flash-lite',
+    'gemini-3.5-flash-lite': 'gemini-flash-lite-latest',
+    'gemini-3.1-flash-lite': 'gemini-flash-lite-latest',
+    'gemini-3-flash-preview': 'gemini-flash-lite-latest',
     'gemini-2.5-flash': 'gemini-2.5-flash-lite',
-    'gemini-1.5-flash': 'gemini-1.5-flash-lite',
     'gemini-2.5-pro': 'gemini-2.5-flash',
+    'gemini-1.5-flash': 'gemini-1.5-flash-lite',
     'gemini-1.5-pro': 'gemini-1.5-flash',
 }
 
@@ -863,10 +880,32 @@ def get_fallback_model(model):
         if 'flash-lite' in m:
             return model
         return 'gemini-1.5-flash-lite'
-    else:
+    elif '2.5' in m:
         if 'flash-lite' in m:
             return model
         return 'gemini-2.5-flash-lite'
+    elif '3.5' in m:
+        if 'flash-lite' in m:
+            return 'gemini-flash-lite-latest'
+        return 'gemini-3.5-flash-lite'
+    elif '3.1' in m:
+        if 'flash-lite' in m:
+            return 'gemini-flash-lite-latest'
+        return 'gemini-3.1-flash-lite'
+    elif 'flash-lite' in m:
+        return model
+    else:
+        return MODEL_FALLBACKS.get(m, 'gemini-flash-lite-latest')
+
+
+def is_service_unavailable_error(exc):
+    """Returns True if exc represents a 500/502/503/504 Service Unavailable or high-demand error from Google."""
+    if isinstance(exc, urllib.error.HTTPError) and exc.code in {500, 502, 503, 504}:
+        return True
+    msg = str(exc).lower()
+    if 'cancelled' in msg:
+        return False
+    return any(k in msg for k in ('503', '502', '504', '500', 'high demand', 'spikes in demand', 'temporarily unavailable', 'unavailable', 'overloaded'))
 
 
 def is_rate_limit_error(exc):
@@ -996,59 +1035,92 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
         except Exception as exc:
             if str(exc) == 'Cancelled' or cancelled():
                 raise
-            if is_rate_limit_error(exc):
-                if len(batch) > 1:
-                    on_event('notice', text=f'Rate limit hit (HTTP 429) on batch of {len(batch)} books. Splitting into single-item requests with pacing delays.')
-                    for item in batch:
-                        if cancelled():
-                            break
-                        ask([item])
-                    return
+            if is_service_unavailable_error(exc):
+                candidate_fb = None
+                if current_fallback[0] and current_fallback[0] != 'auto':
+                    candidate_fb = current_fallback[0]
+                    current_fallback[0] = None
                 else:
-                    item = batch[0]
-                    fallback = get_fallback_model(current_model[0])
-                    can_downgrade = (fallback != current_model[0])
-                    if can_downgrade:
-                        on_event('notice', text=f'Rate limit hit on model {current_model[0]}. Downgrading model to {fallback}.')
-                        current_model[0] = fallback
-                        try:
-                            ask_direct(batch)
-                            return
-                        except Exception as retry_exc:
-                            if str(retry_exc) == 'Cancelled' or cancelled():
-                                raise
-                            if not is_rate_limit_error(retry_exc):
-                                raise
-                            exc = retry_exc
+                    candidate_fb = get_fallback_model(current_model[0])
 
-                    backoff = 2.0
-                    for attempt in range(2):
-                        if cancelled():
-                            return
-                        on_event('notice', text=f'Rate limit hit for "{item.get("title") or item["id"]}". Waiting {backoff:.0f}s before retrying single item.')
-                        left = backoff
-                        while left > 0 and not cancelled():
-                            sleep(min(1.0, left))
-                            left -= 1.0
-                        if cancelled():
-                            return
-                        try:
-                            ask_direct(batch)
-                            return
-                        except Exception as retry_exc:
-                            if str(retry_exc) == 'Cancelled' or cancelled():
-                                raise
-                            if not is_rate_limit_error(retry_exc):
-                                raise
-                            exc = retry_exc
-                        backoff *= 2.0
+                if candidate_fb and candidate_fb != current_model[0]:
+                    prev_model = current_model[0]
+                    current_model[0] = candidate_fb
+                    on_event('notice', text=f'Model {prev_model} is experiencing high demand (HTTP 503). Falling back to {candidate_fb}.')
+                    try:
+                        ask_direct(batch)
+                        return
+                    except Exception as fb_exc:
+                        if str(fb_exc) == 'Cancelled' or cancelled():
+                            raise
+                        lite_fallback = 'gemini-flash-lite-latest'
+                        if current_model[0] != lite_fallback:
+                            prev_model = current_model[0]
+                            current_model[0] = lite_fallback
+                            on_event('notice', text=f'Fallback model {prev_model} also failed. Falling back to lightweight model {lite_fallback}.')
+                            try:
+                                ask_direct(batch)
+                                return
+                            except Exception as fb2_exc:
+                                if str(fb2_exc) == 'Cancelled' or cancelled():
+                                    raise
+                                exc = fb2_exc
+                        else:
+                            exc = fb_exc
+                raise
+            elif is_rate_limit_error(exc):
+                    if len(batch) > 1:
+                        on_event('notice', text=f'Rate limit hit (HTTP 429) on batch of {len(batch)} books. Splitting into single-item requests with pacing delays.')
+                        for item in batch:
+                            if cancelled():
+                                break
+                            ask([item])
+                        return
+                    else:
+                        item = batch[0]
+                        fallback = get_fallback_model(current_model[0])
+                        can_downgrade = (fallback != current_model[0])
+                        if can_downgrade:
+                            on_event('notice', text=f'Rate limit hit on model {current_model[0]}. Downgrading model to {fallback}.')
+                            current_model[0] = fallback
+                            try:
+                                ask_direct(batch)
+                                return
+                            except Exception as retry_exc:
+                                if str(retry_exc) == 'Cancelled' or cancelled():
+                                    raise
+                                if not is_rate_limit_error(retry_exc):
+                                    raise
+                                exc = retry_exc
 
-                    msg = sanitize_error_message(exc, api_key)
-                    skipped.append(f"{item.get('title') or item['id']}: request limit used up ({msg})")
-                    on_event('notice', text=f'Request limit used up for {item.get("title") or item["id"]}: {msg}')
-                    on_event('skipped', text=skipped[-1])
-                    finish(1)
-                    return
+                        backoff = 2.0
+                        for attempt in range(2):
+                            if cancelled():
+                                return
+                            on_event('notice', text=f'Rate limit hit for "{item.get("title") or item["id"]}". Waiting {backoff:.0f}s before retrying single item.')
+                            left = backoff
+                            while left > 0 and not cancelled():
+                                sleep(min(1.0, left))
+                                left -= 1.0
+                            if cancelled():
+                                return
+                            try:
+                                ask_direct(batch)
+                                return
+                            except Exception as retry_exc:
+                                if str(retry_exc) == 'Cancelled' or cancelled():
+                                    raise
+                                if not is_rate_limit_error(retry_exc):
+                                    raise
+                                exc = retry_exc
+                            backoff *= 2.0
+
+                        msg = sanitize_error_message(exc, api_key)
+                        skipped.append(f"{item.get('title') or item['id']}: request limit used up ({msg})")
+                        on_event('notice', text=f'Request limit used up for {item.get("title") or item["id"]}: {msg}')
+                        on_event('skipped', text=skipped[-1])
+                        finish(1)
+                        return
             else:
                 raise
 
@@ -1063,19 +1135,19 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
                 ask(current_batch)
                 break
             except QuotaExhausted as exc:
-                if current_fallback[0] == 'auto':
+                if current_fallback[0] is not None and current_fallback[0] != 'auto' and current_fallback[0] != current_model[0]:
+                    prev_model = current_model[0]
+                    current_model[0] = current_fallback[0]
+                    current_fallback[0] = 'auto'
+                    on_event('notice', text=f'Quota exhausted for {prev_model}. Falling back to {current_model[0]}.')
+                    continue
+                elif current_fallback[0] == 'auto':
                     fallback = MODEL_FALLBACKS.get(current_model[0]) or MODEL_FALLBACKS.get((current_model[0] or '').strip().lower())
                     if fallback and fallback != current_model[0]:
                         prev_model = current_model[0]
                         current_model[0] = fallback
                         on_event('notice', text=f'Quota limit reached for {prev_model}; falling back to lighter model {fallback}.')
                         continue
-                elif current_fallback[0] is not None and current_fallback[0] != current_model[0]:
-                    prev_model = current_model[0]
-                    current_model[0] = current_fallback[0]
-                    current_fallback[0] = None
-                    on_event('notice', text=f'Quota exhausted for {prev_model}. Falling back to {current_model[0]}.')
-                    continue
                 if not pause_on_quota:
                     left = total - state_tracker['done']
                     skipped.append(f'{left} book(s) not checked: request limit used up')
@@ -1105,10 +1177,10 @@ def plan_fixes(books, api_key, model=DEFAULT_MODEL, fields=FIELDS, min_confidenc
                 if str(exc) == 'Cancelled':
                     break
                 msg = sanitize_error_message(exc, api_key)
-                if pause_on_quota and ('429' in msg or 'limit' in msg.lower() or 'quota' in msg.lower()):
+                if pause_on_quota and ('429' in msg or 'limit' in msg.lower() or 'quota' in msg.lower() or '503' in msg or 'demand' in msg.lower() or 'unavailable' in msg.lower()):
                     left_pending = pending_books[start:]
                     model_config = {
-                        'model': model,
+                        'model': current_model[0],
                         'batch_size': batch_size,
                         'min_interval': min_interval,
                         'min_confidence': min_confidence,

@@ -457,7 +457,7 @@ class GeminiRecoveryDialog(_DialogBase):
         valid_models = list(engine.MODEL_COST_PER_1M.keys())
         self.model_combo.addItems(valid_models)
         current_model = (state.model_config.get('model') if state else '') or engine.DEFAULT_MODEL
-        default_selection = 'gemini-2.5-flash-lite' if 'gemini-2.5-flash-lite' in valid_models else current_model
+        default_selection = 'gemini-flash-lite-latest' if 'gemini-flash-lite-latest' in valid_models else ('gemini-2.5-flash-lite' if 'gemini-2.5-flash-lite' in valid_models else current_model)
         if default_selection in valid_models:
             self.model_combo.setCurrentText(default_selection)
         elif current_model in valid_models:
@@ -843,8 +843,8 @@ class GeminiFixerAction(DialogAction):
         row.addWidget(QLabel(_('Fallback model:')))
         fallback_model = QComboBox()
         fallback_model.setEditable(True)
-        fallback_model.addItem(prefs.get('fallback_model', 'gemini-2.5-flash-lite'))
-        fallback_model.setCurrentText(prefs.get('fallback_model', 'gemini-2.5-flash-lite'))
+        fallback_model.addItem(prefs.get('fallback_model', 'gemini-flash-lite-latest'))
+        fallback_model.setCurrentText(prefs.get('fallback_model', 'gemini-flash-lite-latest'))
         fallback_model.setEnabled(enable_fallback.isChecked())
         enable_fallback.toggled.connect(fallback_model.setEnabled)
         row.addWidget(fallback_model, 1)
@@ -1051,7 +1051,7 @@ class GeminiFixerAction(DialogAction):
                 'api_key': key.text().strip(),
                 'model': model.currentText().strip() or engine.DEFAULT_MODEL,
                 'enable_fallback': enable_fallback.isChecked(),
-                'fallback_model': fallback_model.currentText().strip() or 'gemini-2.5-flash-lite',
+                'fallback_model': fallback_model.currentText().strip() or 'gemini-flash-lite-latest',
                 'fields': list(chosen_fields()),
                 'tags_remove': tags_remove.isChecked(),
                 'excerpt': excerpt.isChecked(),
@@ -1234,7 +1234,7 @@ class GeminiFixerAction(DialogAction):
                 fallback_model.addItems(task.result)
                 if current_fb and current_fb not in task.result:
                     fallback_model.addItem(current_fb)
-                fallback_model.setCurrentText(current_fb or ('gemini-2.5-flash-lite' if 'gemini-2.5-flash-lite' in task.result else task.result[0]))
+                fallback_model.setCurrentText(current_fb or ('gemini-flash-lite-latest' if 'gemini-flash-lite-latest' in task.result else task.result[0]))
                 info_dialog(dialog, _('Gemini'), _('Retrieved {count} model(s) from Google.').format(count=len(task.result)), show=True)
             else:
                 info_dialog(dialog, _('Gemini'), _('No models supporting content generation were found for this API key.'), show=True)
@@ -1471,7 +1471,7 @@ class GeminiFixerAction(DialogAction):
             bar.setRange(0, max(1, total_books))
             bar.setValue(0)
 
-            fb_model = (fallback_model.currentText().strip() or 'gemini-2.5-flash-lite') if enable_fallback.isChecked() else None
+            fb_model = (fallback_model.currentText().strip() or 'gemini-flash-lite-latest') if enable_fallback.isChecked() else None
 
             def work():
                 try:
