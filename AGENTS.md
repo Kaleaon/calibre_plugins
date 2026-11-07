@@ -55,15 +55,10 @@ The `--strict` flag ensures the build fails if vendored dependencies (such as `f
 
 ## 4. Running Tests
 
-### Standard Test Execution with `pytest`
-```bash
-QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest
-```
-
-### Test Suite Execution with `unittest` (CI Alignment)
+### Test Suite Execution with `pytest` (CI Alignment)
 To run the exact unit test suite command executed in CI:
 ```bash
-QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m unittest discover -s tests -p "test_*.py" -v
+QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m pytest tests/
 ```
 
 ### Edge Case: Environments Without Qt / PyQt6

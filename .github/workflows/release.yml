@@ -30,11 +30,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install fanficfare PyQt6 lxml cloudscraper requests-file requests-toolbelt pyparsing
+          pip install -r requirements.txt
 
       - name: Run unit tests
         run: |
-          QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m unittest discover -s tests -p "test_*.py" -v
+          QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m pytest tests/
 
       - name: Build plugin packages
         run: |
