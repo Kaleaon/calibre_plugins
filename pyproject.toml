@@ -15,10 +15,11 @@ select = [
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
 ]
-ignore = ["E501", "UP038"]
+ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = [
+    "calibre_link",
     "common",
     "fanfic",
     "gemini",
