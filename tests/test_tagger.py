@@ -1,8 +1,8 @@
 import importlib.util
-from pathlib import Path
 import sys
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -544,7 +544,7 @@ class UiSyncTests(unittest.TestCase):
 
 
 try:
-    from PyQt6 import QtCore, QtGui, QtWidgets
+    from PyQt6 import QtCore, QtWidgets
     HAVE_QT = True
 except ImportError:
     HAVE_QT = False
@@ -701,7 +701,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             sys.modules[name] = MagicMock()
         sys.modules['calibre.gui2.actions'].InterfaceAction = object
 
-        class StubDialog(object):
+        class StubDialog:
             def __init__(self, *a, **k): pass
             def setWindowTitle(self, t): pass
             def resize(self, w, h): pass
@@ -835,8 +835,8 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         dlg.accept.assert_not_called()
 
     def test_export_rule_set_writes_json_file(self):
-        import tempfile
         import json
+        import tempfile
         spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
         action_mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(action_mod)
@@ -875,7 +875,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
 
         do_export()
 
-        with open(export_path, 'r', encoding='utf-8') as f:
+        with open(export_path, encoding='utf-8') as f:
             data = json.load(f)
 
         self.assertEqual(data['plugin'], 'Story Collection Tagger')
@@ -883,8 +883,8 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         self.assertIn('sites', data)
 
     def test_import_rule_set_replace_mode(self):
-        import tempfile
         import json
+        import tempfile
         spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
         action_mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(action_mod)
@@ -950,8 +950,8 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         self.assertEqual(prefs['sites'], 'newsite.org => New Site')
 
     def test_import_rule_set_merge_mode(self):
-        import tempfile
         import json
+        import tempfile
         spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
         action_mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(action_mod)
@@ -995,8 +995,8 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         self.assertIn('newsite.org => New Site', prefs['sites'])
 
     def test_import_rule_set_syntax_error_does_not_corrupt_prefs(self):
-        import tempfile
         import json
+        import tempfile
         spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
         action_mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(action_mod)

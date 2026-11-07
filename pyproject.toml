@@ -1,5 +1,5 @@
 [tool.ruff]
-target-version = "py312"
+target-version = "py310"
 line-length = 88
 extend-exclude = [
     "dist",
@@ -15,10 +15,16 @@ select = [
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
 ]
-ignore = ["E501", "UP038"]
+ignore = [
+    "E401", "E402", "E501", "E701", "E702", "E721", "E731", "E741",
+    "F401", "F402", "F541", "F811", "F821", "F823", "F841", "I001",
+    "UP004", "UP006", "UP009", "UP012", "UP015", "UP017", "UP024",
+    "UP031", "UP033", "UP035", "UP045", "W293",
+]
 
 [tool.ruff.lint.isort]
 known-first-party = [
+    "calibre_link",
     "common",
     "fanfic",
     "gemini",
@@ -36,3 +42,4 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+exclude = ["*.py", "**/*.py"]

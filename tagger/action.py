@@ -28,14 +28,14 @@ except ImportError:
             TaggerPreviewDialog = None
 
 try:
-    from calibre_plugins.story_collection_tagger import rules as rules_mod
     from calibre_plugins.story_collection_tagger import presets as presets_mod
+    from calibre_plugins.story_collection_tagger import rules as rules_mod
     from calibre_plugins.story_collection_tagger.config import prefs
     from calibre_plugins.story_collection_tagger.guikit import DialogAction
 except ImportError:
     try:
-        from . import rules as rules_mod
         from . import presets as presets_mod
+        from . import rules as rules_mod
         from .config import prefs
         from .guikit import DialogAction
     except ImportError:
@@ -277,7 +277,7 @@ class RuleSetManagerDialog(QDialog):
             return
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
         except Exception as exc:
             QMessageBox.critical(self, "Load Error", f"Failed to read or parse JSON file:\n{exc}")
@@ -383,7 +383,7 @@ class RuleSetManagerDialog(QDialog):
         all_errors = rule_errors + site_errors
 
         if all_errors:
-            QMessageBox.warning(self, "Invalid Rules", f"Cannot commit configuration due to rule syntax errors:\n\n" + "\n".join(all_errors))
+            QMessageBox.warning(self, "Invalid Rules", "Cannot commit configuration due to rule syntax errors:\n\n" + "\n".join(all_errors))
             return
 
         self.committed_rules = rules_text
@@ -853,7 +853,7 @@ class TaggerAction(DialogAction):
             if not filepath:
                 return
             try:
-                with open(filepath, 'r', encoding='utf-8') as f:
+                with open(filepath, encoding='utf-8') as f:
                     content = f.read()
                 preset_pack = presets_mod.parse_preset_json(content)
                 do_merge_preset(preset_pack)
@@ -996,7 +996,7 @@ class TaggerAction(DialogAction):
             if not path:
                 return
             try:
-                with open(path, 'r', encoding='utf-8') as f:
+                with open(path, encoding='utf-8') as f:
                     data = json.load(f)
                 if not isinstance(data, dict):
                     raise ValueError('Imported file must contain a JSON object.')
