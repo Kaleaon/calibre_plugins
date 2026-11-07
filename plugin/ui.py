@@ -1,26 +1,46 @@
 import datetime
 from pathlib import Path
-import time
 
 try:
     from qt.core import (
-        QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-        QPushButton, QLabel, QFileDialog, QTimer, QCheckBox, QLineEdit,
-        QHeaderView, QMessageBox, Qt, QAbstractItemView,
-        QDialogButtonBox, QFormLayout, QSpinBox, QWidget
+        QAbstractItemView,
+        QCheckBox,
+        QDialog,
+        QDialogButtonBox,
+        QFileDialog,
+        QFormLayout,
+        QHBoxLayout,
+        QHeaderView,
+        QLabel,
+        QLineEdit,
+        QMessageBox,
+        QPushButton,
+        QSpinBox,
+        Qt,
+        QTableWidget,
+        QTableWidgetItem,
+        QTimer,
+        QVBoxLayout,
+        QWidget,
     )
 except ImportError:
+
     class QDialog:
         def __init__(self, parent=None):
             self.parent = parent
+
         def setWindowTitle(self, title):
             pass
+
         def resize(self, w, h):
             pass
+
         def exec(self):
             return 1
+
         def accept(self):
             pass
+
         def reject(self):
             pass
 
@@ -28,53 +48,76 @@ except ImportError:
         def __init__(self, *args, **kwargs):
             self.clicked = self
             self.timeout = self
+
         def start(self, *args, **kwargs):
             pass
+
         def stop(self, *args, **kwargs):
             pass
+
         def addWidget(self, *args, **kwargs):
             pass
+
         def addLayout(self, *args, **kwargs):
             pass
+
         def addStretch(self, *args, **kwargs):
             pass
+
         def setHorizontalHeaderLabels(self, *args, **kwargs):
             pass
+
         def horizontalHeader(self):
             return DummyWidget()
+
         def setSectionResizeMode(self, *args, **kwargs):
             pass
+
         def setSelectionBehavior(self, *args, **kwargs):
             pass
+
         def setRowCount(self, count):
             pass
+
         def setItem(self, *args, **kwargs):
             pass
+
         def selectedItems(self):
             return []
+
         def item(self, row, col):
             return None
+
         def connect(self, func):
             pass
+
         def setChecked(self, val):
             pass
+
         def isChecked(self):
             return True
+
         def setText(self, text):
             pass
+
         def text(self):
-            return ''
+            return ""
+
         def setToolTip(self, text):
             pass
+
         def setData(self, *args, **kwargs):
             pass
+
         def data(self, *args, **kwargs):
             return None
 
-    QVBoxLayout = QHBoxLayout = QTableWidget = QTableWidgetItem = QPushButton = QLabel = QLineEdit = QCheckBox = QHeaderView = DummyWidget
+    QVBoxLayout = QHBoxLayout = QTableWidget = QTableWidgetItem = QPushButton = (
+        QLabel
+    ) = QLineEdit = QCheckBox = QHeaderView = DummyWidget
     QFormLayout = QSpinBox = QWidget = QDialogButtonBox = DummyWidget
-    DummyWidget.ResizeMode = type('RM', (), {'Stretch': 1})()
-    DummyWidget.SelectionBehavior = type('SB', (), {'SelectRows': 1})()
+    DummyWidget.ResizeMode = type("RM", (), {"Stretch": 1})()
+    DummyWidget.SelectionBehavior = type("SB", (), {"SelectRows": 1})()
 
     class DummyStandardButton:
         Yes = 16384
@@ -88,90 +131,112 @@ except ImportError:
     DummyWidget.information = staticmethod(lambda *args, **kwargs: None)
 
     QFileDialog = QMessageBox = QTimer = QAbstractItemView = DummyWidget
-    Qt = type('Qt', (), {'WindowModality': type('WM', (), {'NonModal': 0})(), 'ItemDataRole': type('IDR', (), {'UserRole': 32})()})()
+    Qt = type(
+        "Qt",
+        (),
+        {
+            "WindowModality": type("WM", (), {"NonModal": 0})(),
+            "ItemDataRole": type("IDR", (), {"UserRole": 32})(),
+        },
+    )()
 
 try:
     from calibre_plugins.takeout_book_fixer.config import prefs
     from calibre_plugins.takeout_book_fixer.queue_db import (
-        get_all_jobs, retry_job, retry_all_failed, clear_completed_jobs,
-        clear_all_jobs, delete_job
+        clear_all_jobs,
+        clear_completed_jobs,
+        get_all_jobs,
+        retry_all_failed,
+        retry_job,
     )
 except ImportError:
     try:
         from .config import prefs
         from .queue_db import (
-            get_all_jobs, retry_job, retry_all_failed, clear_completed_jobs,
-            clear_all_jobs, delete_job
+            clear_all_jobs,
+            clear_completed_jobs,
+            get_all_jobs,
+            retry_all_failed,
+            retry_job,
         )
     except ImportError:
         from config import prefs
         from queue_db import (
-            get_all_jobs, retry_job, retry_all_failed, clear_completed_jobs,
-            clear_all_jobs, delete_job
+            clear_all_jobs,
+            clear_completed_jobs,
+            get_all_jobs,
+            retry_all_failed,
+            retry_job,
         )
 
 
 class DropFolderConfigDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('Configure Drop Folder & Watch Settings')
+        self.setWindowTitle("Configure Drop Folder & Watch Settings")
         self.resize(500, 250)
         layout = QVBoxLayout(self)
 
         # Drop folder selection
-        layout.addWidget(QLabel('Drop Folder (watches for incoming zip/book files):'))
+        layout.addWidget(QLabel("Drop Folder (watches for incoming zip/book files):"))
         drop_layout = QHBoxLayout()
-        self.drop_edit = QLineEdit(prefs.get('drop_folder', ''))
+        self.drop_edit = QLineEdit(prefs.get("drop_folder", ""))
         drop_layout.addWidget(self.drop_edit)
-        btn_browse_drop = QPushButton('Browse…')
+        btn_browse_drop = QPushButton("Browse…")
         btn_browse_drop.clicked.connect(self.browse_drop)
         drop_layout.addWidget(btn_browse_drop)
         layout.addLayout(drop_layout)
 
         # Default output folder selection
-        layout.addWidget(QLabel('Default Recovered Books Folder (leave blank for drop_folder/Recovered):'))
+        layout.addWidget(
+            QLabel(
+                "Default Recovered Books Folder (leave blank for drop_folder/Recovered):"
+            )
+        )
         out_layout = QHBoxLayout()
-        self.out_edit = QLineEdit(prefs.get('default_output_dir', ''))
+        self.out_edit = QLineEdit(prefs.get("default_output_dir", ""))
         out_layout.addWidget(self.out_edit)
-        btn_browse_out = QPushButton('Browse…')
+        btn_browse_out = QPushButton("Browse…")
         btn_browse_out.clicked.connect(self.browse_out)
         out_layout.addWidget(btn_browse_out)
         layout.addLayout(out_layout)
 
         # Checkboxes
-        self.auto_import_cb = QCheckBox('Automatically import recovered books into Calibre library')
-        self.auto_import_cb.setChecked(prefs.get('auto_import', True))
+        self.auto_import_cb = QCheckBox(
+            "Automatically import recovered books into Calibre library"
+        )
+        self.auto_import_cb.setChecked(prefs.get("auto_import", True))
         layout.addWidget(self.auto_import_cb)
 
-        self.convert_comics_cb = QCheckBox('Convert text-free PDFs to CBZ comics')
-        self.convert_comics_cb.setChecked(prefs.get('convert_comics', False))
+        self.convert_comics_cb = QCheckBox("Convert text-free PDFs to CBZ comics")
+        self.convert_comics_cb.setChecked(prefs.get("convert_comics", False))
         layout.addWidget(self.convert_comics_cb)
 
         # Action buttons
         btn_layout = QHBoxLayout()
-        btn_save = QPushButton('Save')
+        btn_save = QPushButton("Save")
         btn_save.clicked.connect(self.save)
-        btn_cancel = QPushButton('Cancel')
+        btn_cancel = QPushButton("Cancel")
         btn_cancel.clicked.connect(self.reject)
         btn_layout.addWidget(btn_save)
         btn_layout.addWidget(btn_cancel)
         layout.addLayout(btn_layout)
 
     def browse_drop(self):
-        folder = QFileDialog.getExistingDirectory(self, 'Select Drop Folder')
+        folder = QFileDialog.getExistingDirectory(self, "Select Drop Folder")
         if folder:
             self.drop_edit.setText(folder)
 
     def browse_out(self):
-        folder = QFileDialog.getExistingDirectory(self, 'Select Output Folder')
+        folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
         if folder:
             self.out_edit.setText(folder)
 
     def save(self):
-        prefs['drop_folder'] = self.drop_edit.text().strip()
-        prefs['default_output_dir'] = self.out_edit.text().strip()
-        prefs['auto_import'] = self.auto_import_cb.isChecked()
-        prefs['convert_comics'] = self.convert_comics_cb.isChecked()
+        prefs["drop_folder"] = self.drop_edit.text().strip()
+        prefs["default_output_dir"] = self.out_edit.text().strip()
+        prefs["auto_import"] = self.auto_import_cb.isChecked()
+        prefs["convert_comics"] = self.convert_comics_cb.isChecked()
         self.accept()
 
 
@@ -180,24 +245,24 @@ class QueueManagerDialog(QDialog):
         super().__init__(parent)
         self.daemon = daemon
         self.db_path = db_path if db_path else (daemon.db_path if daemon else None)
-        self.setWindowTitle('Takeout Import Queue Manager')
+        self.setWindowTitle("Takeout Import Queue Manager")
         self.resize(800, 450)
 
         layout = QVBoxLayout(self)
 
         # Top Bar Status & Controls
         top_layout = QHBoxLayout()
-        self.lbl_status = QLabel('Queue Status: Active')
+        self.lbl_status = QLabel("Queue Status: Active")
         top_layout.addWidget(self.lbl_status)
         top_layout.addStretch()
 
-        self.btn_pause = QPushButton('Pause Queue')
+        self.btn_pause = QPushButton("Pause Queue")
         if self.daemon and self.daemon.is_paused:
-            self.btn_pause.setText('Resume Queue')
+            self.btn_pause.setText("Resume Queue")
         self.btn_pause.clicked.connect(self.toggle_pause)
         top_layout.addWidget(self.btn_pause)
 
-        btn_settings = QPushButton('Drop Folder Settings')
+        btn_settings = QPushButton("Drop Folder Settings")
         btn_settings.clicked.connect(self.open_settings)
         top_layout.addWidget(btn_settings)
 
@@ -205,38 +270,46 @@ class QueueManagerDialog(QDialog):
 
         # Jobs Table
         self.table = QTableWidget(0, 6, self)
-        self.table.setHorizontalHeaderLabels(['ID', 'Source File', 'Status', 'Attempts', 'Error / Log', 'Updated'])
+        self.table.setHorizontalHeaderLabels(
+            ["ID", "Source File", "Status", "Attempts", "Error / Log", "Updated"]
+        )
         if QHeaderView is not None:
-            self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-            self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+            self.table.horizontalHeader().setSectionResizeMode(
+                1, QHeaderView.ResizeMode.Stretch
+            )
+            self.table.horizontalHeader().setSectionResizeMode(
+                4, QHeaderView.ResizeMode.Stretch
+            )
         if QAbstractItemView is not None:
-            self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+            self.table.setSelectionBehavior(
+                QAbstractItemView.SelectionBehavior.SelectRows
+            )
         layout.addWidget(self.table)
 
         # Bottom Action Buttons
         bot_layout = QHBoxLayout()
 
-        btn_retry_sel = QPushButton('Retry Selected')
+        btn_retry_sel = QPushButton("Retry Selected")
         btn_retry_sel.clicked.connect(self.retry_selected)
         bot_layout.addWidget(btn_retry_sel)
 
-        btn_retry_all = QPushButton('Retry All Failed')
+        btn_retry_all = QPushButton("Retry All Failed")
         btn_retry_all.clicked.connect(self.retry_all)
         bot_layout.addWidget(btn_retry_all)
 
-        btn_clear_comp = QPushButton('Clear Completed')
+        btn_clear_comp = QPushButton("Clear Completed")
         btn_clear_comp.clicked.connect(self.clear_completed)
         bot_layout.addWidget(btn_clear_comp)
 
-        btn_clear_all = QPushButton('Clear All')
+        btn_clear_all = QPushButton("Clear All")
         btn_clear_all.clicked.connect(self.clear_all)
         bot_layout.addWidget(btn_clear_all)
 
-        btn_details = QPushButton('View Details')
+        btn_details = QPushButton("View Details")
         btn_details.clicked.connect(self.view_details)
         bot_layout.addWidget(btn_details)
 
-        btn_close = QPushButton('Close')
+        btn_close = QPushButton("Close")
         btn_close.clicked.connect(self.accept)
         bot_layout.addWidget(btn_close)
 
@@ -255,16 +328,20 @@ class QueueManagerDialog(QDialog):
             return
         if self.daemon.is_paused:
             self.daemon.resume()
-            self.btn_pause.setText('Pause Queue')
-            self.lbl_status.setText('Queue Status: Active')
+            self.btn_pause.setText("Pause Queue")
+            self.lbl_status.setText("Queue Status: Active")
         else:
             self.daemon.pause()
-            self.btn_pause.setText('Resume Queue')
-            self.lbl_status.setText('Queue Status: Paused')
+            self.btn_pause.setText("Resume Queue")
+            self.lbl_status.setText("Queue Status: Paused")
 
     def open_settings(self):
         dlg = DropFolderConfigDialog(self)
-        if dlg.exec() == QDialog.DialogCode.Accepted if hasattr(QDialog, 'DialogCode') else 1:
+        if (
+            dlg.exec() == QDialog.DialogCode.Accepted
+            if hasattr(QDialog, "DialogCode")
+            else 1
+        ):
             if self.daemon:
                 self.daemon.scan_drop_folder()
             self.refresh()
@@ -277,25 +354,33 @@ class QueueManagerDialog(QDialog):
 
         if self.daemon:
             if self.daemon.is_paused:
-                self.lbl_status.setText('Queue Status: Paused')
+                self.lbl_status.setText("Queue Status: Paused")
             else:
-                self.lbl_status.setText('Queue Status: Active')
+                self.lbl_status.setText("Queue Status: Active")
 
         for row_idx, job in enumerate(jobs):
-            item_id = QTableWidgetItem(str(job['id']))
-            item_file = QTableWidgetItem(Path(job['file_path']).name)
-            item_file.setToolTip(job['file_path'])
-            item_status = QTableWidgetItem(str(job['status']))
-            item_attempts = QTableWidgetItem(f"{job['attempt_count']}/{job['max_attempts']}")
-            item_err = QTableWidgetItem(str(job.get('error_log', '')))
+            item_id = QTableWidgetItem(str(job["id"]))
+            item_file = QTableWidgetItem(Path(job["file_path"]).name)
+            item_file.setToolTip(job["file_path"])
+            item_status = QTableWidgetItem(str(job["status"]))
+            item_attempts = QTableWidgetItem(
+                f"{job['attempt_count']}/{job['max_attempts']}"
+            )
+            item_err = QTableWidgetItem(str(job.get("error_log", "")))
 
-            ts = job.get('updated_at', 0)
-            dt_str = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S') if ts else ''
+            ts = job.get("updated_at", 0)
+            dt_str = (
+                datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+                if ts
+                else ""
+            )
             item_time = QTableWidgetItem(dt_str)
 
             # Store full job dict on row ID item for easy reference
-            if hasattr(item_id, 'setData'):
-                item_id.setData(Qt.ItemDataRole.UserRole if hasattr(Qt, 'ItemDataRole') else 32, job)
+            if hasattr(item_id, "setData"):
+                item_id.setData(
+                    Qt.ItemDataRole.UserRole if hasattr(Qt, "ItemDataRole") else 32, job
+                )
 
             self.table.setItem(row_idx, 0, item_id)
             self.table.setItem(row_idx, 1, item_file)
@@ -312,14 +397,16 @@ class QueueManagerDialog(QDialog):
             return None
         row = selected_rows[0].row()
         item = self.table.item(row, 0)
-        if item and hasattr(item, 'data'):
-            return item.data(Qt.ItemDataRole.UserRole if hasattr(Qt, 'ItemDataRole') else 32)
+        if item and hasattr(item, "data"):
+            return item.data(
+                Qt.ItemDataRole.UserRole if hasattr(Qt, "ItemDataRole") else 32
+            )
         return None
 
     def retry_selected(self):
         job = self.get_selected_job()
         if job:
-            retry_job(job['id'], self.db_path)
+            retry_job(job["id"], self.db_path)
             if self.daemon:
                 self.daemon.tick()
             self.refresh()
@@ -339,8 +426,10 @@ class QueueManagerDialog(QDialog):
         if not jobs:
             return
 
-        active_jobs = [j for j in jobs if j.get('status') in ('processing', 'pending')]
-        finished_jobs = [j for j in jobs if j.get('status') not in ('processing', 'pending')]
+        active_jobs = [j for j in jobs if j.get("status") in ("processing", "pending")]
+        finished_jobs = [
+            j for j in jobs if j.get("status") not in ("processing", "pending")
+        ]
 
         active_count = len(active_jobs)
         total_count = len(jobs)
@@ -360,21 +449,23 @@ class QueueManagerDialog(QDialog):
         if QMessageBox is not None:
             standard_buttons = (
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                if hasattr(QMessageBox, 'StandardButton')
+                if hasattr(QMessageBox, "StandardButton")
                 else QMessageBox.Yes | QMessageBox.No
             )
             default_btn = (
                 QMessageBox.StandardButton.No
-                if hasattr(QMessageBox, 'StandardButton')
+                if hasattr(QMessageBox, "StandardButton")
                 else QMessageBox.No
             )
             yes_btn = (
                 QMessageBox.StandardButton.Yes
-                if hasattr(QMessageBox, 'StandardButton')
+                if hasattr(QMessageBox, "StandardButton")
                 else QMessageBox.Yes
             )
 
-            reply = QMessageBox.question(self, title, msg, standard_buttons, default_btn)
+            reply = QMessageBox.question(
+                self, title, msg, standard_buttons, default_btn
+            )
             if reply != yes_btn:
                 return
 
@@ -385,12 +476,14 @@ class QueueManagerDialog(QDialog):
         job = self.get_selected_job()
         if not job:
             return
-        msg = f"Job ID: {job['id']}\n" \
-              f"File: {job['file_path']}\n" \
-              f"Output: {job['output_dir']}\n" \
-              f"Status: {job['status']}\n" \
-              f"Attempts: {job['attempt_count']} / {job['max_attempts']}\n" \
-              f"Error / Log: {job.get('error_log', 'None')}"
+        msg = (
+            f"Job ID: {job['id']}\n"
+            f"File: {job['file_path']}\n"
+            f"Output: {job['output_dir']}\n"
+            f"Status: {job['status']}\n"
+            f"Attempts: {job['attempt_count']} / {job['max_attempts']}\n"
+            f"Error / Log: {job.get('error_log', 'None')}"
+        )
         if QMessageBox is not None:
             QMessageBox.information(self, f"Job Details #{job['id']}", msg)
         else:
@@ -412,72 +505,86 @@ class ConfigWidget(QWidget):
 
         form = QFormLayout()
 
-        self.auto_watch = QCheckBox('Enable Watch Folder Auto-Importer (monitor folder while Calibre runs)')
-        self.auto_watch.setChecked(bool(prefs['auto_watch']))
+        self.auto_watch = QCheckBox(
+            "Enable Watch Folder Auto-Importer (monitor folder while Calibre runs)"
+        )
+        self.auto_watch.setChecked(bool(prefs["auto_watch"]))
         layout.addWidget(self.auto_watch)
 
         # Watch Directory
         self.watch_dir = QLineEdit()
-        self.watch_dir.setText(prefs['watch_dir'] or '')
-        btn_watch = QPushButton('Browse…')
-        btn_watch.clicked.connect(lambda: self._browse_dir(self.watch_dir, 'Select Watch Folder'))
+        self.watch_dir.setText(prefs["watch_dir"] or "")
+        btn_watch = QPushButton("Browse…")
+        btn_watch.clicked.connect(
+            lambda: self._browse_dir(self.watch_dir, "Select Watch Folder")
+        )
         box_watch = QHBoxLayout()
         box_watch.addWidget(self.watch_dir)
         box_watch.addWidget(btn_watch)
-        form.addRow(QLabel('Watch Folder:'), box_watch)
+        form.addRow(QLabel("Watch Folder:"), box_watch)
 
         # Output Directory
         self.output_dir = QLineEdit()
-        self.output_dir.setText(prefs['output_dir'] or '')
-        btn_output = QPushButton('Browse…')
-        btn_output.clicked.connect(lambda: self._browse_dir(self.output_dir, 'Select Output Folder for Recovered Books'))
+        self.output_dir.setText(prefs["output_dir"] or "")
+        btn_output = QPushButton("Browse…")
+        btn_output.clicked.connect(
+            lambda: self._browse_dir(
+                self.output_dir, "Select Output Folder for Recovered Books"
+            )
+        )
         box_output = QHBoxLayout()
         box_output.addWidget(self.output_dir)
         box_output.addWidget(btn_output)
-        form.addRow(QLabel('Output Folder:'), box_output)
+        form.addRow(QLabel("Output Folder:"), box_output)
 
         # Processed Directory
         self.processed_dir = QLineEdit()
-        self.processed_dir.setText(prefs['processed_dir'] or '')
-        self.processed_dir.setPlaceholderText('Default: <watch_dir>/processed')
-        btn_processed = QPushButton('Browse…')
-        btn_processed.clicked.connect(lambda: self._browse_dir(self.processed_dir, 'Select Processed Folder'))
+        self.processed_dir.setText(prefs["processed_dir"] or "")
+        self.processed_dir.setPlaceholderText("Default: <watch_dir>/processed")
+        btn_processed = QPushButton("Browse…")
+        btn_processed.clicked.connect(
+            lambda: self._browse_dir(self.processed_dir, "Select Processed Folder")
+        )
         box_processed = QHBoxLayout()
         box_processed.addWidget(self.processed_dir)
         box_processed.addWidget(btn_processed)
-        form.addRow(QLabel('Processed Folder:'), box_processed)
+        form.addRow(QLabel("Processed Folder:"), box_processed)
 
         # Quiet period timer
         self.quiet_period = QSpinBox()
         self.quiet_period.setRange(1, 60)
-        self.quiet_period.setSuffix(' seconds')
-        self.quiet_period.setValue(int(prefs['quiet_period'] or 3))
-        form.addRow(QLabel('Debounce Quiet Period:'), self.quiet_period)
+        self.quiet_period.setSuffix(" seconds")
+        self.quiet_period.setValue(int(prefs["quiet_period"] or 3))
+        form.addRow(QLabel("Debounce Quiet Period:"), self.quiet_period)
 
         layout.addLayout(form)
 
         # Checkboxes
-        self.convert_comics = QCheckBox('Convert text-free PDFs to CBZ comics')
-        self.convert_comics.setChecked(bool(prefs['convert_comics']))
+        self.convert_comics = QCheckBox("Convert text-free PDFs to CBZ comics")
+        self.convert_comics.setChecked(bool(prefs["convert_comics"]))
         layout.addWidget(self.convert_comics)
 
-        self.auto_import = QCheckBox('Import recovered books into current Calibre library')
-        self.auto_import.setChecked(bool(prefs['auto_import']))
+        self.auto_import = QCheckBox(
+            "Import recovered books into current Calibre library"
+        )
+        self.auto_import.setChecked(bool(prefs["auto_import"]))
         layout.addWidget(self.auto_import)
 
     def _browse_dir(self, line_edit, title):
-        directory = QFileDialog.getExistingDirectory(self, title, line_edit.text() or '')
+        directory = QFileDialog.getExistingDirectory(
+            self, title, line_edit.text() or ""
+        )
         if directory:
             line_edit.setText(directory)
 
     def save_settings(self):
-        prefs['auto_watch'] = self.auto_watch.isChecked()
-        prefs['watch_dir'] = self.watch_dir.text().strip()
-        prefs['output_dir'] = self.output_dir.text().strip()
-        prefs['processed_dir'] = self.processed_dir.text().strip()
-        prefs['convert_comics'] = self.convert_comics.isChecked()
-        prefs['auto_import'] = self.auto_import.isChecked()
-        prefs['quiet_period'] = self.quiet_period.value()
+        prefs["auto_watch"] = self.auto_watch.isChecked()
+        prefs["watch_dir"] = self.watch_dir.text().strip()
+        prefs["output_dir"] = self.output_dir.text().strip()
+        prefs["processed_dir"] = self.processed_dir.text().strip()
+        prefs["convert_comics"] = self.convert_comics.isChecked()
+        prefs["auto_import"] = self.auto_import.isChecked()
+        prefs["quiet_period"] = self.quiet_period.value()
 
 
 class ConfigDialog(QDialog):
@@ -485,13 +592,15 @@ class ConfigDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('Takeout Book Fixer Preferences')
+        self.setWindowTitle("Takeout Book Fixer Preferences")
         layout = QVBoxLayout(self)
 
         self.widget = ConfigWidget(self)
         layout.addWidget(self.widget)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

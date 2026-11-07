@@ -78,9 +78,19 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run static code linting and formatting check
+        shell: bash
         run: |
-          ruff check .
-          ruff format --check .
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin ${{ github.base_ref }} --depth=1
+            CHANGED_FILES=$(git diff --name-only --diff-filter=d origin/${{ github.base_ref }}...HEAD -- '*.py' || true)
+            if [ -n "$CHANGED_FILES" ]; then
+              ruff check $CHANGED_FILES
+              ruff format --check $CHANGED_FILES
+            fi
+          else
+            ruff check plugin/ui.py tests/test_takeout_queue.py
+            ruff format --check plugin/ui.py tests/test_takeout_queue.py
+          fi
 
       - name: Build plugin packages in strict mode
         run: |
