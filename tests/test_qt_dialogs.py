@@ -1754,6 +1754,7 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs["api_key"] = "k"
         action_mod.prefs["batch_size"] = 1
         action_mod.prefs["min_interval"] = 0
+        action_mod.prefs["batch_dir"] = self.tmp_batch_dir.name
         seen = {}
 
         def drive(dialog):
