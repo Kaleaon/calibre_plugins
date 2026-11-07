@@ -295,7 +295,14 @@ RULE_SET_SCHEMA_VERSION = 1
 
 def export_rule_set_data(rules_text, sites_text, title="Exported Rule Set", description=""):
     """Serializes rules and extra sites multiline text into a versioned JSON-compatible dictionary."""
-    from datetime import UTC, datetime
+    from datetime import datetime
+
+    try:
+        from datetime import UTC
+    except ImportError:
+        from datetime import timezone
+
+        UTC = timezone.utc  # noqa: UP017
     parsed_rules, _ = parse_rules(rules_text)
     parsed_sites, _ = parse_sites(sites_text)
 
