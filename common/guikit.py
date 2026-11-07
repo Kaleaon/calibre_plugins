@@ -1125,25 +1125,6 @@ def parse_lines(text_or_widget):
     return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
-def collect_tree_changes(tree):
-    """Collect checked child items from a QTreeWidget into a list of (top_item_id, {field: new_val})."""
-    items = []
-    for i in range(tree.topLevelItemCount()):
-        top = tree.topLevelItem(i)
-        changes = {}
-        for j in range(top.childCount()):
-            child = top.child(j)
-            if child.checkState(0) == Qt.CheckState.Checked:
-                changes[child.data(0, Qt.ItemDataRole.UserRole)] = child.data(0, Qt.ItemDataRole.UserRole + 1)
-        if changes:
-            items.append((top.data(0, Qt.ItemDataRole.UserRole), changes))
-    return items
-
-
-def append_log(widget, text):
-    """Append a timestamped line ("%H:%M:%S  <text>") to a QPlainTextEdit or similar widget."""
-    widget.appendPlainText(f'{time.strftime("%H:%M:%S")}  {text}')
-
 
 def collect_checked_fields(boxes, labels=None):
     """Return tuple of field keys whose checkboxes in `boxes` dict are checked.
