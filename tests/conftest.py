@@ -78,6 +78,23 @@ if "calibre" not in sys.modules:
         (object,),
         {},
     )
-    sys.modules["calibre.utils.config"].JSONConfig = lambda name: type(
-        "Prefs", (dict,), {"defaults": {}}
-    )()
+
+    class StubPrefs(dict):
+        def __init__(self):
+            super().__init__()
+            self.defaults = {}
+
+        def __getitem__(self, key):
+            try:
+                return dict.__getitem__(self, key)
+            except KeyError:
+                return self.defaults[key]
+
+        def get(self, key, default=None):
+            if key in self:
+                return dict.__getitem__(self, key)
+            if key in self.defaults:
+                return self.defaults[key]
+            return default
+
+    sys.modules["calibre.utils.config"].JSONConfig = lambda name: StubPrefs()

@@ -48,7 +48,7 @@ class PluginImportTests(unittest.TestCase):
         self.saved = {
             k: v
             for k, v in sys.modules.items()
-            if k.startswith(("calibre", "qt", "calibre_plugins"))
+            if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))
         }
         for name in STUBS + ["lxml", "lxml.etree"]:
             sys.modules[name] = MagicMock()
@@ -63,7 +63,9 @@ class PluginImportTests(unittest.TestCase):
 
     def tearDown(self):
         for k in [
-            k for k in sys.modules if k.startswith(("calibre", "qt", "calibre_plugins"))
+            k
+            for k in sys.modules
+            if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))
         ]:
             del sys.modules[k]
         sys.modules.update(self.saved)
@@ -124,6 +126,12 @@ class PluginImportTests(unittest.TestCase):
                     "engine",
                     "flaresolverr",
                     "guikit",
+                ],
+                "calibre_link": [
+                    "config",
+                    "ui",
+                    "adapter",
+                    "server",
                 ],
             }.get(import_name, ["config", "action", "ui", "core", "guikit"])
             for module in modules:

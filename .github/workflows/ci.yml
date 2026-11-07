@@ -126,6 +126,7 @@ jobs:
               'RedditStoryFollower.zip',
               'GeminiLibraryFixer.zip',
               'MediaMatcher.zip',
+              'InkbunnySoFurryDownloader.zip',
               'CalibreLink.zip'
           ]
           dist_dir = 'dist'

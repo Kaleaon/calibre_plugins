@@ -4,12 +4,29 @@ Maintains thread-safe persistent state for cross-author series, multi-source fee
 chapter manifests, deduplication, and author attributions.
 """
 
-import contextlib
 import json
 import os
 import sqlite3
 import threading
 import time
+
+
+class _ConnectionContext:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __enter__(self):
+        self._conn.__enter__()
+        return self._conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            return self._conn.__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self._conn.close()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
 
 
 class SeriesRegistry:
@@ -21,7 +38,6 @@ class SeriesRegistry:
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self.init_db()
 
-    @contextlib.contextmanager
     def _get_connection(self):
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
@@ -40,11 +56,7 @@ class SeriesRegistry:
         )
         if not cursor.fetchone():
             self._create_tables(conn)
-        try:
-            with conn:
-                yield conn
-        finally:
-            conn.close()
+        return _ConnectionContext(conn)
 
     def _create_tables(self, conn):
         cursor = conn.cursor()

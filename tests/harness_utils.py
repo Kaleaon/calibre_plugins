@@ -101,7 +101,8 @@ class BaseMockDb:
                 self.covers[book_id] = data
 
     def set_field(self, name, mapping):
-        self.writes.append((name, dict(mapping)))
+        for book_id, val in mapping.items():
+            self.writes.append((name, {book_id: val}))
 
     def add_books(self, items, **kwargs):
         ids = []
