@@ -1,4 +1,8 @@
-from calibre.customize import InterfaceActionBase
+try:
+    from calibre.customize import InterfaceActionBase
+except ImportError:
+    class InterfaceActionBase:
+        pass
 
 class EpubPromoScrubber(InterfaceActionBase):
     name = 'EPUB Promo Scrubber'

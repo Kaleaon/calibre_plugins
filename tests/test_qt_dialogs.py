@@ -107,7 +107,7 @@ class QtCase(unittest.TestCase):
         for name in ('calibre', 'calibre.customize', 'calibre.gui2', 'calibre.utils'):
             sys.modules[name] = MagicMock()
         actions = types.ModuleType('calibre.gui2.actions')
-        actions.InterfaceAction = type('InterfaceAction', (object,), {'__init__': lambda self, gui, name: setattr(self, 'gui', gui)})
+        actions.InterfaceAction = type('InterfaceAction', (object,), {'__init__': lambda self, gui=None, name=None: setattr(self, 'gui', gui)})
         sys.modules['calibre.gui2.actions'] = actions
         for name in ('calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.book'):
             sys.modules[name] = MagicMock()
@@ -194,7 +194,7 @@ class TaskAndTagSearchTests(QtCase):
 
             def accept_options_dialog():
                 for widget in QtWidgets.QApplication.topLevelWidgets():
-                    if isinstance(widget, QtWidgets.QDialog) and not isinstance(widget, QtWidgets.QProgressDialog):
+                    if isinstance(widget, QtWidgets.QDialog) and not isinstance(widget, QtWidgets.QProgressDialog) and widget.isVisible():
                         widget.accept()
                         return
                 QtCore.QTimer.singleShot(10, accept_options_dialog)
@@ -690,8 +690,17 @@ class RedditPluginTests(QtCase):
         dialog.login_endpoints['redirect_uri'] = login.REDIRECT_URI
 
         def browser(url):
-            state = parse_qs(urlparse(url).query)['state'][0]
-            threading.Thread(target=lambda: urllib.request.urlopen(f'{login.REDIRECT_URI}?code=abc&state={state}').read()).start()
+            query = parse_qs(urlparse(url).query)
+            state = query['state'][0]
+            target_uri = query.get('redirect_uri', [login.REDIRECT_URI])[0]
+            def call_callback():
+                for _ in range(50):
+                    try:
+                        urllib.request.urlopen(f'{target_uri}?code=abc&state={state}').read()
+                        break
+                    except Exception:
+                        time.sleep(0.05)
+            threading.Thread(target=call_callback).start()
         dialog.open_browser = browser
         dialog.log_in()
         self.assertEqual(RecordingBox.warnings, [])

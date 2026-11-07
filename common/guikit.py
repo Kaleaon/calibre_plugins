@@ -1133,7 +1133,8 @@ def collect_tree_changes(tree):
         changes = {}
         for j in range(top.childCount()):
             child = top.child(j)
-            if child.checkState(0) == Qt.CheckState.Checked:
+            state = child.checkState(0)
+            if state in (Qt.CheckState.Checked, getattr(Qt.CheckState.Checked, 'value', 2), 2):
                 changes[child.data(0, Qt.ItemDataRole.UserRole)] = child.data(0, Qt.ItemDataRole.UserRole + 1)
         if changes:
             items.append((top.data(0, Qt.ItemDataRole.UserRole), changes))
@@ -1142,7 +1143,9 @@ def collect_tree_changes(tree):
 
 def append_log(widget, text):
     """Append a timestamped line ("%H:%M:%S  <text>") to a QPlainTextEdit or similar widget."""
-    widget.appendPlainText(f'{time.strftime("%H:%M:%S")}  {text}')
+    line = f'{time.strftime("%H:%M:%S")}  {text}'
+    widget.appendPlainText(line)
+    return line
 
 
 def collect_checked_fields(boxes, labels=None):
