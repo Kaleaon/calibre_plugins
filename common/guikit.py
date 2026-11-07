@@ -6,32 +6,61 @@ import threading
 import time
 from pathlib import Path
 
-from qt.core import (
-    QAbstractItemView,
-    QApplication,
-    QCheckBox,
-    QDialog,
-    QDialogButtonBox,
-    QEvent,
-    QFormLayout,
-    QFrame,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QObject,
-    QPalette,
-    QPlainTextEdit,
-    QProgressDialog,
-    QPushButton,
-    QSplitter,
-    Qt,
-    QTableWidget,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+try:
+    from qt.core import (
+        QAbstractItemView,
+        QApplication,
+        QCheckBox,
+        QDialog,
+        QDialogButtonBox,
+        QEvent,
+        QFormLayout,
+        QFrame,
+        QHBoxLayout,
+        QHeaderView,
+        QLabel,
+        QLineEdit,
+        QObject,
+        QPalette,
+        QPlainTextEdit,
+        QProgressDialog,
+        QPushButton,
+        QSplitter,
+        Qt,
+        QTableWidget,
+        QTreeWidget,
+        QTreeWidgetItem,
+        QVBoxLayout,
+        QWidget,
+    )
+except ImportError:
+    try:
+        from PyQt6.QtCore import QEvent, QObject, Qt
+        from PyQt6.QtGui import QPalette
+        from PyQt6.QtWidgets import (
+            QAbstractItemView,
+            QApplication,
+            QCheckBox,
+            QDialog,
+            QDialogButtonBox,
+            QFormLayout,
+            QFrame,
+            QHBoxLayout,
+            QHeaderView,
+            QLabel,
+            QLineEdit,
+            QPlainTextEdit,
+            QProgressDialog,
+            QPushButton,
+            QSplitter,
+            QTableWidget,
+            QTreeWidget,
+            QTreeWidgetItem,
+            QVBoxLayout,
+            QWidget,
+        )
+    except ImportError:
+        pass
 
 try:
     from .storykit import Cancelled, extract_epub_story, sort_by_posting_order
