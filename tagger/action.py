@@ -655,52 +655,73 @@ class TaggerAction(DialogAction):
             'active_rules': presets_mod.text_to_rule_dicts(rules_edit.toPlainText()),
             'editing_index': -1,
             'bundled_presets': presets_mod.load_bundled_presets(),
-            'syncing': False
+            'syncing': False,
+            'cursor_position': None,
         }
 
         # --- Helper functions ---
-        def populate_table_from_rules():
+        def populate_table_from_rules(cursor_pos=None):
             if state['syncing']:
                 return
             state['syncing'] = True
-            rules_table.setRowCount(0)
-            for idx, r_dict in enumerate(state['active_rules']):
-                rules_table.insertRow(idx)
+            try:
+                rules_table.setRowCount(0)
+                for idx, r_dict in enumerate(state['active_rules']):
+                    rules_table.insertRow(idx)
 
-                field_item = QTableWidgetItem(r_dict.get('field', 'any'))
-                mode_item = QTableWidgetItem((r_dict.get('match_mode') or 'substring').title())
-                pat_item = QTableWidgetItem(r_dict.get('pattern', ''))
-                tags_list = r_dict.get('tags') or []
-                tags_item = QTableWidgetItem(", ".join(tags_list) if isinstance(tags_list, list) else str(tags_list))
+                    field_item = QTableWidgetItem(r_dict.get('field', 'any'))
+                    mode_item = QTableWidgetItem((r_dict.get('match_mode') or 'substring').title())
+                    pat_item = QTableWidgetItem(r_dict.get('pattern', ''))
+                    tags_list = r_dict.get('tags') or []
+                    tags_item = QTableWidgetItem(", ".join(tags_list) if isinstance(tags_list, list) else str(tags_list))
 
-                rules_table.setItem(idx, 0, field_item)
-                rules_table.setItem(idx, 1, mode_item)
-                rules_table.setItem(idx, 2, pat_item)
-                rules_table.setItem(idx, 3, tags_item)
+                    rules_table.setItem(idx, 0, field_item)
+                    rules_table.setItem(idx, 1, mode_item)
+                    rules_table.setItem(idx, 2, pat_item)
+                    rules_table.setItem(idx, 3, tags_item)
 
-                btn_widget = QWidget()
-                btn_layout = QHBoxLayout(btn_widget)
-                btn_layout.setContentsMargins(2, 2, 2, 2)
+                    btn_widget = QWidget()
+                    btn_layout = QHBoxLayout(btn_widget)
+                    btn_layout.setContentsMargins(2, 2, 2, 2)
 
-                edit_btn = QPushButton("Edit")
-                del_btn = QPushButton("Del")
+                    edit_btn = QPushButton("Edit")
+                    del_btn = QPushButton("Del")
 
-                def make_edit_cb(row_idx):
-                    return lambda: on_edit_rule(row_idx)
+                    def make_edit_cb(row_idx):
+                        return lambda: on_edit_rule(row_idx)
 
-                def make_del_cb(row_idx):
-                    return lambda: on_delete_rule(row_idx)
+                    def make_del_cb(row_idx):
+                        return lambda: on_delete_rule(row_idx)
 
-                edit_btn.clicked.connect(make_edit_cb(idx))
-                del_btn.clicked.connect(make_del_cb(idx))
+                    edit_btn.clicked.connect(make_edit_cb(idx))
+                    del_btn.clicked.connect(make_del_cb(idx))
 
-                btn_layout.addWidget(edit_btn)
-                btn_layout.addWidget(del_btn)
-                rules_table.setCellWidget(idx, 4, btn_widget)
+                    btn_layout.addWidget(edit_btn)
+                    btn_layout.addWidget(del_btn)
+                    rules_table.setCellWidget(idx, 4, btn_widget)
 
-            raw_text = presets_mod.rules_to_text(state['active_rules'])
-            rules_edit.setPlainText(raw_text)
-            state['syncing'] = False
+                if cursor_pos is None:
+                    cursor_pos = state.pop('cursor_position', None)
+
+                raw_text = presets_mod.rules_to_text(state['active_rules'])
+                was_blocked = rules_edit.blockSignals(True) if hasattr(rules_edit, 'blockSignals') else False
+                try:
+                    rules_edit.setPlainText(raw_text)
+                    if cursor_pos is not None:
+                        cursor = rules_edit.textCursor() if hasattr(rules_edit, 'textCursor') else None
+                        if cursor is not None and hasattr(cursor, 'setPosition'):
+                            if isinstance(cursor_pos, int):
+                                new_pos = max(0, min(cursor_pos, len(raw_text)))
+                            else:
+                                new_pos = cursor_pos
+                            cursor.setPosition(new_pos)
+                            if hasattr(rules_edit, 'setTextCursor'):
+                                rules_edit.setTextCursor(cursor)
+                finally:
+                    if hasattr(rules_edit, 'blockSignals'):
+                        rules_edit.blockSignals(was_blocked)
+            finally:
+                state['syncing'] = False
 
         def validate_form():
             field = field_combo.currentText().strip()
@@ -784,10 +805,18 @@ class TaggerAction(DialogAction):
             if state['syncing']:
                 return
             state['syncing'] = True
-            raw_text = rules_edit.toPlainText()
-            state['active_rules'] = presets_mod.text_to_rule_dicts(raw_text)
-            state['syncing'] = False
-            populate_table_from_rules()
+            try:
+                cursor_pos = None
+                if hasattr(rules_edit, 'textCursor'):
+                    cursor = rules_edit.textCursor()
+                    if hasattr(cursor, 'position'):
+                        cursor_pos = cursor.position()
+                state['cursor_position'] = cursor_pos
+                raw_text = rules_edit.toPlainText()
+                state['active_rules'] = presets_mod.text_to_rule_dicts(raw_text)
+            finally:
+                state['syncing'] = False
+            populate_table_from_rules(cursor_pos=cursor_pos)
 
         def populate_preset_list():
             preset_list_table.setRowCount(0)

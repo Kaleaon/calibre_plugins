@@ -396,6 +396,140 @@ class TaggerDialogTests(unittest.TestCase):
         scope_selected.toggled.connect.assert_called_with(handler)
         scope_all.toggled.connect.assert_called_with(handler)
 
+    def _setup_dialog_with_tracking_rules_edit(self, initial_rules='litrpg => LitRPG'):
+        action_mod = self._load_action_mod()
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+
+        qt_core = sys.modules['qt.core']
+        widgets = {}
+
+        class MockCursor:
+            def __init__(self, pos):
+                self._pos = pos
+
+            def position(self):
+                return self._pos
+
+            def setPosition(self, p):
+                self._pos = p
+
+        def make_tracking_plain_text_edit(text=''):
+            m = MagicMock()
+            m._text = str(text or '')
+            m._cursor_pos = 0
+            m._signals_blocked = False
+            m.signal_block_log = []
+            m.toPlainText.side_effect = lambda: m._text
+
+            def _set_plain_text(t):
+                m._text = str(t or '')
+                m._cursor_pos = 0
+
+            m.setPlainText.side_effect = _set_plain_text
+
+            def _block_signals(b):
+                old = m._signals_blocked
+                m._signals_blocked = bool(b)
+                m.signal_block_log.append(b)
+                return old
+
+            m.blockSignals.side_effect = _block_signals
+            m.signalsBlocked.side_effect = lambda: m._signals_blocked
+            m.textCursor.side_effect = lambda: MockCursor(m._cursor_pos)
+
+            def _set_text_cursor(c):
+                m._cursor_pos = c.position() if hasattr(c, 'position') else getattr(c, '_pos', 0)
+
+            m.setTextCursor.side_effect = _set_text_cursor
+            return m
+
+        def mock_widget(cls_name, *a, **k):
+            if cls_name == 'QPlainTextEdit' and a and a[0] == action_mod.prefs['rules']:
+                m = make_tracking_plain_text_edit(*a)
+            else:
+                m = MagicMock()
+            m._args = a
+            widgets.setdefault(cls_name, []).append(m)
+            return m
+
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget('QPlainTextEdit', *a, **k)
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget('QLineEdit', *a, **k)
+        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget('QCheckBox', *a, **k)
+        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget('QRadioButton', *a, **k)
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget('QPushButton', *a, **k)
+        qt_core.QTreeWidget.side_effect = lambda *a, **k: mock_widget('QTreeWidget', *a, **k)
+        qt_core.QTreeWidgetItem.side_effect = lambda *a, **k: mock_widget('QTreeWidgetItem', *a, **k)
+        qt_core.QSplitter.side_effect = lambda *a, **k: mock_widget('QSplitter', *a, **k)
+        qt_core.QWidget.side_effect = lambda *a, **k: mock_widget('QWidget', *a, **k)
+
+        action_mod.prefs['rules'] = initial_rules
+
+        action.show_dialog()
+
+        rules_edit = next(w for w in widgets['QPlainTextEdit'] if hasattr(w, 'signal_block_log'))
+        on_raw_text_changed = next(
+            c[0][0]
+            for c in rules_edit.textChanged.connect.call_args_list
+            if getattr(c[0][0], '__name__', '') == 'on_raw_text_changed'
+        )
+        return action_mod, action, rules_edit, on_raw_text_changed
+
+    def test_rules_edit_cursor_preservation_on_raw_text_changed(self):
+        action_mod, action, rules_edit, on_raw_text_changed = self._setup_dialog_with_tracking_rules_edit(
+            'litrpg => LitRPG'
+        )
+
+        # Simulate user having moved the cursor to position 7
+        rules_edit._cursor_pos = 7
+        rules_edit.signal_block_log.clear()
+
+        # Fire on_raw_text_changed
+        on_raw_text_changed()
+
+        # Cursor position must be preserved at 7 rather than reset to 0
+        self.assertEqual(rules_edit._cursor_pos, 7)
+        # Signal blocking must have been toggled True during setPlainText and restored to False
+        self.assertEqual(rules_edit.signal_block_log, [True, False])
+
+    def test_rules_edit_cursor_clamped_when_document_shrinks(self):
+        action_mod, action, rules_edit, on_raw_text_changed = self._setup_dialog_with_tracking_rules_edit(
+            'litrpg => LitRPG\nauthor:Bob => Sci-Fi'
+        )
+
+        # User updates text to something shorter and cursor was at a high offset (e.g., 50)
+        rules_edit._text = 'litrpg => LitRPG'
+        rules_edit._cursor_pos = 50
+        rules_edit.signal_block_log.clear()
+
+        on_raw_text_changed()
+
+        # Cursor should be safely clamped to len(new_text) without raising an exception
+        expected_len = len(rules_edit.toPlainText())
+        self.assertLessEqual(rules_edit._cursor_pos, expected_len)
+        self.assertEqual(rules_edit._cursor_pos, expected_len)
+        self.assertEqual(rules_edit.signal_block_log, [True, False])
+
+    def test_rules_edit_block_signals_active_during_text_replacement(self):
+        action_mod, action, rules_edit, on_raw_text_changed = self._setup_dialog_with_tracking_rules_edit(
+            'litrpg => LitRPG'
+        )
+
+        signals_blocked_during_set_text = []
+        original_set_plain_text = rules_edit.setPlainText.side_effect
+
+        def spy_set_plain_text(t):
+            signals_blocked_during_set_text.append(rules_edit.signalsBlocked())
+            original_set_plain_text(t)
+
+        rules_edit.setPlainText.side_effect = spy_set_plain_text
+        on_raw_text_changed()
+
+        self.assertEqual(signals_blocked_during_set_text, [True])
+        self.assertFalse(rules_edit.signalsBlocked())
+
+
 
 class SelectionStateTests(unittest.TestCase):
     def setUp(self):
@@ -636,6 +770,33 @@ class TaggerPreviewDialogUITests(unittest.TestCase):
         self.assertEqual(filtered[0]['id'], 1)
         self.assertEqual(filtered[0]['add'], ['Source.Metabods'])
         self.assertEqual(filtered[0]['tags'], ['Fiction', 'Source.Metabods'])
+
+    def test_real_qt_cursor_preservation_and_signals(self):
+        edit = QtWidgets.QPlainTextEdit()
+        edit.setPlainText("field:any => Tag1, Tag2")
+
+        cursor = edit.textCursor()
+        cursor.setPosition(10)
+        edit.setTextCursor(cursor)
+        self.assertEqual(edit.textCursor().position(), 10)
+
+        signals_received = []
+        edit.textChanged.connect(lambda: signals_received.append(True))
+
+        cursor_pos = edit.textCursor().position()
+        was_blocked = edit.blockSignals(True)
+        try:
+            edit.setPlainText("field:any => Tag1, Tag2\nseries:Dune => Sci-Fi")
+            cursor = edit.textCursor()
+            cursor.setPosition(min(cursor_pos, len(edit.toPlainText())))
+            edit.setTextCursor(cursor)
+        finally:
+            edit.blockSignals(was_blocked)
+
+        self.assertEqual(signals_received, [])
+        self.assertEqual(edit.textCursor().position(), 10)
+        self.assertFalse(edit.signalsBlocked())
+
 
 
 class RuleSetSchemaTests(unittest.TestCase):
