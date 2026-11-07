@@ -52,6 +52,10 @@ jobs:
     permissions:
       contents: read
 
+    defaults:
+      run:
+        shell: bash
+
     env:
       QT_QPA_PLATFORM: offscreen
       PYTHONPATH: .
@@ -138,9 +142,10 @@ jobs:
       - name: Upload plugin packages artifact
         uses: actions/upload-artifact@v4
         with:
-          name: calibre-plugin-packages
+          name: calibre-plugin-packages-${{ matrix.os }}-py${{ matrix.python-version }}
           path: dist/*.zip
           retention-days: 14
+          overwrite: true
 
       - name: Run unit test suite
         run: |
@@ -158,12 +163,13 @@ jobs:
                       )
                       changed = [f.strip() for f in proc.stdout.splitlines() if f.strip()]
                       for c in changed:
-                          if c.startswith('tests/test_') and c.endswith('.py') and os.path.exists(c):
-                              test_targets.append(c)
+                          c_norm = c.replace(chr(92), '/')
+                          if c_norm.startswith('tests/test_') and c_norm.endswith('.py') and os.path.exists(c_norm):
+                              test_targets.append(c_norm)
                           else:
-                              part = c.split('/')[0]
+                              part = c_norm.split('/')[0]
                               for match in glob.glob(f'tests/test_{part}*.py'):
-                                  test_targets.append(match)
+                                  test_targets.append(match.replace(chr(92), '/'))
                       if test_targets:
                           break
                   except Exception:
