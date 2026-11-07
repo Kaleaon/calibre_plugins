@@ -41,7 +41,9 @@ Free keys allow only a small number of requests per minute and per day, and Goog
 
 ## Progress and activity log
 
-While it works the window shows a progress bar (books read, then books answered), what it is doing right now (including seconds waited on Google), and a log with each book as it is read, the exact details being sent to Google for it, and every answer that comes back: ✔ a suggested change, – no change needed, ✖ dropped or failed. **Cancel** stops after the request already in flight.
+While it works the window shows an informative progress bar displaying the book being processed or fixed and percentage completion, a status line of what it is doing right now (including book titles, batches, and seconds waited on Google), and a live log with each book as it is read, the exact details being sent to Google for it, and every answer that comes back: ✔ a suggested change, – no change needed, ✖ dropped or failed.
+
+When you click **Apply ticked changes**, the progress bar and status line show real-time progress as each book is being fixed in your library, including metadata embedding and file renaming. **Cancel** stops after the request already in flight.
 
 ## What it can fix
 

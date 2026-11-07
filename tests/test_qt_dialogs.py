@@ -939,10 +939,13 @@ class RedditPluginTests(QtCase):
         dialog.login_endpoints["redirect_uri"] = login.REDIRECT_URI
 
         def browser(url):
-            state = parse_qs(urlparse(url).query)["state"][0]
+            query = parse_qs(urlparse(url).query)
+            state = query["state"][0]
+            redirect_to = query.get("redirect_uri", [login.REDIRECT_URI])[0]
+            sep = "&" if "?" in redirect_to else "?"
             threading.Thread(
                 target=lambda: urllib.request.urlopen(
-                    f"{login.REDIRECT_URI}?code=abc&state={state}"
+                    f"{redirect_to}{sep}code=abc&state={state}"
                 ).read()
             ).start()
 
@@ -1712,8 +1715,8 @@ class GeminiDialogTests(QtCase):
         canned = json.dumps(
             {"candidates": [{"content": {"parts": [{"text": json.dumps(answers)}]}}]}
         ).encode()
-        engine._post = lambda url, headers, body, timeout: (
-            canned
+        engine._post = (
+            lambda url, headers, body, timeout: canned
         )  # Google is replaced; the key never leaves this process
 
         db = GeminiDb()
@@ -2138,6 +2141,7 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs["api_key"] = "k"
         action_mod.prefs["batch_size"] = 1
         action_mod.prefs["min_interval"] = 0
+        action_mod.prefs["batch_dir"] = self.tmp_batch_dir.name
         seen = {}
 
         def drive(dialog):
@@ -2205,8 +2209,8 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs["batch_dir"] = self.tmp_batch_dir.name
 
         warnings_shown = []
-        action_mod.warning_dialog = lambda parent, title, msg, show=False: (
-            warnings_shown.append((title, msg))
+        action_mod.warning_dialog = (
+            lambda parent, title, msg, show=False: warnings_shown.append((title, msg))
         )
 
         seen = {}
