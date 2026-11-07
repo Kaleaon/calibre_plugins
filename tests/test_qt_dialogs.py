@@ -24,9 +24,11 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
     from PyQt6 import QtCore, QtGui, QtWidgets
     HAVE_QT = True
+    _ORIGINAL_QDIALOG_EXEC = QtWidgets.QDialog.__dict__.get('exec')
 except ImportError:  # also raised when system libraries such as libEGL are missing
     HAVE_QT = False
     QtCore = QtGui = QtWidgets = None
+    _ORIGINAL_QDIALOG_EXEC = None
 import build_plugins  # noqa: E402
 sys.path.insert(0, str(ROOT / 'tests'))
 from harness_utils import BaseMockDb  # noqa: E402
@@ -91,12 +93,11 @@ class QtCase(unittest.TestCase):
         cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
         cls.tmp = tempfile.TemporaryDirectory()
         cls.built = build_plugins.build_all(Path(cls.tmp.name) / 'dist')
-        cls._qdialog_exec_descriptor = QtWidgets.QDialog.__dict__.get('exec')
 
     @classmethod
     def tearDownClass(cls):
-        if cls._qdialog_exec_descriptor is not None:
-            setattr(QtWidgets.QDialog, 'exec', cls._qdialog_exec_descriptor)
+        if _ORIGINAL_QDIALOG_EXEC is not None and QtWidgets.QDialog.__dict__.get('exec') is not _ORIGINAL_QDIALOG_EXEC:
+            setattr(QtWidgets.QDialog, 'exec', _ORIGINAL_QDIALOG_EXEC)
         cls.tmp.cleanup()
 
     def setUp(self):
@@ -138,8 +139,8 @@ class QtCase(unittest.TestCase):
                 widget.close()
                 widget.deleteLater()
             self.app.processEvents()
-        if getattr(self, '_qdialog_exec_descriptor', None) is not None:
-            setattr(QtWidgets.QDialog, 'exec', self._qdialog_exec_descriptor)
+        if _ORIGINAL_QDIALOG_EXEC is not None and QtWidgets.QDialog.__dict__.get('exec') is not _ORIGINAL_QDIALOG_EXEC:
+            setattr(QtWidgets.QDialog, 'exec', _ORIGINAL_QDIALOG_EXEC)
 
     def load(self, import_name):
         prefix = f'calibre_plugins.{import_name}'
@@ -1331,12 +1332,8 @@ class GeminiDialogTests(QtCase):
 
             dialog.reject()
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, 'exec', drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
 
         self.assertEqual(seen['initial_mode_index'], 1, 'Started in override mode index 1')
         self.assertEqual(seen['initial_text'], 'Custom test instruction prompt')
