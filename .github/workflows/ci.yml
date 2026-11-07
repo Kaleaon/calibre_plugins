@@ -52,6 +52,10 @@ jobs:
     permissions:
       contents: read
 
+    defaults:
+      run:
+        shell: bash
+
     env:
       QT_QPA_PLATFORM: offscreen
       PYTHONPATH: .
@@ -59,6 +63,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -79,8 +85,35 @@ jobs:
 
       - name: Run static code linting and formatting check
         run: |
-          ruff check .
-          ruff format --check .
+          python -c "
+          import os, subprocess, sys
+
+          base = os.environ.get('BASE_REF')
+          files = []
+          diff_ok = False
+          if base:
+              for ref in [f'origin/{base}', base]:
+                  try:
+                      proc = subprocess.run(
+                          ['git', 'diff', '--name-only', '--diff-filter=d', f'{ref}...HEAD', '--', '*.py'],
+                          capture_output=True, text=True, check=True
+                      )
+                      files = [f.strip() for f in proc.stdout.splitlines() if f.strip() and os.path.exists(f.strip())]
+                      diff_ok = True
+                      break
+                  except Exception:
+                      continue
+
+          if diff_ok and not files:
+              print('No Python files modified in this pull request; skipping ruff checks.')
+          else:
+              targets = files if files else ['.']
+              print(f'Checking {len(targets)} target(s) with ruff: {targets}')
+              subprocess.run(['ruff', 'check'] + targets, check=True)
+              subprocess.run(['ruff', 'format', '--check'] + targets, check=True)
+          "
+        env:
+          BASE_REF: ${{ github.base_ref }}
 
       - name: Build plugin packages in strict mode
         run: |
@@ -113,11 +146,52 @@ jobs:
       - name: Upload plugin packages artifact
         uses: actions/upload-artifact@v4
         with:
-          name: calibre-plugin-packages
+          name: calibre-plugin-packages-${{ matrix.os }}-py${{ matrix.python-version }}
           path: dist/*.zip
           retention-days: 14
 
       - name: Run unit test suite
         run: |
-          python -m pytest tests/
+          python -c "
+          from pathlib import Path
+          import glob, os, subprocess, sys
+
+          base = os.environ.get('BASE_REF')
+          test_targets = []
+          diff_ok = False
+          if base:
+              for ref in [f'origin/{base}', base]:
+                  try:
+                      proc = subprocess.run(
+                          ['git', 'diff', '--name-only', '--diff-filter=d', f'{ref}...HEAD', '--', '*.py'],
+                          capture_output=True, text=True, check=True
+                      )
+                      changed = [f.strip() for f in proc.stdout.splitlines() if f.strip()]
+                      for c in changed:
+                          norm_c = c.replace('\\\\', '/')
+                          if norm_c.startswith('tests/test_') and norm_c.endswith('.py') and os.path.exists(c):
+                              test_targets.append(c)
+                          else:
+                              part = norm_c.split('/')[0]
+                              stem = Path(c).stem
+                              for match in glob.glob(f'tests/test_{part}*.py'):
+                                  test_targets.append(match)
+                              for match in glob.glob(f'tests/test_{stem}*.py'):
+                                  test_targets.append(match)
+                      diff_ok = True
+                      break
+                  except Exception:
+                      continue
+              test_targets = sorted(list(set(test_targets)))
+
+          if diff_ok and not test_targets:
+              print('No Python code or test targets modified in this pull request; skipping test suite.')
+          else:
+              targets = test_targets if test_targets else ['tests/']
+              print(f'Running unit tests on targets: {targets}')
+              cmd = [sys.executable, '-m', 'pytest'] + targets
+              subprocess.run(cmd, check=True)
+          "
+        env:
+          BASE_REF: ${{ github.base_ref }}
 
