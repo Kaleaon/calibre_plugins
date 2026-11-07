@@ -1128,21 +1128,40 @@ def parse_lines(text_or_widget):
 def collect_tree_changes(tree):
     """Collect checked child items from a QTreeWidget into a list of (top_item_id, {field: new_val})."""
     items = []
+    role_user = getattr(getattr(Qt, 'ItemDataRole', None), 'UserRole', 32)
+    role_user_val = getattr(role_user, 'value', role_user)
+    try:
+        role_user_val = int(role_user_val)
+    except (TypeError, ValueError):
+        role_user_val = 32
+
     for i in range(tree.topLevelItemCount()):
         top = tree.topLevelItem(i)
         changes = {}
         for j in range(top.childCount()):
             child = top.child(j)
-            if child.checkState(0) == Qt.CheckState.Checked:
-                changes[child.data(0, Qt.ItemDataRole.UserRole)] = child.data(0, Qt.ItemDataRole.UserRole + 1)
+            state = child.checkState(0)
+            if getattr(state, 'value', state) == 2:
+                key = child.data(0, role_user)
+                if key is None:
+                    key = child.data(0, role_user_val)
+                val = child.data(0, role_user + 1 if not isinstance(role_user, int) else role_user_val + 1)
+                if val is None:
+                    val = child.data(0, role_user_val + 1)
+                changes[key] = val
         if changes:
-            items.append((top.data(0, Qt.ItemDataRole.UserRole), changes))
+            top_id = top.data(0, role_user)
+            if top_id is None:
+                top_id = top.data(0, role_user_val)
+            items.append((top_id, changes))
     return items
 
 
 def append_log(widget, text):
     """Append a timestamped line ("%H:%M:%S  <text>") to a QPlainTextEdit or similar widget."""
-    widget.appendPlainText(f'{time.strftime("%H:%M:%S")}  {text}')
+    line = f'{time.strftime("%H:%M:%S")}  {text}'
+    widget.appendPlainText(line)
+    return line
 
 
 def collect_checked_fields(boxes, labels=None):

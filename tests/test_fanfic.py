@@ -161,7 +161,7 @@ class ActionTests(unittest.TestCase):
         import types
         from unittest.mock import MagicMock
 
-        self.saved_modules = {k: v for k, v in sys.modules.items() if k.startswith(('calibre', 'qt', 'calibre_plugins'))}
+        self.saved_modules = {k: v for k, v in sys.modules.items() if k.startswith(('calibre', 'qt', 'calibre_plugins', 'common'))}
         stubs = ['calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config',
                  'calibre.utils.date', 'calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.book',
                  'calibre.ebooks.metadata.book.base', 'qt', 'qt.core']
@@ -252,7 +252,7 @@ class ActionTests(unittest.TestCase):
         self.action_mod = action_mod
 
     def tearDown(self):
-        for k in [k for k in sys.modules if k.startswith(('calibre', 'qt'))]:
+        for k in [k for k in list(sys.modules) if k.startswith(('calibre', 'qt', 'calibre_plugins', 'common'))]:
             del sys.modules[k]
         sys.modules.update(self.saved_modules)
 

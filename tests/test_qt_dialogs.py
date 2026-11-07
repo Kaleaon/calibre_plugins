@@ -224,6 +224,7 @@ class TaskAndTagSearchTests(QtCase):
                 return orig_recover(*args, **kwargs)
 
             with patch.object(action_mod, 'QFileDialog') as mock_file_dialog, \
+                 patch.object(action_mod.QDialog, 'exec', return_value=QtWidgets.QDialog.DialogCode.Accepted), \
                  patch.object(action_mod, 'recover', side_effect=slow_recover), \
                  patch.object(action_mod, 'info_dialog') as mock_info, \
                  patch.object(action_mod, 'show_friendly_error_dialog') as mock_error:
@@ -690,8 +691,10 @@ class RedditPluginTests(QtCase):
         dialog.login_endpoints['redirect_uri'] = login.REDIRECT_URI
 
         def browser(url):
-            state = parse_qs(urlparse(url).query)['state'][0]
-            threading.Thread(target=lambda: urllib.request.urlopen(f'{login.REDIRECT_URI}?code=abc&state={state}').read()).start()
+            parsed = parse_qs(urlparse(url).query)
+            state = parsed['state'][0]
+            target_uri = parsed.get('redirect_uri', [login.REDIRECT_URI])[0]
+            threading.Thread(target=lambda: urllib.request.urlopen(f'{target_uri}?code=abc&state={state}').read()).start()
         dialog.open_browser = browser
         dialog.log_in()
         self.assertEqual(RecordingBox.warnings, [])

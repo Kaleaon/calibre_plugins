@@ -17,6 +17,7 @@ spec.loader.exec_module(core)
 try:
     from PyQt6 import QtCore, QtGui, QtWidgets
     HAVE_QT = True
+    _GLOBAL_APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     qtcore = types.ModuleType('qt.core')
     for module in (QtWidgets, QtGui, QtCore):
         for name in dir(module):

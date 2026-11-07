@@ -10,7 +10,10 @@ except ImportError:
     try:
         from .error_handler import show_friendly_error_dialog
     except ImportError:
-        from error_handler import show_friendly_error_dialog
+        try:
+            from common.error_handler import show_friendly_error_dialog
+        except ImportError:
+            from error_handler import show_friendly_error_dialog
 try:
     from calibre_plugins.epub_promo_scrubber.guikit import MergeSelectedActionMixin, run_task
 except ImportError:
@@ -28,7 +31,10 @@ except ImportError:
     try:
         from .core import Matcher, _snippet, scrub_epub, scrub_files, tidy
     except ImportError:
-        from core import Matcher, _snippet, scrub_epub, scrub_files, tidy
+        try:
+            from scrubber_plugin.core import Matcher, _snippet, scrub_epub, scrub_files, tidy
+        except ImportError:
+            from core import Matcher, _snippet, scrub_epub, scrub_files, tidy
 
 try:
     from calibre_plugins.epub_promo_scrubber.profiles import (
@@ -44,11 +50,18 @@ except ImportError:
             resolve_profile,
         )
     except ImportError:
-        from profiles import (
-            extract_domains_from_metadata,
-            get_profiles_from_prefs,
-            resolve_profile,
-        )
+        try:
+            from scrubber_plugin.profiles import (
+                extract_domains_from_metadata,
+                get_profiles_from_prefs,
+                resolve_profile,
+            )
+        except ImportError:
+            from profiles import (
+                extract_domains_from_metadata,
+                get_profiles_from_prefs,
+                resolve_profile,
+            )
 
 prefs = JSONConfig('plugins/epub_promo_scrubber')
 prefs.defaults.update(extra_patterns='', heuristic=True, drop_empty_pages=True, backup=True, in_place=False, show_preview=True)
