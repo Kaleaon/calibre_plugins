@@ -102,7 +102,9 @@ jobs:
               'FanficDownloader.zip',
               'RedditStoryFollower.zip',
               'GeminiLibraryFixer.zip',
-              'MediaMatcher.zip'
+              'MediaMatcher.zip',
+              'InkbunnySoFurryDownloader.zip',
+              'CalibreLink.zip'
           ]
           dist_dir = 'dist'
           missing = [z for z in expected_zips if not os.path.exists(os.path.join(dist_dir, z))]
