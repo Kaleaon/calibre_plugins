@@ -25,8 +25,16 @@ def _setup_shims():
         for mod in (QtWidgets, QtGui, QtCore):
             for name in dir(mod):
                 setattr(qtcore, name, getattr(mod, name))
-        sys.modules["qt"] = types.ModuleType("qt")
+        qtcore._ = lambda s: s
+        qt = sys.modules.get("qt") or types.ModuleType("qt")
+        qt.core = qtcore
+        sys.modules["qt"] = qt
         sys.modules["qt.core"] = qtcore
+    else:
+        qt = sys.modules.get("qt") or types.ModuleType("qt")
+        if not hasattr(qt, "core"):
+            qt.core = sys.modules["qt.core"]
+        sys.modules["qt"] = qt
 
     for name in (
         "calibre",
@@ -41,6 +49,11 @@ def _setup_shims():
             m = types.ModuleType(name)
             m.__path__ = []
             sys.modules[name] = m
+        if "." in name:
+            parent_name, child_name = name.rsplit(".", 1)
+            parent_mod = sys.modules.get(parent_name)
+            if parent_mod is not None:
+                setattr(parent_mod, child_name, sys.modules[name])
 
     gui2 = sys.modules["calibre.gui2"]
     for fn in ("error_dialog", "info_dialog", "question_dialog", "warning_dialog"):
