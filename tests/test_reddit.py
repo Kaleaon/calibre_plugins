@@ -1329,11 +1329,11 @@ _GLOBAL_QT_APP = None
 def ensure_qt():
     global _GLOBAL_QT_APP
     try:
-        from qt.core import QApplication
-        if not QApplication.instance():
-            _GLOBAL_QT_APP = QApplication([])
+        from PyQt6 import QtWidgets
+        if not QtWidgets.QApplication.instance():
+            _GLOBAL_QT_APP = QtWidgets.QApplication([])
         else:
-            _GLOBAL_QT_APP = QApplication.instance()
+            _GLOBAL_QT_APP = QtWidgets.QApplication.instance()
     except Exception:
         pass
 

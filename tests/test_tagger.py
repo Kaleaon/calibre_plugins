@@ -230,6 +230,7 @@ class TaggerDialogTests(unittest.TestCase):
             if k not in self.saved_modules:
                 del sys.modules[k]
         sys.modules.update(self.saved_modules)
+        sys.modules.pop('common.guikit', None)
 
     def test_show_dialog_sets_word_wrap_on_labels(self):
         spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
@@ -779,6 +780,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             if k not in self.saved_modules:
                 del sys.modules[k]
         sys.modules.update(self.saved_modules)
+        sys.modules.pop('common.guikit', None)
 
     def test_manager_dialog_initialization_and_commit(self):
         spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
