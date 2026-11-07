@@ -270,8 +270,12 @@ class StoryTests(unittest.TestCase):
 
 class FakeResponse(io.BytesIO):
     headers = type('H', (), {'get': lambda self, k, d=None: d, 'get_content_charset': lambda self: 'utf-8'})()
-    __enter__ = lambda self: self
-    __exit__ = lambda self, *a: False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
 
 
 class FetcherTests(unittest.TestCase):
