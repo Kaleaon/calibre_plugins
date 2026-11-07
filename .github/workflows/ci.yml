@@ -66,6 +66,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'calibre_link/sidecar/go.mod'
+          cache-dependency-path: 'calibre_link/sidecar/go.sum'
+
       - name: Install system dependencies for Qt (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -82,10 +88,29 @@ jobs:
           ruff check .
           ruff format --check .
 
+      - name: Build Go sidecar binaries (Linux & macOS)
+        if: runner.os != 'Windows'
+        run: |
+          calibre_link/sidecar/build.sh
+
+      - name: Build Go sidecar binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path calibre_link/tailscale
+          $env:CGO_ENABLED = "0"
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          go build -trimpath -ldflags "-s -w" -o calibre_link/tailscale/calibre-tsnet-windows-amd64.exe ./calibre_link/sidecar
+          $env:GOOS = "linux"
+          go build -trimpath -ldflags "-s -w" -o calibre_link/tailscale/calibre-tsnet-linux-amd64 ./calibre_link/sidecar
+          Get-ChildItem calibre_link/tailscale
+
       - name: Build plugin packages in strict mode
         run: |
           python build.py
           python build_plugins.py --strict
+          python calibre_link/build_zip.py
 
       - name: Verify generated plugin zip artifacts
         run: |
@@ -108,6 +133,16 @@ jobs:
               print(f'Error: Missing expected zip files in dist/: {missing}', file=sys.stderr)
               sys.exit(1)
           print(f'Successfully verified all {len(expected_zips)} plugin archives in dist/.')
+
+          sidecars = [
+              'calibre_link/tailscale/calibre-tsnet-windows-amd64.exe',
+              'calibre_link/tailscale/calibre-tsnet-linux-amd64'
+          ]
+          missing_sidecars = [s for s in sidecars if not (os.path.exists(s) and os.path.getsize(s) > 0)]
+          if missing_sidecars:
+              print(f'Error: Missing or empty sidecar binaries: {missing_sidecars}', file=sys.stderr)
+              sys.exit(1)
+          print(f'Successfully verified all {len(sidecars)} sidecar binaries in calibre_link/build_zip.py.')
           "
 
       - name: Upload plugin packages artifact
@@ -120,4 +155,10 @@ jobs:
       - name: Run unit test suite
         run: |
           python -m pytest tests/
+
+      - name: Run Go sidecar unit tests and vet checks
+        working-directory: calibre_link/sidecar
+        run: |
+          go test -v ./...
+          go vet ./...
 

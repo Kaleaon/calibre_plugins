@@ -8,6 +8,7 @@ This guide provides instructions and reference commands for automated agents and
 
 ### Environment Requirements
 - **Python**: 3.12+
+- **Go**: 1.27.3+ (required for building and testing the Calibre Link Tailscale sidecar in `calibre_link/sidecar/`)
 - **Calibre Dependencies & Qt**: GUI tests and dialog tests rely on `PyQt6`.
 
 ### Installing Dependencies
@@ -51,6 +52,26 @@ python build_plugins.py --strict
 
 The `--strict` flag ensures the build fails if vendored dependencies (such as `fanficfare`) or shared modules are missing.
 
+### Building Go Sidecar Binaries (Calibre Link)
+
+The Calibre Link plugin bundles Go-compiled Tailscale sidecar binaries (`calibre-tsnet-windows-amd64.exe` and `calibre-tsnet-linux-amd64`). To compile the sidecar binaries and package `CalibreLink.zip`:
+
+On Linux/macOS:
+```bash
+calibre_link/sidecar/build.sh
+python calibre_link/build_zip.py
+```
+
+On Windows (PowerShell):
+```powershell
+New-Item -ItemType Directory -Force -Path calibre_link/tailscale
+$env:CGO_ENABLED = "0"; $env:GOOS = "windows"; $env:GOARCH = "amd64"
+go build -trimpath -ldflags "-s -w" -o calibre_link/tailscale/calibre-tsnet-windows-amd64.exe ./calibre_link/sidecar
+$env:GOOS = "linux"
+go build -trimpath -ldflags "-s -w" -o calibre_link/tailscale/calibre-tsnet-linux-amd64 ./calibre_link/sidecar
+python calibre_link/build_zip.py
+```
+
 ---
 
 ## 4. Running Tests
@@ -64,6 +85,14 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest
 To run the exact unit test suite command executed in CI:
 ```bash
 QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m unittest discover -s tests -p "test_*.py" -v
+```
+
+### Go Sidecar Unit Tests & Vet Checks
+To run the Go sidecar unit test suite and vet checks in `calibre_link/sidecar/`:
+```bash
+cd calibre_link/sidecar
+go test -v ./...
+go vet ./...
 ```
 
 ### Edge Case: Environments Without Qt / PyQt6
