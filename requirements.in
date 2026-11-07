@@ -1,0 +1,10 @@
+lxml
+PyQt6
+fanficfare
+cloudscraper
+requests-file
+requests-toolbelt
+pyparsing
+PyMuPDF
+pytest
+ruff
