@@ -46,10 +46,10 @@ class SQLiteRegistryTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_tables_initialized(self):
-        conn = self.reg._get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = {row['name'] for row in cursor.fetchall()}
+        with self.reg._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = {row['name'] for row in cursor.fetchall()}
         expected = {'series', 'feed_sources', 'authors', 'chapters', 'manifests'}
         self.assertTrue(expected.issubset(tables), f"Missing tables. Found: {tables}")
 

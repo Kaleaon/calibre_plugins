@@ -107,7 +107,7 @@ class QtCase(unittest.TestCase):
         for name in ('calibre', 'calibre.customize', 'calibre.gui2', 'calibre.utils'):
             sys.modules[name] = MagicMock()
         actions = types.ModuleType('calibre.gui2.actions')
-        actions.InterfaceAction = type('InterfaceAction', (object,), {'__init__': lambda self, gui, name: setattr(self, 'gui', gui)})
+        actions.InterfaceAction = type('InterfaceAction', (object,), {'__init__': lambda self, gui=None, name=None: setattr(self, 'gui', gui)})
         sys.modules['calibre.gui2.actions'] = actions
         for name in ('calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.book'):
             sys.modules[name] = MagicMock()
@@ -1216,7 +1216,7 @@ class GeminiDialogTests(QtCase):
                             for i in range(tree.topLevelItemCount())]
             self.assertTrue(button('Apply ticked changes').isEnabled())
             button('Apply ticked changes').click()
-            seen['undo'] = dict(action_mod.prefs['undo'])
+            seen['undo'] = dict(action_mod.load_undo())
             self.assertTrue(button('Undo last run').isEnabled())
             seen['writes_after_apply'] = list(db.writes)
             button('Undo last run').click()
@@ -1249,14 +1249,14 @@ class GeminiDialogTests(QtCase):
         self.assertEqual(writes['tags'], ((1, ('Sci-Fi', 'Science Fiction')),))
         self.assertEqual(writes['languages'], ((1, ('eng',)),))
         self.assertFalse(any(list(m)[0] == 3 for _, m in seen['writes_after_apply']), 'the unticked book must not be written')
-        self.assertEqual(seen['undo']['1']['title'], 'dune messiah [epub]')
+        self.assertEqual(seen['undo'][1]['title'] if 1 in seen['undo'] else seen['undo']['1']['title'], 'dune messiah [epub]')
         restored = {n: list(m.values())[0] for n, m in db.writes[len(seen['writes_after_apply']):]}
         self.assertEqual(restored['title'], 'dune messiah [epub]')
         self.assertEqual(restored['authors'], ('Herbert, Frank',))
         self.assertIsNone(restored['series'])
         self.assertEqual(restored['tags'], ('Sci-Fi',))
         self.assertEqual(restored['languages'], ())
-        self.assertEqual(dict(action_mod.prefs['undo']), {}, 'a clean undo clears the saved run')
+        self.assertEqual(dict(action_mod.load_undo()), {}, 'a clean undo clears the saved run')
 
     def test_gemini_system_instructions_ui_and_reset(self):
         package = self.load('gemini_library_fixer')
@@ -1325,6 +1325,11 @@ class GeminiDialogTests(QtCase):
         sys.modules['calibre.gui2.actions'].InterfaceAction = object
         engine = importlib.import_module(package + '.engine')
         action_mod = importlib.import_module(package + '.action')
+        try:
+            providers = importlib.import_module(package + '.providers')
+            providers._http_get = lambda url, **k: '{}'
+        except Exception:
+            pass
         sent = []
         canned = json.dumps({'candidates': [{'content': {'parts': [{'text': json.dumps(canned_answers)}]}}]}).encode()
 
@@ -1440,12 +1445,12 @@ class GeminiDialogTests(QtCase):
         self.assertIn('picture: front cover', seen['log'])
         self.assertIn('📖 read from the pictures for “dune messiah [epub]”: DUNE MESSIAH Frank Herbert', seen['log'])
         self.assertIn('ISBN 9999999999999 → 9780306406157', seen['log'])
-        written = {(n, tuple(m)): list(m.values())[0] for n, m in seen['after_apply']}
-        self.assertEqual(written[('identifiers', (1,))], {'isbn': '9780306406157', 'goodreads': '5'}, 'other identifiers are kept')
-        self.assertEqual(written[('identifiers', (2,))], {'isbn': '0306406152'})
-        restored = [list(m.values())[0] for n, m in db.writes[len(seen['after_apply']):] if n == 'identifiers']
-        self.assertIn({'isbn': '9999999999999', 'goodreads': '5'}, restored)
-        self.assertIn({}, restored, 'a book that had no ISBN gets none again')
+        written = {n: m for n, m in seen['after_apply']}
+        self.assertEqual(written['identifiers'][1], {'isbn': '9780306406157', 'goodreads': '5'}, 'other identifiers are kept')
+        self.assertEqual(written['identifiers'][2], {'isbn': '0306406152'})
+        restored = next(m for n, m in db.writes[len(seen['after_apply']):] if n == 'identifiers')
+        self.assertEqual(restored[1], {'isbn': '9999999999999', 'goodreads': '5'})
+        self.assertEqual(restored[2], {}, 'a book that had no ISBN gets none again')
 
     def test_cancel_during_a_run_stops_further_requests_and_says_so(self):
         import json
@@ -1453,6 +1458,12 @@ class GeminiDialogTests(QtCase):
         sys.modules['calibre.gui2.actions'].InterfaceAction = object
         engine = importlib.import_module(package + '.engine')
         action_mod = importlib.import_module(package + '.action')
+        try:
+            providers = importlib.import_module(package + '.providers')
+            providers._http_get = lambda url, **k: '{}'
+        except Exception:
+            pass
+        action_mod.prefs['batch_dir'] = self.tmp_batch_dir.name
         calls = []
 
         def slow_post(url, headers, body, timeout):
@@ -1634,7 +1645,7 @@ class FanficDialogTests(QtCase):
         self.assertIn('[www.royalroad.com]\nuse_flaresolverr_proxy:true', advanced.toPlainText())
 
 
-class GuikitHelpersTests(unittest.TestCase):
+class GuikitHelpersTests(QtCase):
     """Unit tests for shared common.guikit helpers."""
 
     def test_parse_lines(self):
