@@ -1030,7 +1030,12 @@ class TaggerAction(DialogAction):
             if clicked == cancel_btn or clicked is None:
                 return
 
-            mode = 'merge' if clicked == merge_btn else 'replace'
+            if clicked == merge_btn:
+                mode = 'merge'
+            elif clicked == replace_btn:
+                mode = 'replace'
+            else:
+                return
 
             if mode == 'merge':
                 target_rules = rules_mod.merge_text_lines(rules_edit.toPlainText(), imported_rules)

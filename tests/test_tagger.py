@@ -1065,6 +1065,49 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         # Prefs should remain unchanged
         self.assertEqual(prefs['rules'], original_rules)
 
+    def test_import_rule_set_unknown_button_aborts(self):
+        import json
+        import tempfile
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = []
+
+        prefs = sys.modules['calibre_plugins.story_collection_tagger.config'].prefs
+        prefs['rules'] = 'tag:=Existing => TagOld'
+        prefs['sites'] = 'oldsite.org => Old Site'
+
+        import_data = {
+            'rules': 'tag:=New => TagNew',
+            'sites': 'newsite.org => New Site',
+        }
+        with tempfile.NamedTemporaryFile(suffix='.json', mode='w', encoding='utf-8', delete=False) as tf:
+            json.dump(import_data, tf)
+            import_path = tf.name
+
+        qt_core = sys.modules['qt.core']
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, 'JSON files (*.json)')
+
+        msg_mock = MagicMock()
+        qt_core.QMessageBox.return_value = msg_mock
+        added_btns = []
+        msg_mock.addButton = lambda name, role=None: added_btns.append(name) or name
+        unknown_btn = MagicMock(name='UnknownButton')
+        msg_mock.clickedButton.side_effect = lambda: unknown_btn
+
+        action.show_dialog()
+
+        connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], '__name__', '') == 'do_import'), None)
+
+        do_import()
+
+        self.assertEqual(prefs['rules'], 'tag:=Existing => TagOld')
+        self.assertEqual(prefs['sites'], 'oldsite.org => Old Site')
+
 
 if __name__ == '__main__':
     unittest.main()
