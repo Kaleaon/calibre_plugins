@@ -16,6 +16,8 @@ import time
 import urllib.error
 import urllib.request
 
+SIGKILL = getattr(signal, "SIGKILL", getattr(signal, "SIGTERM", 9))
+
 SECTION = "www.royalroad.com"
 KEY = "use_flaresolverr_proxy"
 TEST_URL = "https://www.royalroad.com/"
@@ -412,11 +414,14 @@ class Launcher:
                     except OSError:
                         pass
                     try:
-                        os.kill(cpid, signal.SIGKILL)
+                        os.kill(cpid, SIGKILL)
                     except OSError:
                         pass
                 try:
-                    os.killpg(process.pid, signal.SIGTERM)
+                    if hasattr(os, "killpg"):
+                        os.killpg(process.pid, signal.SIGTERM)
+                    else:
+                        os.kill(process.pid, signal.SIGTERM)
                 except OSError:
                     try:
                         os.kill(process.pid, signal.SIGTERM)
@@ -427,21 +432,24 @@ class Launcher:
                 except subprocess.TimeoutExpired:
                     for cpid in reversed(children):
                         try:
-                            os.kill(cpid, signal.SIGKILL)
+                            os.kill(cpid, SIGKILL)
                         except OSError:
                             pass
                     try:
-                        os.killpg(process.pid, signal.SIGKILL)
+                        if hasattr(os, "killpg"):
+                            os.killpg(process.pid, SIGKILL)
+                        else:
+                            os.kill(process.pid, SIGKILL)
                     except OSError:
                         try:
-                            os.kill(process.pid, signal.SIGKILL)
+                            os.kill(process.pid, SIGKILL)
                         except OSError:
                             pass
             process.wait(timeout=10)
         except (OSError, subprocess.SubprocessError):
             for cpid in reversed(children):
                 try:
-                    os.kill(cpid, signal.SIGKILL)
+                    os.kill(cpid, SIGKILL)
                 except OSError:
                     pass
             try:

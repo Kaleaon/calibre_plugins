@@ -18,6 +18,7 @@ fs = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fs)
 
 POSIX = not sys.platform.startswith("win")
+SIGKILL = getattr(signal, "SIGKILL", getattr(signal, "SIGTERM", 9))
 
 SERVER = textwrap.dedent("""\
     #!{python}
@@ -232,6 +233,7 @@ class LauncherTests(unittest.TestCase):
             wait_gone(descendant), "the descendant child process was left running"
         )
 
+    @unittest.skipUnless(POSIX, "Process tree discovery via /proc or ps is POSIX only")
     def test_get_child_pids_discovers_descendants(self):
         p1 = subprocess.Popen(
             [
@@ -259,10 +261,15 @@ class LauncherTests(unittest.TestCase):
             for pid in (p2_pid, p1.pid):
                 if pid:
                     try:
-                        os.kill(pid, signal.SIGKILL)
+                        os.kill(pid, SIGKILL)
                     except OSError:
                         pass
             p1.wait()
+
+    def test_get_child_pids_invalid_or_missing(self):
+        self.assertEqual(fs._get_child_pids(None), [])
+        self.assertEqual(fs._get_child_pids(0), [])
+        self.assertEqual(fs._get_child_pids(-1), [])
 
     def test_does_not_start_a_second_copy(self):
         first, second = self.launcher(), self.launcher()
