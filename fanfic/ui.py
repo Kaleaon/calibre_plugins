@@ -8,7 +8,11 @@ except ImportError:
 
 from calibre_plugins.fanfic_downloader import engine, flaresolverr
 from calibre_plugins.fanfic_downloader.config import prefs
-from calibre_plugins.fanfic_downloader.guikit import EmptyStateOverlay, run_task
+from calibre_plugins.fanfic_downloader.guikit import (
+    EmptyStateOverlay,
+    parse_lines,
+    run_task,
+)
 
 ADVANCED_HELP = '''# FanFicFare personal.ini settings, optional. Examples (remove the # to use).
 # Each [section] header may appear only once: put all of a site's lines under one header.
@@ -414,7 +418,7 @@ class DownloadDialog(QDialog):
         prefs['combine_stories'] = self.combine.isChecked()
         prefs['advanced_ini'] = self.advanced.toPlainText()
         return {
-            'lines': [line for line in self.urls.toPlainText().splitlines() if line.strip()],
+            'lines': parse_lines(self.urls),
             'allow_adult': self.adult.isChecked(),
             'extra_adult': engine.parse_extra_adult(self.extra.toPlainText()),
             'skip': self.skip.isChecked(),

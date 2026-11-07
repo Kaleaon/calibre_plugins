@@ -627,11 +627,6 @@ def load_authors(fetcher, progress=lambda msg: None):
     return sorted(merged.values(), key=lambda a: a['name'].casefold())
 
 
-def author_sections(author):
-    """Sections (gay, lesbian, ...) in which this author has stories."""
-    return sorted({s['path'].split('/')[0] for s in author['stories']})
-
-
 def story_folder(story):
     parts = story['path'].split('/')
     return '/'.join(parts[:2])

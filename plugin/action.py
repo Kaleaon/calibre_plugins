@@ -109,9 +109,6 @@ class TakeoutAction(MergeSelectedActionMixin, InterfaceAction):
         except Exception as e:
             error_dialog(self.gui, 'Drop Folder Error', str(e), show=True)
 
-    def is_customizable(self):
-        return True
-
     def config_widget(self):
         return ConfigWidget(self.gui)
 

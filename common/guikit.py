@@ -1143,36 +1143,3 @@ def collect_tree_changes(tree):
 def append_log(widget, text):
     """Append a timestamped line ("%H:%M:%S  <text>") to a QPlainTextEdit or similar widget."""
     widget.appendPlainText(f'{time.strftime("%H:%M:%S")}  {text}')
-
-
-def collect_checked_fields(boxes, labels=None):
-    """Return tuple of field keys whose checkboxes in `boxes` dict are checked.
-    If `labels` sequence of (field_key, label) is provided, preserves that order."""
-    if labels:
-        return tuple(f for f, _ in labels if f in boxes and boxes[f].isChecked())
-    return tuple(f for f, cb in boxes.items() if cb.isChecked())
-
-
-def format_field_value(field, value):
-    """Format a field value into a human-readable string representation for display in UI tables/trees."""
-    if field in ('series', 'album'):
-        if isinstance(value, (tuple, list)) and len(value) == 2:
-            name, index = value
-            if name and index is not None:
-                return f'{name} #{index:g}'
-            return name or '(none)'
-        return (value or '(none)') if isinstance(value, str) else '(none)'
-    if field == 'date':
-        return value[:10] if value else '(none)'
-    if field == 'identifiers' and isinstance(value, dict):
-        return ', '.join(f'{k}:{v}' for k, v in sorted(value.items())) or '(none)'
-    if field == 'cover':
-        if value is None:
-            return 'none'
-        if isinstance(value, (tuple, list)) and value:
-            source = 'Cover Art Archive' if 'coverartarchive' in str(value[0]) else 'Open Library'
-            return f'front cover from {source}'
-        return str(value) if value else 'none'
-    if field in ('authors', 'tags') or isinstance(value, list):
-        return ', '.join(value) if value else '(none)'
-    return value or '(none)'

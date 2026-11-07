@@ -290,29 +290,12 @@ class TestImporterDuplicateDetection(unittest.TestCase):
         }]
 
         from unittest.mock import patch
-        with patch.object(importer, '_sha256_path') as mock_sha:
+        with patch.object(importer, '_hash_source') as mock_sha:
             imported, errors = importer.import_books(gui, rows)
             self.assertEqual(len(imported), 1)
             self.assertEqual(rows[0]['import_status'], 'imported')
             # Mock SHA-256 should NOT be called at all because size check failed early!
             mock_sha.assert_not_called()
-
-    def test_sha256_chunk_size(self):
-        """Verify SHA-256 stream reads in 64 KiB chunks."""
-        data = b'Y' * (128 * 1024 + 10)
-        stream = io.BytesIO(data)
-        read_sizes = []
-
-        orig_read = stream.read
-        def tracking_read(n=-1):
-            read_sizes.append(n)
-            return orig_read(n)
-
-        stream.read = tracking_read
-        digest = importer._sha256_stream(stream, chunk_size=64 * 1024)
-        self.assertTrue(digest)
-        self.assertEqual(read_sizes[0], 64 * 1024)
-        self.assertEqual(read_sizes[1], 64 * 1024)
 
 
 if __name__ == '__main__':

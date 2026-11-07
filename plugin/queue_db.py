@@ -1,16 +1,10 @@
-import os
-from pathlib import Path
 import sqlite3
 import threading
 import time
+from pathlib import Path
 
 _DB_LOCK = threading.RLock()
 _OVERRIDE_DB_PATH = None
-
-
-def set_override_db_path(path):
-    global _OVERRIDE_DB_PATH
-    _OVERRIDE_DB_PATH = path
 
 
 def get_queue_db_path(db_path=None):

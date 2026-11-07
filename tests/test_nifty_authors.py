@@ -53,7 +53,6 @@ class AuthorsDirectoryTests(unittest.TestCase):
         self.assertTrue(writer[0]['dir'])
         self.assertFalse(writer[1]['dir'])
         self.assertEqual(writer[2]['title'], 'Other & One')
-        self.assertEqual(core.author_sections(authors[0]), ['gay', 'lesbian'])
 
     def test_both_pages_merge_without_repeating_stories(self):
         f = FakeFetcher({core.SITE + 'authors.html': AUTHORS_PAGE, core.SITE + 'prolific.html': PROLIFIC_PAGE, core.SITE + 'eprolific.html': EPROLIFIC_PAGE})

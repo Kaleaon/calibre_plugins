@@ -230,16 +230,6 @@ def _hash_source(source, chunk_size=CHUNK_SIZE):
     return hasher.hexdigest()
 
 
-def _sha256_stream(stream, chunk_size=CHUNK_SIZE):
-    """Compute SHA-256 digest of a stream in 64 KiB chunks."""
-    return _hash_source(stream, chunk_size=chunk_size)
-
-
-def _sha256_path(file_path, chunk_size=CHUNK_SIZE):
-    """Compute SHA-256 digest of a file path in 64 KiB chunks."""
-    return _hash_source(file_path, chunk_size=chunk_size)
-
-
 def _get_existing_format_info(db, book_id, fmt_upper, candidate_size=None):
     """Return (size, path_or_stream_or_bytes) for format fmt_upper of book_id, or (None, None)."""
     size = None
