@@ -10,13 +10,11 @@ permissions:
   contents: read
 
 jobs:
-  release:
-    name: Build, Test, and Release
+  build-and-test:
+    name: Build and Test
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      id-token: write
-      attestations: write
+      contents: read
 
     steps:
       - name: Checkout repository
@@ -45,6 +43,31 @@ jobs:
           cd dist
           sha256sum *.zip > SHA256SUMS
           cp SHA256SUMS SHA256SUMS.txt
+
+      - name: Upload plugin packages and manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS
+            dist/SHA256SUMS.txt
+
+  publish-release:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist
 
       - name: Generate SLSA Build Provenance Attestations
         uses: actions/attest-build-provenance@v2
