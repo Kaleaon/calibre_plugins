@@ -97,4 +97,9 @@ if "calibre" not in sys.modules:
                 return self.defaults[key]
             return default
 
+    import tempfile
+
     sys.modules["calibre.utils.config"].JSONConfig = lambda name: StubPrefs()
+    sys.modules["calibre.utils.config"].config_dir = os.path.join(
+        tempfile.gettempdir(), "calibre_config"
+    )
