@@ -128,7 +128,7 @@ class QtCase(unittest.TestCase):
         actions.InterfaceAction = type(
             "InterfaceAction",
             (object,),
-            {"__init__": lambda self, gui, name: setattr(self, "gui", gui)},
+            {"__init__": lambda self, gui=None, name=None: setattr(self, "gui", gui)},
         )
         sys.modules["calibre.gui2.actions"] = actions
         for name in (
@@ -2396,7 +2396,7 @@ class FanficDialogTests(QtCase):
         )
 
 
-class GuikitHelpersTests(unittest.TestCase):
+class GuikitHelpersTests(QtCase):
     """Unit tests for shared common.guikit helpers."""
 
     def test_parse_lines(self):

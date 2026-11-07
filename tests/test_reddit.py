@@ -2419,7 +2419,9 @@ def ensure_qt():
         try:
             from PyQt6 import QtCore, QtGui, QtWidgets
 
-            QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+            _GLOBAL_QT_APP = (
+                QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+            )
             qtcore = types.ModuleType("qt.core")
             for module in (QtWidgets, QtGui, QtCore):
                 for name in dir(module):
@@ -2586,10 +2588,21 @@ def ensure_qt():
             except KeyError:
                 return self.defaults.get(key, "")
 
+        def get(self, key, default=None):
+            if key in self:
+                return self[key]
+            if key in self.defaults:
+                return self.defaults[key]
+            return default
+
     if "calibre" not in sys.modules:
         sys.modules["calibre"] = MagicMock()
         sys.modules["calibre.utils"] = MagicMock()
         sys.modules["calibre.utils.config"] = MagicMock()
+        sys.modules["calibre.utils.config"].JSONConfig = lambda name: StubPrefs()
+    elif not hasattr(sys.modules["calibre.utils.config"], "JSONConfig") or isinstance(
+        sys.modules["calibre.utils.config"].JSONConfig, MagicMock
+    ):
         sys.modules["calibre.utils.config"].JSONConfig = lambda name: StubPrefs()
 
     calibre_plugins_mod = sys.modules.get("calibre_plugins") or types.ModuleType(

@@ -23,7 +23,7 @@ import os
 import re
 import sqlite3
 import threading as _threading
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 SUPPORTED_FIELDS = (
     "title",
@@ -801,7 +801,7 @@ def _parse_date(value):
         pass
     for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y/%m/%d", "%Y"):
         try:
-            return datetime.strptime(text, fmt).replace(tzinfo=UTC)
+            return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
         except Exception:
             continue
     raise ValueError(f"could not parse date: {value!r}")
