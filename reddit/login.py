@@ -121,7 +121,7 @@ class CallbackServer:
         server = http.server.HTTPServer(
             ("127.0.0.1", port), self._handler, bind_and_activate=False
         )
-        server.allow_reuse_address = True
+        server.allow_reuse_address = False
         try:
             server.server_bind()
             server.server_activate()
