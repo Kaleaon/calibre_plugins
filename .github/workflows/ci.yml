@@ -52,6 +52,10 @@ jobs:
     permissions:
       contents: read
 
+    defaults:
+      run:
+        shell: bash
+
     env:
       QT_QPA_PLATFORM: offscreen
       PYTHONPATH: .
@@ -142,10 +146,9 @@ jobs:
       - name: Upload plugin packages artifact
         uses: actions/upload-artifact@v4
         with:
-          name: calibre-plugin-packages
+          name: calibre-plugin-packages-${{ matrix.os }}-py${{ matrix.python-version }}
           path: dist/*.zip
           retention-days: 14
-          overwrite: true
 
       - name: Run unit test suite
         run: |
