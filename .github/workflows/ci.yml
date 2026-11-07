@@ -77,10 +77,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run static code linting and formatting check
+      - name: Run pre-commit hooks
         run: |
-          ruff check .
-          ruff format --check .
+          pre-commit run --all-files
 
       - name: Build plugin packages in strict mode
         run: |
