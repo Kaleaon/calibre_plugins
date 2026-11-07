@@ -5,11 +5,11 @@ import time
 
 from calibre.gui2 import info_dialog
 from calibre.gui2.actions import InterfaceAction
-from qt.core import QAction, QMenu, QTimer
-
 from calibre_plugins.reddit_follower import core, libkit
 from calibre_plugins.reddit_follower.config import prefs
 from calibre_plugins.reddit_follower.guikit import run_task
+from qt.core import QAction, QMenu, QTimer
+
 try:
     from calibre_plugins.reddit_follower.error_handler import show_friendly_error_dialog
 except ImportError:
@@ -17,7 +17,12 @@ except ImportError:
         from .error_handler import show_friendly_error_dialog
     except ImportError:
         from error_handler import show_friendly_error_dialog
-from calibre_plugins.reddit_follower.ui import DiscoverDialog, ManageDialog, SettingsDialog, SubscriptionExchangeDialog
+from calibre_plugins.reddit_follower.ui import (
+    DiscoverDialog,
+    ManageDialog,
+    SettingsDialog,
+    SubscriptionExchangeDialog,
+)
 
 IDENTIFIER = 'redditfollow'
 TICK_MS = 15 * 60 * 1000       # how often we look at which stories are due; looking costs nothing
@@ -89,7 +94,8 @@ class FollowerAction(InterfaceAction):
                 try:
                     from registry import SeriesRegistry
                 except ImportError:
-                    import sys as _sys, os as _os
+                    import os as _os
+                    import sys as _sys
                     _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
                     if _pkg_dir not in _sys.path:
                         _sys.path.insert(0, _pkg_dir)
@@ -111,7 +117,8 @@ class FollowerAction(InterfaceAction):
                     from migration import migrate_json_to_sqlite
                 except ImportError:
                     try:
-                        import sys as _sys, os as _os
+                        import os as _os
+                        import sys as _sys
                         _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
                         if _pkg_dir not in _sys.path:
                             _sys.path.insert(0, _pkg_dir)
@@ -285,10 +292,21 @@ class FollowerAction(InterfaceAction):
                 changed_books += 1
             elif not r['error'] and not r['rate_limited']:
                 lines.append(f'{name}: up to date')
+            if hasattr(self, 'registry') and self.registry():
+                try:
+                    pending_cnt = self.registry().get_pending_manifest_count(r['follow']['id'])
+                    if pending_cnt:
+                        lines.append(f"{name}: {pending_cnt} new chapter(s) need review in Chapter Manager")
+                except Exception:
+                    pass
         if interactive:
             info_dialog(self.gui, 'Reddit stories', '\n'.join(lines) or 'Nothing to report.', show=True)
         elif changed_books:
             self.gui.status_bar.show_message('Reddit stories updated: ' + '; '.join(l for l in lines if 'up to date' not in l), 15000)
+        else:
+            pending_notes = [l for l in lines if 'need review in Chapter Manager' in l]
+            if pending_notes:
+                self.gui.status_bar.show_message('; '.join(pending_notes), 15000)
 
     def update_library(self, follow, has_changes):
         """Rebuild the book from the cached chapters when something changed or the book is missing. Returns a message or ''."""

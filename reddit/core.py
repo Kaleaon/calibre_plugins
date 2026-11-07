@@ -14,13 +14,29 @@ import re
 import time
 import uuid
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
-    from .storykit import Cancelled, Fetcher, RateLimited, build_epub as _build_epub, clean_fragment, escape, strip_tags  # noqa: F401
+    from .storykit import (  # noqa: F401
+        Cancelled,
+        Fetcher,
+        RateLimited,
+        clean_fragment,
+        escape,
+        strip_tags,
+    )
+    from .storykit import build_epub as _build_epub
 except ImportError:  # tests load this file directly with common/ on sys.path
-    from storykit import Cancelled, Fetcher, RateLimited, build_epub as _build_epub, clean_fragment, escape, strip_tags  # noqa: F401
+    from storykit import (  # noqa: F401
+        Cancelled,
+        Fetcher,
+        RateLimited,
+        clean_fragment,
+        escape,
+        strip_tags,
+    )
+    from storykit import build_epub as _build_epub
 
 WWW = 'https://www.reddit.com'
 OAUTH = 'https://oauth.reddit.com'
@@ -258,7 +274,7 @@ def _epoch(text):
         stamp = datetime.fromisoformat(text)
     except ValueError:
         return 0.0
-    return (stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)).timestamp()
+    return (stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC)).timestamp()
 
 
 def parse_atom(xml_text):
@@ -350,7 +366,7 @@ class ApiSource:
         if not reply.get('access_token'):
             if self.refresh_token:
                 raise SourceError('Reddit no longer accepts the saved login. Open Settings and log in with Reddit again.')
-            raise IOError(f"Reddit refused the credentials: {reply.get('error') or reply.get('message') or reply}")
+            raise OSError(f"Reddit refused the credentials: {reply.get('error') or reply.get('message') or reply}")
         self._token = reply['access_token']
         self._expires = time.monotonic() + float(reply.get('expires_in', 3600)) - 60
 
@@ -359,7 +375,7 @@ class ApiSource:
             self._authorize()
         try:
             text = self.fetcher.get(self.base + api_path(src, limit, after), headers={'Authorization': f'bearer {self._token}', 'User-Agent': self.user_agent})
-        except IOError as exc:
+        except OSError as exc:
             if 'HTTP Error 403' in str(exc) and 'insufficient_scope' in str(exc) and self.refresh_token:
                 raise SourceError('Reddit says the saved login lacks permission for this page. Open Settings, Log out, then Log in with '
                                   'Reddit again to grant it.') from exc
@@ -563,7 +579,7 @@ def preview_series(source, follow, pages=FIRST_RUN_PAGES, cancelled=lambda: Fals
         if not found or not after:
             break
     ordered = sorted(posts.values(), key=lambda p: p['created'])
-    day = lambda p: datetime.fromtimestamp(p['created'], timezone.utc).date().isoformat()
+    day = lambda p: datetime.fromtimestamp(p['created'], UTC).date().isoformat()
     return {'count': len(ordered), 'first': day(ordered[0]) if ordered else '', 'last': day(ordered[-1]) if ordered else '',
             'titles': [p['title'] for p in ordered[:3]] + (['\u2026'] if len(ordered) > 6 else []) + [p['title'] for p in ordered[-3:]] if len(ordered) > 3 else [p['title'] for p in ordered]}
 
@@ -606,7 +622,7 @@ def parse_index(csv_text, author=''):
         if not m or not re.match(r'\d{4}/\d\d/\d\d', r[col_date].strip()):
             continue
         try:
-            when = datetime.strptime(r[col_date].strip(), '%Y/%m/%d %H:%M').replace(tzinfo=timezone.utc).timestamp() - 2 * 3600
+            when = datetime.strptime(r[col_date].strip(), '%Y/%m/%d %H:%M').replace(tzinfo=UTC).timestamp() - 2 * 3600
         except ValueError:
             continue
         note = r[col_note].strip() if col_note is not None and len(r) > col_note else ''
@@ -657,7 +673,7 @@ def refresh_index(source, follow, cache, now=time.time):
     try:
         rows = parse_index(source.fetcher.get(sheet_csv_url(url)), follow.get('author_filter', ''))
         cache.data['index'] = {'url': url, 'fetched': now(), 'rows': rows, 'error': ''}
-    except (IOError, ValueError, SourceError) as exc:
+    except (OSError, ValueError, SourceError) as exc:
         cache.data['index'] = dict(data, url=url, fetched=now() - INDEX_REFRESH_HOURS * 3600 + 3600, error=str(exc)[:200])
     cache.save()
 
@@ -689,7 +705,7 @@ def probe(source, src, follow=None, limit=25):
                        'connection. Wait a while and try again; the plugin itself will back off the same way.')
     except SourceError as exc:
         return False, str(exc)
-    except (IOError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         return False, f'Reddit did not give a usable answer: {exc}'
     if not entries:
         return True, f'Reddit answered, but {describe_source(src)} returned no posts.'
@@ -835,7 +851,8 @@ class ChapterCache:
                 try:
                     from registry import SeriesRegistry
                 except ImportError:
-                    import sys as _sys, os as _os
+                    import os as _os
+                    import sys as _sys
                     _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
                     if _pkg_dir not in _sys.path:
                         _sys.path.insert(0, _pkg_dir)
@@ -909,11 +926,17 @@ class ChapterCache:
             p_map = self.posts
             out = []
             for m in manifest:
+                if m.get('is_excluded'):
+                    continue
+                if m.get('reconciliation_status') == 'pending':
+                    continue
                 pid = m['post_id']
                 if pid in p_map:
-                    out.append(p_map[pid])
-            if out:
-                return out
+                    post = dict(p_map[pid])
+                    if m.get('chapter_title'):
+                        post['title'] = m['chapter_title']
+                    out.append(post)
+            return out
         return sorted(self.posts.values(), key=lambda p: (p['created'], p['title']))
 
     def delete(self):
@@ -1132,8 +1155,8 @@ def build_story(follow, cache):
         return sec_title, chapter_html(p, from_body)
 
     main_author = ", ".join(authors_list) if authors_list else 'Unknown'
-    last = datetime.fromtimestamp(posts[-1]['created'], timezone.utc).date().isoformat()
-    first = datetime.fromtimestamp(posts[0]['created'], timezone.utc).date().isoformat()
+    last = datetime.fromtimestamp(posts[-1]['created'], UTC).date().isoformat()
+    first = datetime.fromtimestamp(posts[0]['created'], UTC).date().isoformat()
 
     subreddits = set()
     for src in follow.get('sources', [follow.get('source', {})]):
@@ -1170,7 +1193,7 @@ def build_each(follow, post):
     story = {'id': 'reddit-' + post['id'], 'url': post.get('link') or WWW, 'title': post['title'], 'author': post.get('author') or 'Unknown',
              'sections': [(post['title'], chapter_html(post))], 'tags': list(dict.fromkeys(tags)), 'categories': [], 'summary': '',
              'publisher': PUBLISHER,
-             'pubdate': datetime.fromtimestamp(post['created'], timezone.utc).date().isoformat()}
+             'pubdate': datetime.fromtimestamp(post['created'], UTC).date().isoformat()}
     part = _PART.match(post['title'])
     if part and len(re.sub(r'\W', '', part.group('stem'))) >= 4:
         story['series'], story['series_index'] = part.group('stem').strip(' ,:;-\u2013\u2014'), float(part.group('n'))
@@ -1238,7 +1261,7 @@ def run_follows(source, follows, cache_dir, cancelled=lambda: False, progress=la
             return results
         except Cancelled:
             raise
-        except (IOError, ValueError) as exc:
+        except (OSError, ValueError) as exc:
             result['error'] = str(exc)
             follow['last_status'] = f'error: {exc}'[:200]
         results.append(result)

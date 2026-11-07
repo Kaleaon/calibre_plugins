@@ -249,6 +249,116 @@ class SQLiteRegistryTests(unittest.TestCase):
         self.assertEqual(len(self.reg.get_chapters(s_id)), 0)
         self.assertEqual(len(self.reg.get_manifest(s_id)), 0)
 
+    def test_manifests_schema_and_columns(self):
+        with self.reg._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(manifests);")
+            columns = {row['name']: row['dflt_value'] for row in cursor.fetchall()}
+            self.assertIn('is_excluded', columns)
+            self.assertIn('is_custom_order', columns)
+            self.assertIn('reconciliation_status', columns)
+            self.assertEqual(columns['is_excluded'], '0')
+            self.assertEqual(columns['is_custom_order'], '0')
+            self.assertIn('approved', columns['reconciliation_status'].lower())
+
+    def test_custom_order_and_automated_reconciliation_pending_status(self):
+        s_id = 'custom_recon_series'
+        self.reg.save_series({'id': s_id, 'name': 'Reconciliation Story'})
+
+        p1 = {'id': 't3_post1', 'title': 'Ch 1: Start', 'author': 'AuthorA', 'created': 1000.0, 'html': '<p>1</p>'}
+        p2 = {'id': 't3_post2', 'title': 'Ch 2: Middle', 'author': 'AuthorB', 'created': 2000.0, 'html': '<p>2</p>'}
+        self.reg.save_chapter_and_manifest(s_id, p1)
+        self.reg.save_chapter_and_manifest(s_id, p2)
+
+        # Apply a custom order reversing the chapters and editing a title
+        custom_manifest = [
+            {'post_id': 't3_post2', 'sequence_order': 1, 'chapter_title': 'Prequel Ch 2', 'is_excluded': 0, 'reconciliation_status': 'approved'},
+            {'post_id': 't3_post1', 'sequence_order': 2, 'chapter_title': 'Sequel Ch 1', 'is_excluded': 0, 'reconciliation_status': 'approved'}
+        ]
+        self.reg.save_custom_manifest(s_id, custom_manifest)
+
+        manifest = self.reg.get_manifest(s_id)
+        self.assertEqual(len(manifest), 2)
+        self.assertEqual(manifest[0]['post_id'], 't3_post2')
+        self.assertEqual(manifest[0]['chapter_title'], 'Prequel Ch 2')
+        self.assertEqual(manifest[0]['is_custom_order'], 1)
+        self.assertEqual(manifest[0]['reconciliation_status'], 'approved')
+        self.assertEqual(manifest[1]['post_id'], 't3_post1')
+
+        # Now simulate scraping a new post (created at 1500, between p1 and p2)
+        p3 = {'id': 't3_post3', 'title': 'Ch 3: Newly Discovered', 'author': 'AuthorC', 'created': 1500.0, 'html': '<p>3</p>'}
+        self.reg.save_chapter_and_manifest(s_id, p3)
+
+        # Automated reconciliation must detect new post and append with reconciliation_status = 'pending'
+        manifest_after = self.reg.get_manifest(s_id)
+        self.assertEqual(len(manifest_after), 3)
+        # Custom sequence order for existing chapters is preserved
+        self.assertEqual(manifest_after[0]['post_id'], 't3_post2')
+        self.assertEqual(manifest_after[0]['sequence_order'], 1)
+        self.assertEqual(manifest_after[1]['post_id'], 't3_post1')
+        self.assertEqual(manifest_after[1]['sequence_order'], 2)
+        # New chapter appended at sequence_order 3 with pending status
+        self.assertEqual(manifest_after[2]['post_id'], 't3_post3')
+        self.assertEqual(manifest_after[2]['sequence_order'], 3)
+        self.assertEqual(manifest_after[2]['reconciliation_status'], 'pending')
+        self.assertEqual(manifest_after[2]['is_custom_order'], 1)
+
+        self.assertTrue(self.reg.has_pending_reconciliation(s_id))
+        self.assertEqual(self.reg.get_pending_manifest_count(s_id), 1)
+
+        # Approving the pending post
+        self.reg.approve_manifest_item(s_id, 't3_post3')
+        self.assertFalse(self.reg.has_pending_reconciliation(s_id))
+        self.assertEqual(self.reg.get_pending_manifest_count(s_id), 0)
+
+        # Resetting order to default chronological
+        self.reg.reset_manifest_order(s_id)
+        reset_manifest = self.reg.get_manifest(s_id)
+        self.assertEqual([m['post_id'] for m in reset_manifest], ['t3_post1', 't3_post3', 't3_post2'])
+        self.assertFalse(any(m['is_custom_order'] for m in reset_manifest))
+
+    def test_chapter_cache_ordered_omits_excluded_and_pending_posts(self):
+        s_id = 'cache_filter_test'
+        follow = {'id': s_id, 'name': 'Cache Filter Story', 'sources': []}
+        self.reg.save_series(follow)
+
+        posts = [
+            {'id': 't3_p1', 'title': 'Raw 1', 'author': 'A1', 'created': 100.0, 'html': '<p>P1</p>'},
+            {'id': 't3_p2', 'title': 'Raw 2', 'author': 'A2', 'created': 200.0, 'html': '<p>P2</p>'},
+            {'id': 't3_p3', 'title': 'Raw 3', 'author': 'A3', 'created': 300.0, 'html': '<p>P3</p>'},
+            {'id': 't3_p4', 'title': 'Raw 4', 'author': 'A4', 'created': 400.0, 'html': '<p>P4</p>'},
+        ]
+        self.reg.save_chapters_batch(s_id, posts)
+
+        # Configure custom manifest:
+        # p2: seq 1, approved, custom title
+        # p1: seq 2, is_excluded=1 (should be omitted)
+        # p4: seq 3, pending (should be omitted)
+        # p3: seq 4, approved
+        custom = [
+            {'post_id': 't3_p2', 'sequence_order': 1, 'chapter_title': 'Custom Ch 2', 'is_excluded': 0, 'reconciliation_status': 'approved'},
+            {'post_id': 't3_p1', 'sequence_order': 2, 'chapter_title': 'Excluded Ch 1', 'is_excluded': 1, 'reconciliation_status': 'approved'},
+            {'post_id': 't3_p4', 'sequence_order': 3, 'chapter_title': 'Pending Ch 4', 'is_excluded': 0, 'reconciliation_status': 'pending'},
+            {'post_id': 't3_p3', 'sequence_order': 4, 'chapter_title': 'Custom Ch 3', 'is_excluded': 0, 'reconciliation_status': 'approved'},
+        ]
+        self.reg.save_custom_manifest(s_id, custom)
+
+        cache = core.ChapterCache(self.temp_dir.name, s_id, registry=self.reg)
+        ordered_posts = cache.ordered()
+
+        # Should only contain p2 and p3 (omitting excluded p1 and pending p4)
+        self.assertEqual(len(ordered_posts), 2)
+        self.assertEqual(ordered_posts[0]['id'], 't3_p2')
+        self.assertEqual(ordered_posts[0]['title'], 'Custom Ch 2')
+        self.assertEqual(ordered_posts[1]['id'], 't3_p3')
+        self.assertEqual(ordered_posts[1]['title'], 'Custom Ch 3')
+
+        # Test EPUB story generation uses these verified, non-excluded chapters
+        story = core.build_story(follow, cache)
+        self.assertEqual(len(story['sections']), 2)
+        self.assertIn('Custom Ch 2', story['sections'][0][0])
+        self.assertIn('Custom Ch 3', story['sections'][1][0])
+
 
 if __name__ == '__main__':
     unittest.main()
