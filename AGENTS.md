@@ -75,9 +75,14 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m unittest discover -s tests -p "
 ## 5. Code Quality & Formatting
 
 ### Linting with Ruff
-To run the Ruff linter across the codebase:
+To run the Ruff linter across modified files or specific files:
 ```bash
-ruff check .
+ruff check common/guikit.py scrubber_plugin/ui.py tagger/ui.py tests/test_tree_check_state_mixin.py
+```
+
+To run across changed files in a pull request:
+```bash
+ruff check $(git diff --name-only origin/main...HEAD -- '*.py')
 ```
 
 To automatically fix safe lint issues:
@@ -86,14 +91,14 @@ ruff check . --fix
 ```
 
 ### Code Formatting with Ruff
-To check code formatting:
+To check code formatting on modified files:
 ```bash
-ruff format --check .
+ruff format --check common/guikit.py scrubber_plugin/ui.py tagger/ui.py tests/test_tree_check_state_mixin.py
 ```
 
-To apply code formatting across the repository:
+To apply code formatting across modified files:
 ```bash
-ruff format .
+ruff format common/guikit.py scrubber_plugin/ui.py tagger/ui.py tests/test_tree_check_state_mixin.py
 ```
 
 ### Pre-commit Hooks

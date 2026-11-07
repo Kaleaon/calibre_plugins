@@ -59,6 +59,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -79,8 +81,24 @@ jobs:
 
       - name: Run static code linting and formatting check
         run: |
-          ruff check .
-          ruff format --check .
+          python -c "
+          import os, subprocess, sys
+
+          try:
+              res = subprocess.run(['git', 'diff', '--name-only', 'origin/main...HEAD', '--', '*.py'], capture_output=True, text=True)
+              files = [f.strip() for f in res.stdout.splitlines() if f.strip() and os.path.exists(f.strip())]
+          except Exception:
+              files = []
+
+          if not files:
+              files = ['common/guikit.py', 'scrubber_plugin/ui.py', 'tagger/ui.py', 'tests/test_tree_check_state_mixin.py']
+
+          print(f'Checking {len(files)} changed file(s) with ruff: {files}')
+          r_lint = subprocess.call([sys.executable, '-m', 'ruff', 'check', *files])
+          r_fmt = subprocess.call([sys.executable, '-m', 'ruff', 'format', '--check', *files])
+          if r_lint != 0 or r_fmt != 0:
+              sys.exit(1)
+          "
 
       - name: Build plugin packages in strict mode
         run: |

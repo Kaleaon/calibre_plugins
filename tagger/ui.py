@@ -1,5 +1,7 @@
 """UI components for Story Collection Tagger, including the interactive tag preview dialog."""
 
+import sys
+
 try:
     from qt.core import (
         QDialog,
@@ -25,49 +27,79 @@ except ImportError:
         QVBoxLayout,
     )
 
-CHECKED = getattr(Qt.CheckState, 'Checked', getattr(Qt, 'Checked', 2))
-UNCHECKED = getattr(Qt.CheckState, 'Unchecked', getattr(Qt, 'Unchecked', 0))
-PARTIALLY_CHECKED = getattr(Qt.CheckState, 'PartiallyChecked', getattr(Qt, 'PartiallyChecked', 1))
-ITEM_IS_USER_CHECKABLE = getattr(Qt.ItemFlag, 'ItemIsUserCheckable', getattr(Qt, 'ItemIsUserCheckable', 16))
-USER_ROLE = getattr(Qt.ItemDataRole, 'UserRole', getattr(Qt, 'UserRole', 256))
+CHECKED = getattr(Qt.CheckState, "Checked", getattr(Qt, "Checked", 2))
+UNCHECKED = getattr(Qt.CheckState, "Unchecked", getattr(Qt, "Unchecked", 0))
+PARTIALLY_CHECKED = getattr(
+    Qt.CheckState, "PartiallyChecked", getattr(Qt, "PartiallyChecked", 1)
+)
+ITEM_IS_USER_CHECKABLE = getattr(
+    Qt.ItemFlag, "ItemIsUserCheckable", getattr(Qt, "ItemIsUserCheckable", 16)
+)
+USER_ROLE = getattr(Qt.ItemDataRole, "UserRole", getattr(Qt, "UserRole", 256))
 
-try:
-    from calibre_plugins.story_collection_tagger.guikit import TreeCheckStateMixin
-    if not isinstance(TreeCheckStateMixin, type):
-        raise ImportError
-except (ImportError, AttributeError):
+TreeCheckStateMixin = None
+if "common.guikit" in sys.modules and hasattr(
+    sys.modules["common.guikit"], "TreeCheckStateMixin"
+):
+    TreeCheckStateMixin = getattr(sys.modules["common.guikit"], "TreeCheckStateMixin")
+
+if TreeCheckStateMixin is None:
+    try:
+        from common.guikit import TreeCheckStateMixin
+
+        if not isinstance(TreeCheckStateMixin, type):
+            TreeCheckStateMixin = None
+    except (ImportError, AttributeError):
+        pass
+
+if TreeCheckStateMixin is None:
+    try:
+        from calibre_plugins.story_collection_tagger.guikit import TreeCheckStateMixin
+
+        if not isinstance(TreeCheckStateMixin, type):
+            TreeCheckStateMixin = None
+    except (ImportError, AttributeError):
+        pass
+
+if TreeCheckStateMixin is None:
     try:
         from .guikit import TreeCheckStateMixin
-        if not isinstance(TreeCheckStateMixin, type):
-            raise ImportError
-    except (ImportError, AttributeError):
-        try:
-            from guikit import TreeCheckStateMixin
-            if not isinstance(TreeCheckStateMixin, type):
-                raise ImportError
-        except (ImportError, AttributeError):
-            try:
-                from common.guikit import TreeCheckStateMixin
-                if not isinstance(TreeCheckStateMixin, type):
-                    raise ImportError
-            except (ImportError, AttributeError):
-                import importlib.util
-                from pathlib import Path
 
-                _gk_path = Path(__file__).resolve().parents[1] / 'common' / 'guikit.py'
-                if _gk_path.exists():
-                    _spec = importlib.util.spec_from_file_location('guikit', _gk_path)
-                    _gk_mod = importlib.util.module_from_spec(_spec)
-                    _spec.loader.exec_module(_gk_mod)
-                    TreeCheckStateMixin = _gk_mod.TreeCheckStateMixin
-                else:
-                    class TreeCheckStateMixin:
-                        pass
+        if not isinstance(TreeCheckStateMixin, type):
+            TreeCheckStateMixin = None
+    except (ImportError, AttributeError):
+        pass
+
+if TreeCheckStateMixin is None:
+    try:
+        from guikit import TreeCheckStateMixin
+
+        if not isinstance(TreeCheckStateMixin, type):
+            TreeCheckStateMixin = None
+    except (ImportError, AttributeError):
+        pass
+
+if TreeCheckStateMixin is None:
+    import importlib.util
+    from pathlib import Path
+
+    _gk_path = Path(__file__).resolve().parents[1] / "common" / "guikit.py"
+    if _gk_path.exists():
+        _spec = importlib.util.spec_from_file_location("common.guikit", _gk_path)
+        _gk_mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_gk_mod)
+        TreeCheckStateMixin = getattr(_gk_mod, "TreeCheckStateMixin", None)
+
+if TreeCheckStateMixin is None or not isinstance(TreeCheckStateMixin, type):
+
+    class TreeCheckStateMixin:
+        pass
 
 
 if isinstance(QDialog, type):
     _TaggerDialogBase = QDialog
 else:
+
     class _TaggerDialogBase:
         def __init__(self, *args, **kwargs):
             pass
@@ -78,7 +110,7 @@ class TaggerPreviewDialog(TreeCheckStateMixin, _TaggerDialogBase):
 
     def __init__(self, parent, plan):
         super().__init__(parent)
-        self.setWindowTitle('Auto-tag stories - Preview Proposed Changes')
+        self.setWindowTitle("Auto-tag stories - Preview Proposed Changes")
         self.resize(750, 500)
 
         self.plan = plan or []
@@ -87,22 +119,22 @@ class TaggerPreviewDialog(TreeCheckStateMixin, _TaggerDialogBase):
 
         # Header label
         header_label = QLabel(
-            'Review proposed tag additions below. Uncheck tags or books you wish to exclude before applying.'
+            "Review proposed tag additions below. Uncheck tags or books you wish to exclude before applying."
         )
         header_label.setWordWrap(True)
         layout.addWidget(header_label)
 
         # Tree Widget
         self.tree = QTreeWidget(self)
-        self.tree.setHeaderLabels(['Book / Proposed Tag', 'Status / Count'])
+        self.tree.setHeaderLabels(["Book / Proposed Tag", "Status / Count"])
         self.tree.setColumnWidth(0, 480)
         self.tree.setColumnWidth(1, 180)
         layout.addWidget(self.tree)
 
         # Toolbar layout
         tb_layout = QHBoxLayout()
-        btn_select_all = QPushButton('Select All')
-        btn_deselect_all = QPushButton('Deselect All')
+        btn_select_all = QPushButton("Select All")
+        btn_deselect_all = QPushButton("Deselect All")
         btn_select_all.clicked.connect(self.select_all)
         btn_deselect_all.clicked.connect(self.deselect_all)
         tb_layout.addWidget(btn_select_all)
@@ -120,7 +152,7 @@ class TaggerPreviewDialog(TreeCheckStateMixin, _TaggerDialogBase):
         )
         ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
         if ok_button:
-            ok_button.setText('Apply Selected Tags')
+            ok_button.setText("Apply Selected Tags")
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
@@ -136,18 +168,24 @@ class TaggerPreviewDialog(TreeCheckStateMixin, _TaggerDialogBase):
         self.tree.clear()
 
         for p in self.plan:
-            title = p.get('title') or f"Book ID {p.get('id')}"
-            add_tags = p.get('add', [])
-            book_item = QTreeWidgetItem(self.tree, [title, f"{len(add_tags)} tag(s) proposed"])
+            title = p.get("title") or f"Book ID {p.get('id')}"
+            add_tags = p.get("add", [])
+            book_item = QTreeWidgetItem(
+                self.tree, [title, f"{len(add_tags)} tag(s) proposed"]
+            )
             book_item.setFlags(book_item.flags() | ITEM_IS_USER_CHECKABLE)
             book_item.setCheckState(0, CHECKED)
-            book_item.setData(0, USER_ROLE, {'type': 'book', 'id': p.get('id'), 'plan_item': p})
+            book_item.setData(
+                0, USER_ROLE, {"type": "book", "id": p.get("id"), "plan_item": p}
+            )
 
             for tag in add_tags:
-                tag_item = QTreeWidgetItem(book_item, [tag, 'Proposed Tag'])
+                tag_item = QTreeWidgetItem(book_item, [tag, "Proposed Tag"])
                 tag_item.setFlags(tag_item.flags() | ITEM_IS_USER_CHECKABLE)
                 tag_item.setCheckState(0, CHECKED)
-                tag_item.setData(0, USER_ROLE, {'type': 'tag', 'id': p.get('id'), 'tag': tag})
+                tag_item.setData(
+                    0, USER_ROLE, {"type": "tag", "id": p.get("id"), "tag": tag}
+                )
 
             book_item.setExpanded(True)
 
@@ -174,7 +212,7 @@ class TaggerPreviewDialog(TreeCheckStateMixin, _TaggerDialogBase):
     def total_tag_count(self):
         count = 0
         for p in self.plan:
-            count += len(p.get('add', []))
+            count += len(p.get("add", []))
         return count
 
     def get_selected_plan(self):
@@ -183,31 +221,33 @@ class TaggerPreviewDialog(TreeCheckStateMixin, _TaggerDialogBase):
         for i in range(self.tree.topLevelItemCount()):
             book_item = self.tree.topLevelItem(i)
             data = book_item.data(0, USER_ROLE)
-            if not isinstance(data, dict) or data.get('type') != 'book':
+            if not isinstance(data, dict) or data.get("type") != "book":
                 continue
-            p = data['plan_item']
+            p = data["plan_item"]
             checked_tags = []
             for j in range(book_item.childCount()):
                 child = book_item.child(j)
                 if child.checkState(0) == CHECKED:
                     tag_data = child.data(0, USER_ROLE)
-                    if isinstance(tag_data, dict) and 'tag' in tag_data:
-                        checked_tags.append(tag_data['tag'])
+                    if isinstance(tag_data, dict) and "tag" in tag_data:
+                        checked_tags.append(tag_data["tag"])
 
             if checked_tags:
-                add_set = set(p.get('add', []))
-                have = [t for t in p.get('tags', []) if t not in add_set]
-                filtered_plan.append({
-                    'id': p['id'],
-                    'title': p.get('title', ''),
-                    'add': checked_tags,
-                    'tags': have + checked_tags
-                })
+                add_set = set(p.get("add", []))
+                have = [t for t in p.get("tags", []) if t not in add_set]
+                filtered_plan.append(
+                    {
+                        "id": p["id"],
+                        "title": p.get("title", ""),
+                        "add": checked_tags,
+                        "tags": have + checked_tags,
+                    }
+                )
         return filtered_plan
 
     def update_summary(self):
         selected_plan = self.get_selected_plan()
-        selected_tags_count = sum(len(p['add']) for p in selected_plan)
+        selected_tags_count = sum(len(p["add"]) for p in selected_plan)
         selected_books_count = len(selected_plan)
         total_tags = self.total_tag_count()
         total_books = len(self.plan)
