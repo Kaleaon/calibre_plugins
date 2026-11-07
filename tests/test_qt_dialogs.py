@@ -935,14 +935,17 @@ class RedditPluginTests(QtCase):
             "token_url": base + "/token",
             "base": base,
             "revoke_url": base + "/revoke",
+            "timeout": 5,
         }
         dialog.login_endpoints["redirect_uri"] = login.REDIRECT_URI
 
         def browser(url):
-            state = parse_qs(urlparse(url).query)["state"][0]
+            query = parse_qs(urlparse(url).query)
+            state = query["state"][0]
+            cb = query.get("redirect_uri", [login.REDIRECT_URI])[0]
             threading.Thread(
                 target=lambda: urllib.request.urlopen(
-                    f"{login.REDIRECT_URI}?code=abc&state={state}"
+                    f"{cb}?code=abc&state={state}"
                 ).read()
             ).start()
 
@@ -1936,6 +1939,8 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs["min_interval"] = 0
         action_mod.prefs["fields"] = list(engine.FIELDS)
         action_mod.prefs["batch_dir"] = self.tmp_batch_dir.name
+        providers_mod = importlib.import_module(package + ".providers")
+        providers_mod._http_get = lambda url, timeout=10: "{}"
 
         def run(drive):
             with patch.object(QtWidgets.QDialog, "exec", drive):
@@ -2096,7 +2101,9 @@ class GeminiDialogTests(QtCase):
             seen["log"],
         )
         self.assertIn("ISBN 9999999999999 → 9780306406157", seen["log"])
-        written = {(n, tuple(m)): list(m.values())[0] for n, m in seen["after_apply"]}
+        written = {
+            (n, (bid,)): val for n, m in seen["after_apply"] for bid, val in m.items()
+        }
         self.assertEqual(
             written[("identifiers", (1,))],
             {"isbn": "9780306406157", "goodreads": "5"},
@@ -2104,9 +2111,10 @@ class GeminiDialogTests(QtCase):
         )
         self.assertEqual(written[("identifiers", (2,))], {"isbn": "0306406152"})
         restored = [
-            list(m.values())[0]
+            val
             for n, m in db.writes[len(seen["after_apply"]) :]
             if n == "identifiers"
+            for val in m.values()
         ]
         self.assertIn({"isbn": "9999999999999", "goodreads": "5"}, restored)
         self.assertIn({}, restored, "a book that had no ISBN gets none again")
@@ -2138,6 +2146,7 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs["api_key"] = "k"
         action_mod.prefs["batch_size"] = 1
         action_mod.prefs["min_interval"] = 0
+        action_mod.prefs["batch_dir"] = self.tmp_batch_dir.name
         seen = {}
 
         def drive(dialog):

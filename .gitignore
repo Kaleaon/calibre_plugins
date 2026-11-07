@@ -1,11 +1,9 @@
 calibre-test/
 takeout-samples/
 takeout-validation/
+calibre_link/tailscale/
 __pycache__/
 plugin/__pycache__/
 tests/__pycache__/
 *.zip
-dist/*.zip
-dist/**/*.zip
-dist/SHA256SUMS
-dist/SHA256SUMS.txt
+!dist/*.zip

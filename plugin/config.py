@@ -1,5 +1,8 @@
 try:
     from calibre.utils.config import JSONConfig
+
+    if not isinstance(JSONConfig, type) or hasattr(JSONConfig, "_mock_return_value"):
+        raise ImportError
 except ImportError:
 
     class JSONConfig(dict):

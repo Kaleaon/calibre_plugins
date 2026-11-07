@@ -455,6 +455,10 @@ def load_undo():
 def save_undo(undo):
     path = _undo_path()
     try:
+        prefs["undo"] = dict(undo) if undo else {}
+    except Exception:
+        pass
+    try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if not undo:
             if os.path.exists(path):

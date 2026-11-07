@@ -47,6 +47,26 @@ class Meta:
         self.ids[key] = value
 
 
+class StubPrefs(dict):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.defaults = {}
+
+    def __getitem__(self, key):
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            return self.defaults[key]
+
+    def get(self, key, default=None):
+        if key in self:
+            return self[key]
+        if key in self.defaults:
+            return self.defaults[key]
+        return default
+
+
+sys.modules["calibre.utils.config"].JSONConfig = StubPrefs
 sys.modules["calibre.ebooks.metadata.book.base"].Metadata = Meta
 sys.modules["calibre.gui2.actions"].InterfaceAction = object
 
