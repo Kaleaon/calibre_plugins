@@ -31,7 +31,7 @@ class ReadmeIndexTests(unittest.TestCase):
         folders = {
             p.parent.name
             for p in ROOT.glob('*/__init__.py')
-            if 'actual_plugin' in p.read_text(encoding='utf-8') and p.parent.name != 'calibre_link'
+            if 'actual_plugin' in p.read_text(encoding='utf-8')
         }
         self.assertEqual({r['folder'] for r in rows()}, folders, 'a plugin folder is missing from (or extra in) the README index')
 
