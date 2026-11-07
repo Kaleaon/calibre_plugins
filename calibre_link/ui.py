@@ -392,8 +392,9 @@ class CalibreLinkAction(InterfaceAction):
 
     # -- status dialog ------------------------------------------------------
     def show_status(self):
-        from qt.core import (QDialog, QDialogButtonBox, QPushButton,
-                             QTextEdit, QVBoxLayout)
+        from qt.core import (QApplication, QDesktopServices, QDialog,
+                             QDialogButtonBox, QPushButton, QTextBrowser,
+                             QUrl, QVBoxLayout)
         host = prefs.get("host", "0.0.0.0")
         port = int(prefs.get("port", 8765))
         lines = ["Calibre Link", ""]
@@ -416,7 +417,11 @@ class CalibreLinkAction(InterfaceAction):
                          % ("OK" if st.get("bridge") else "pending"))
         elif st["state"] == "auth":
             lines.append("  WAITING FOR ONE-TIME LOGIN — open:")
-            lines.append("  %s" % st.get("auth_url"))
+            auth_url = st.get("auth_url")
+            if auth_url:
+                lines.append('  <a href="%s">%s</a>' % (auth_url, auth_url))
+            else:
+                lines.append("  %s" % auth_url)
         elif st["state"] == "starting":
             lines.append("  starting…")
         elif st["state"] == "error":
@@ -438,11 +443,25 @@ class CalibreLinkAction(InterfaceAction):
         dlg = QDialog(self.gui)
         dlg.setWindowTitle("Calibre Link status")
         layout = QVBoxLayout(dlg)
-        text = QTextEdit("\n".join(lines))
+        text = QTextBrowser()
+        text.setOpenExternalLinks(True)
         text.setReadOnly(True)
+        text.setHtml("<br>".join(lines))
         layout.addWidget(text)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(dlg.reject)
+        auth_url = st.get("auth_url")
+        if st["state"] == "auth" and auth_url:
+            open_btn = QPushButton("Open Auth Link")
+            open_btn.clicked.connect(
+                lambda: QDesktopServices.openUrl(QUrl(auth_url)))
+            buttons.addButton(open_btn,
+                              QDialogButtonBox.ButtonRole.ActionRole)
+            copy_btn = QPushButton("Copy Auth Link")
+            copy_btn.clicked.connect(
+                lambda: QApplication.clipboard().setText(auth_url))
+            buttons.addButton(copy_btn,
+                              QDialogButtonBox.ButtonRole.ActionRole)
         restart = QPushButton("Restart bridge")
         restart.clicked.connect(
             lambda: (self.start_server(), dlg.accept()))
@@ -455,3 +474,4 @@ class CalibreLinkAction(InterfaceAction):
         layout.addWidget(buttons)
         dlg.resize(560, 380)
         dlg.exec()
+        return dlg
