@@ -87,7 +87,8 @@ jobs:
           base = os.environ.get('BASE_REF')
           files = []
           if base:
-              for ref in [f'origin/{base}', base]:
+              subprocess.run(['git', 'fetch', 'origin', base], capture_output=True)
+              for ref in [f'origin/{base}', base, 'FETCH_HEAD']:
                   try:
                       proc = subprocess.run(
                           ['git', 'diff', '--name-only', '--diff-filter=d', f'{ref}...HEAD', '--', '*.py'],
@@ -152,7 +153,8 @@ jobs:
           base = os.environ.get('BASE_REF')
           test_targets = []
           if base:
-              for ref in [f'origin/{base}', base]:
+              subprocess.run(['git', 'fetch', 'origin', base], capture_output=True)
+              for ref in [f'origin/{base}', base, 'FETCH_HEAD']:
                   try:
                       proc = subprocess.run(
                           ['git', 'diff', '--name-only', '--diff-filter=d', f'{ref}...HEAD', '--', '*.py'],
