@@ -42,19 +42,25 @@ class Meta:
         self.ids[key] = value
 
 
+class StubInterfaceAction:
+    def __init__(self, gui=None, name=None):
+        self.gui = gui
+        self.name = name
+
+
 class PluginImportTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.saved = {
             k: v
             for k, v in sys.modules.items()
-            if k.startswith(("calibre", "qt", "calibre_plugins"))
+            if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))
         }
         for name in STUBS + ["lxml", "lxml.etree"]:
             sys.modules[name] = MagicMock()
         sys.modules["calibre.ebooks.metadata.book.base"].Metadata = Meta
-        sys.modules["calibre.gui2.actions"].InterfaceAction = object
-        sys.modules["calibre.customize"].InterfaceActionBase = object
+        sys.modules["calibre.gui2.actions"].InterfaceAction = StubInterfaceAction
+        sys.modules["calibre.customize"].InterfaceActionBase = StubInterfaceAction
         sys.modules["calibre.utils.config"].JSONConfig = lambda name: type(
             "Prefs", (dict,), {"defaults": {}}
         )()
@@ -63,7 +69,9 @@ class PluginImportTests(unittest.TestCase):
 
     def tearDown(self):
         for k in [
-            k for k in sys.modules if k.startswith(("calibre", "qt", "calibre_plugins"))
+            k
+            for k in sys.modules
+            if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))
         ]:
             del sys.modules[k]
         sys.modules.update(self.saved)

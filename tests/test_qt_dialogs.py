@@ -128,7 +128,7 @@ class QtCase(unittest.TestCase):
         actions.InterfaceAction = type(
             "InterfaceAction",
             (object,),
-            {"__init__": lambda self, gui, name: setattr(self, "gui", gui)},
+            {"__init__": lambda self, gui=None, name=None: setattr(self, "gui", gui)},
         )
         sys.modules["calibre.gui2.actions"] = actions
         for name in (
@@ -268,6 +268,11 @@ class TaskAndTagSearchTests(QtCase):
                 patch.object(action_mod, "recover", side_effect=slow_recover),
                 patch.object(action_mod, "info_dialog") as mock_info,
                 patch.object(action_mod, "show_friendly_error_dialog") as mock_error,
+                patch.object(
+                    action_mod.QDialog,
+                    "exec",
+                    return_value=action_mod.QDialog.DialogCode.Accepted,
+                ),
             ):
                 mock_file_dialog.getOpenFileName.return_value = (str(source), "")
                 mock_file_dialog.getExistingDirectory.return_value = str(output)
@@ -936,15 +941,23 @@ class RedditPluginTests(QtCase):
             "base": base,
             "revoke_url": base + "/revoke",
         }
-        dialog.login_endpoints["redirect_uri"] = login.REDIRECT_URI
 
         def browser(url):
-            state = parse_qs(urlparse(url).query)["state"][0]
-            threading.Thread(
-                target=lambda: urllib.request.urlopen(
-                    f"{login.REDIRECT_URI}?code=abc&state={state}"
-                ).read()
-            ).start()
+            query = parse_qs(urlparse(url).query)
+            state = query["state"][0]
+            redirect_uri = query["redirect_uri"][0]
+
+            def hit():
+                for _ in range(10):
+                    try:
+                        urllib.request.urlopen(
+                            f"{redirect_uri}?code=abc&state={state}"
+                        ).read()
+                        break
+                    except Exception:
+                        time.sleep(0.02)
+
+            threading.Thread(target=hit).start()
 
         dialog.open_browser = browser
         dialog.log_in()
@@ -2138,6 +2151,7 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs["api_key"] = "k"
         action_mod.prefs["batch_size"] = 1
         action_mod.prefs["min_interval"] = 0
+        action_mod.prefs["batch_dir"] = self.tmp_batch_dir.name
         seen = {}
 
         def drive(dialog):
@@ -2396,7 +2410,8 @@ class FanficDialogTests(QtCase):
         )
 
 
-class GuikitHelpersTests(unittest.TestCase):
+@unittest.skipUnless(HAVE_QT, "PyQt6 (with its system libraries) is not installed")
+class GuikitHelpersTests(QtCase):
     """Unit tests for shared common.guikit helpers."""
 
     def test_parse_lines(self):

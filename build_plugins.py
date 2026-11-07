@@ -43,6 +43,12 @@ PLUGINS = {
         ["storykit.py", "guikit.py", "error_handler.py"],
         False,
     ),
+    "InkbunnySoFurryDownloader.zip": (
+        "furry",
+        "inkbunny_sofurry_downloader",
+        SHARED,
+        False,
+    ),
 }
 PLUGINS_BY_IMPORT = [v[1] for v in PLUGINS.values()]
 
@@ -70,6 +76,11 @@ def getWriter(type, config, story):
 THIRD_PARTY = [
     ("FanFicFare", "fanficfare"),
     ("cloudscraper", "cloudscraper"),
+    ("requests", "requests"),
+    ("urllib3", "urllib3"),
+    ("certifi", "certifi"),
+    ("idna", "idna"),
+    ("charset-normalizer", "charset_normalizer"),
     ("requests-file", "requests_file"),
     ("requests-toolbelt", "requests_toolbelt"),
     ("pyparsing", "pyparsing"),
@@ -80,8 +91,9 @@ absolute "from fanficfare..." imports were changed to relative imports; the comm
 mobi writers were removed and writers/__init__.py replaced so that only EPUB output is available.
 
 cloudscraper has one change: user_agent/__init__.py reads browsers.json through pkgutil instead of open(), so it works from
-inside a zip. requests-file, requests-toolbelt, pyparsing and brotlidecpy are bundled unmodified. All are under their own
-licenses, included below.
+inside a zip. requests, urllib3, certifi, idna, charset-normalizer, requests-file, requests-toolbelt, pyparsing and
+brotlidecpy are bundled unmodified. The requests stack is bundled because current Calibre no longer provides
+requests/urllib3 to plugins, and FanFicFare 4.63 imports urllib3 directly. All are under their own licenses, included below.
 """
 
 
@@ -129,11 +141,16 @@ def _patch_cloudscraper(text):
 def add_vendored(z):
     """Copy FanFicFare and its imported dependencies from the running environment into the zip."""
     try:
+        import certifi
+        import charset_normalizer
         import cloudscraper
         import fanficfare
+        import idna
         import pyparsing
+        import requests
         import requests_file
         import requests_toolbelt
+        import urllib3
     except ImportError as exc:
         raise ImportError(
             f'{exc}; run "pip install fanficfare" in this Python to build the fanfic plugin'
@@ -163,9 +180,21 @@ def add_vendored(z):
             z.writestr(arcname, text)
         else:
             z.write(path, arcname)
-    for module in (cloudscraper, requests_file, requests_toolbelt, pyparsing):
+    for module in (
+        cloudscraper,
+        requests,
+        urllib3,
+        certifi,
+        idna,
+        charset_normalizer,
+        requests_file,
+        requests_toolbelt,
+        pyparsing,
+    ):
         base = Path(module.__file__).parent
         for path in _package_files(base):
+            if path.suffix in (".so", ".pyd", ".dll"):
+                continue  # native accelerators (e.g. charset-normalizer's) can't load from a zip; the pure-Python code works without them
             arcname = f"{base.name}/{path.relative_to(base).as_posix()}"
             if arcname == "cloudscraper/user_agent/__init__.py":
                 z.writestr(

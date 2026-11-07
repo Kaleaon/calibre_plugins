@@ -7,6 +7,50 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
+
+class StubInterfaceAction:
+    def __init__(self, gui=None, name=None):
+        self.gui = gui
+        self.name = name
+
+
+class StubJSONConfig(dict):
+    def __init__(self, name="", *args, **kwargs):
+        super().__init__()
+        self.name = name
+        self.defaults = {}
+
+    def __getitem__(self, key):
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            return self.defaults.get(key, "")
+
+    def get(self, key, default=None):
+        if key in self:
+            return self[key]
+        if key in self.defaults:
+            return self.defaults[key]
+        return default
+
+
+for mod_name in [
+    "calibre",
+    "calibre.customize",
+    "calibre.gui2",
+    "calibre.gui2.actions",
+    "calibre.utils",
+    "calibre.utils.config",
+]:
+    if mod_name not in sys.modules:
+        sys.modules[mod_name] = MagicMock()
+if not hasattr(sys.modules["calibre.utils.config"], "JSONConfig") or isinstance(
+    sys.modules["calibre.utils.config"].JSONConfig, MagicMock
+):
+    sys.modules["calibre.utils.config"].JSONConfig = StubJSONConfig
+sys.modules["calibre.gui2.actions"].InterfaceAction = StubInterfaceAction
+sys.modules["calibre.customize"].InterfaceActionBase = StubInterfaceAction
+
 spec = importlib.util.spec_from_file_location(
     "scrub_core", Path(__file__).resolve().parents[1] / "scrubber_plugin/core.py"
 )
@@ -686,6 +730,9 @@ class LibraryScannerTests(unittest.TestCase):
 class LibraryScannerDialogTests(unittest.TestCase):
     def test_dialog_instantiation_and_filtering(self):
         try:
+            from PyQt6.QtWidgets import QApplication
+
+            app = QApplication.instance() or QApplication([])
             from scrubber_plugin.ui import LibraryScannerDialog
         except ImportError:
             return

@@ -807,14 +807,11 @@ class GeminiFixerAction(DialogAction):
             mapping = {bid: v for bid, v in fields[name].items() if bid not in failed}
             if not mapping:
                 continue
-            try:
-                db.set_field(name, mapping)
-            except Exception:
-                for bid, v in mapping.items():
-                    try:
-                        db.set_field(name, {bid: v})
-                    except Exception as exc:
-                        failed[bid] = f"{name}: {exc}"
+            for bid, v in mapping.items():
+                try:
+                    db.set_field(name, {bid: v})
+                except Exception as exc:
+                    failed[bid] = f"{name}: {exc}"
         return failed
 
     def write_changes(self, items):
@@ -2332,6 +2329,10 @@ class GeminiFixerAction(DialogAction):
             if undo:
                 undo_state[0] = undo
                 save_undo(undo)
+                try:
+                    prefs["undo"] = undo
+                except Exception:
+                    pass
                 undo_btn.setEnabled(True)
             self.refresh(done)
             if embed_updated.isChecked() and done:
@@ -2372,6 +2373,10 @@ class GeminiFixerAction(DialogAction):
             if not errors:
                 undo_state[0] = {}
                 save_undo({})
+                try:
+                    prefs["undo"] = {}
+                except Exception:
+                    pass
                 undo_btn.setEnabled(False)
             text = _("Restored {count} book(s).").format(count=len(done)) + (
                 _("\n\nProblems:\n") + "\n".join(errors[:10]) if errors else ""

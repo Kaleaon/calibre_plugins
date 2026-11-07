@@ -2400,14 +2400,22 @@ _GLOBAL_QT_APP = None
 def ensure_qt():
     global _GLOBAL_QT_APP
     try:
-        from qt.core import QApplication
+        from PyQt6 import QtWidgets
 
-        if not QApplication.instance():
-            _GLOBAL_QT_APP = QApplication([])
+        if not QtWidgets.QApplication.instance():
+            _GLOBAL_QT_APP = QtWidgets.QApplication([])
         else:
-            _GLOBAL_QT_APP = QApplication.instance()
+            _GLOBAL_QT_APP = QtWidgets.QApplication.instance()
     except Exception:
-        pass
+        try:
+            from qt.core import QApplication
+
+            if not QApplication.instance():
+                _GLOBAL_QT_APP = QApplication([])
+            else:
+                _GLOBAL_QT_APP = QApplication.instance()
+        except Exception:
+            pass
 
     if "qt.core" not in sys.modules:
         import types
@@ -2416,13 +2424,18 @@ def ensure_qt():
         try:
             from PyQt6 import QtCore, QtGui, QtWidgets
 
-            app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+            _GLOBAL_QT_APP = (
+                QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+            )
             qtcore = types.ModuleType("qt.core")
             for module in (QtWidgets, QtGui, QtCore):
                 for name in dir(module):
-                    setattr(qtcore, name, getattr(module, name))
+                    if not name.startswith("__"):
+                        setattr(qtcore, name, getattr(module, name))
             qtcore._ = lambda s: s
-            sys.modules["qt"] = types.ModuleType("qt")
+            qt = types.ModuleType("qt")
+            qt.core = qtcore
+            sys.modules["qt"] = qt
             sys.modules["qt.core"] = qtcore
         except ImportError:
 

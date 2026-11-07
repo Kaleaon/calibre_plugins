@@ -47,8 +47,39 @@ class Meta:
         self.ids[key] = value
 
 
+class StubInterfaceAction:
+    def __init__(self, gui=None, name=None):
+        self.gui = gui
+        self.name = name
+
+
+class StubJSONConfig(dict):
+    def __init__(self, name="", *args, **kwargs):
+        super().__init__()
+        self.name = name
+        self.defaults = {}
+
+    def __getitem__(self, key):
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            return self.defaults.get(key, "")
+
+    def get(self, key, default=None):
+        if key in self:
+            return self[key]
+        if key in self.defaults:
+            return self.defaults[key]
+        return default
+
+
 sys.modules["calibre.ebooks.metadata.book.base"].Metadata = Meta
-sys.modules["calibre.gui2.actions"].InterfaceAction = object
+if not hasattr(sys.modules["calibre.utils.config"], "JSONConfig") or isinstance(
+    sys.modules["calibre.utils.config"].JSONConfig, MagicMock
+):
+    sys.modules["calibre.utils.config"].JSONConfig = StubJSONConfig
+sys.modules["calibre.gui2.actions"].InterfaceAction = StubInterfaceAction
+sys.modules["calibre.customize"].InterfaceActionBase = StubInterfaceAction
 
 from plugin import importer
 
