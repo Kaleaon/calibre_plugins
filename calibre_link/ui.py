@@ -40,6 +40,8 @@ class CalibreLinkAction(InterfaceAction):
         self.server = None
         self.sidecar = None
         self._sidecar_stopping = False
+        self._auth_prompted = False
+        self.suppress_dialogs = False
         self.ts_status = {"state": "off", "auth_url": None, "ip": None,
                           "dns": None, "bridge": False, "error": None}
         self.adapter = CalibreAdapter(lambda: self.gui.current_db)
@@ -207,6 +209,7 @@ class CalibreLinkAction(InterfaceAction):
     def start_sidecar(self):
         self.stop_sidecar()
         self._sidecar_stopping = False
+        self._auth_prompted = False
         if not prefs.get("ts_enabled", True):
             self.ts_status = {"state": "off", "auth_url": None, "ip": None,
                               "dns": None, "bridge": False, "error": None}
@@ -320,11 +323,20 @@ class CalibreLinkAction(InterfaceAction):
             if url:
                 self.ts_status.update(state="auth", auth_url=url)
                 self._write_connection_file()
+                if not getattr(self, "_auth_prompted", False):
+                    self._auth_prompted = True
+                    from qt.core import QTimer
+                    QTimer.singleShot(0, lambda u=url: self._prompt_tailscale_auth(u))
             return
         if line.startswith("CALIBRE_TSNET auth_url="):
+            url = line.split("=", 1)[1].strip()
             self.ts_status.update(
-                state="auth", auth_url=line.split("=", 1)[1].strip())
+                state="auth", auth_url=url)
             self._write_connection_file()
+            if url and not getattr(self, "_auth_prompted", False):
+                self._auth_prompted = True
+                from qt.core import QTimer
+                QTimer.singleShot(0, lambda u=url: self._prompt_tailscale_auth(u))
         elif line.startswith("CALIBRE_TSNET ip="):
             fields = {}
             for part in line.split()[1:]:
@@ -334,6 +346,7 @@ class CalibreLinkAction(InterfaceAction):
             self.ts_status.update(state="up", ip=fields.get("ip"),
                                   dns=fields.get("dns"))
             self._write_connection_file()
+            self._auth_prompted = False
         elif line.startswith("CALIBRE_TSNET bridge=ok"):
             self.ts_status.update(bridge=True)
             self._write_connection_file()
@@ -455,3 +468,68 @@ class CalibreLinkAction(InterfaceAction):
         layout.addWidget(buttons)
         dlg.resize(560, 380)
         dlg.exec()
+
+    def _prompt_tailscale_auth(self, auth_url):
+        if not auth_url:
+            return None
+        if (getattr(self, "suppress_dialogs", False) or
+                getattr(self, "_suppress_auth_dialog", False) or
+                bool(os.environ.get("CALIBRE_LINK_SUPPRESS_AUTH_DIALOG"))):
+            return None
+        self._auth_prompted = True
+        from qt.core import (
+            QApplication,
+            QDesktopServices,
+            QDialog,
+            QDialogButtonBox,
+            QLabel,
+            QPushButton,
+            QTextEdit,
+            QUrl,
+            QVBoxLayout,
+        )
+        dlg = QDialog(getattr(self, "gui", None))
+        dlg.setWindowTitle("Tailscale Authentication")
+        dlg.setModal(True)
+        dlg.auth_url = auth_url
+        layout = QVBoxLayout(dlg)
+
+        info = QLabel(
+            "Tailscale authorization is required for Calibre Link.\n\n"
+            "Open the authentication link in your browser to log in "
+            "and approve this device:"
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        url_box = QTextEdit(auth_url)
+        url_box.setReadOnly(True)
+        url_box.setMaximumHeight(60)
+        layout.addWidget(url_box)
+
+        buttons = QDialogButtonBox(dlg)
+
+        open_btn = QPushButton("Open Browser")
+        open_btn.clicked.connect(
+            lambda: (QDesktopServices.openUrl(QUrl(auth_url)), dlg.accept()))
+        buttons.addButton(open_btn, QDialogButtonBox.ButtonRole.ActionRole)
+
+        copy_btn = QPushButton("Copy Link")
+        copy_btn.clicked.connect(
+            lambda: QApplication.clipboard().setText(auth_url))
+        buttons.addButton(copy_btn, QDialogButtonBox.ButtonRole.ActionRole)
+
+        dismiss_btn = QPushButton("Dismiss")
+        dismiss_btn.clicked.connect(dlg.reject)
+        buttons.addButton(dismiss_btn, QDialogButtonBox.ButtonRole.RejectRole)
+
+        layout.addWidget(buttons)
+
+        dlg.open_button = open_btn
+        dlg.copy_button = copy_btn
+        dlg.dismiss_button = dismiss_btn
+        dlg.button_box = buttons
+
+        dlg.resize(480, 200)
+        dlg.exec()
+        return dlg
