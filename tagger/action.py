@@ -1,7 +1,8 @@
 import json
+import re
 from calibre.gui2 import error_dialog, info_dialog
 from calibre.gui2.actions import InterfaceAction
-from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox,
+from qt.core import (QApplication, QBrush, QCheckBox, QColor, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox,
                      QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
                      QPushButton, QRadioButton, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
                      Qt, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
@@ -161,10 +162,11 @@ class RuleSetManagerDialog(QDialog):
         self.status_label = QLabel("")
         layout.addWidget(self.status_label)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.buttons = self.button_box
+        self.button_box.accepted.connect(self._on_accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
 
         self._populate_initial()
 
@@ -229,7 +231,7 @@ class RuleSetManagerDialog(QDialog):
         for row in selected_rows:
             table.removeRow(row)
         table.blockSignals(False)
-        self._update_counts()
+        self._validate_table_cells()
 
     def _set_all_checked(self, table, checked):
         table.blockSignals(True)
@@ -242,8 +244,61 @@ class RuleSetManagerDialog(QDialog):
         self._update_counts()
 
     def _on_item_changed(self, item):
-        if item and item.column() == 0:
+        if not item:
+            return
+        if item.column() == 0:
             self._update_counts()
+        elif item.column() == 2:
+            self._validate_table_cells()
+
+    def _validate_table_cells(self):
+        first_error = None
+        has_invalid = False
+        try:
+            row_count = self.rules_table.rowCount()
+            if not isinstance(row_count, int):
+                return True
+        except Exception:
+            return True
+
+        for row in range(row_count):
+            item = self.rules_table.item(row, 2)
+            if not item:
+                continue
+            raw_text = item.text() if hasattr(item, 'text') else None
+            if not isinstance(raw_text, str):
+                continue
+            text = raw_text.strip()
+            if text.startswith('re:'):
+                pat = text[3:].strip()
+                if not pat:
+                    item.setBackground(QColor('red'))
+                    has_invalid = True
+                    if not first_error:
+                        first_error = f"Row {row + 1}: Regex pattern cannot be empty"
+                else:
+                    try:
+                        re.compile(pat, re.I)
+                        item.setBackground(QBrush())
+                    except re.error as exc:
+                        item.setBackground(QColor('red'))
+                        has_invalid = True
+                        if not first_error:
+                            first_error = f"Row {row + 1}: Invalid regex ({exc})"
+            else:
+                item.setBackground(QBrush())
+
+        ok_btn = self.button_box.button(QDialogButtonBox.StandardButton.Ok) if hasattr(self, 'button_box') and self.button_box else None
+        if has_invalid:
+            if ok_btn:
+                ok_btn.setEnabled(False)
+            self.status_label.setText(f"⚠ {first_error}")
+            return False
+        else:
+            if ok_btn:
+                ok_btn.setEnabled(True)
+            self._update_counts()
+            return True
 
     def _update_counts(self):
         rule_total = self.rules_table.rowCount()
@@ -377,6 +432,8 @@ class RuleSetManagerDialog(QDialog):
         return "\n".join(rule_lines), "\n".join(site_lines)
 
     def _on_accept(self):
+        if not self._validate_table_cells():
+            return
         rules_text, sites_text = self._get_checked_rules_and_sites_text()
         _, rule_errors = rules_mod.parse_rules(rules_text)
         _, site_errors = rules_mod.parse_sites(sites_text)
@@ -494,6 +551,8 @@ class TaggerAction(DialogAction):
         rules_edit = QPlainTextEdit(prefs['rules'])
         rules_edit.setPlaceholderText(RULES_HELP)
         raw_layout.addWidget(rules_edit)
+        raw_val_label = QLabel("")
+        raw_layout.addWidget(raw_val_label)
         tab_builder_layout.addWidget(raw_box, 2)
 
         tabs.addTab(tab_builder, "Structured Rule Builder")
@@ -659,7 +718,7 @@ class TaggerAction(DialogAction):
         }
 
         # --- Helper functions ---
-        def populate_table_from_rules():
+        def populate_table_from_rules(sync_raw=True):
             if state['syncing']:
                 return
             state['syncing'] = True
@@ -698,8 +757,9 @@ class TaggerAction(DialogAction):
                 btn_layout.addWidget(del_btn)
                 rules_table.setCellWidget(idx, 4, btn_widget)
 
-            raw_text = presets_mod.rules_to_text(state['active_rules'])
-            rules_edit.setPlainText(raw_text)
+            if sync_raw:
+                raw_text = presets_mod.rules_to_text(state['active_rules'])
+                rules_edit.setPlainText(raw_text)
             state['syncing'] = False
 
         def validate_form():
@@ -708,6 +768,23 @@ class TaggerAction(DialogAction):
             pattern = pat_edit.text().strip()
             raw_tags = tags_edit.text().strip()
             tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
+
+            if mode == 'regex':
+                if not pattern:
+                    pat_edit.setStyleSheet("")
+                    val_label.setText("<font color='red'>⚠ Pattern cannot be empty</font>")
+                    add_rule_btn.setEnabled(False)
+                    return
+                try:
+                    re.compile(pattern, re.I)
+                    pat_edit.setStyleSheet("")
+                except re.error as exc:
+                    pat_edit.setStyleSheet("border: 1px solid red;")
+                    val_label.setText(f"<font color='red'>⚠ Invalid regular expression: {exc}</font>")
+                    add_rule_btn.setEnabled(False)
+                    return
+            else:
+                pat_edit.setStyleSheet("")
 
             r_dict = {'field': field, 'match_mode': mode, 'pattern': pattern, 'tags': tags}
             ok, err = presets_mod.validate_rule_dict(r_dict)
@@ -783,11 +860,45 @@ class TaggerAction(DialogAction):
         def on_raw_text_changed():
             if state['syncing']:
                 return
-            state['syncing'] = True
             raw_text = rules_edit.toPlainText()
+
+            regex_errors = []
+            for n, line in enumerate(raw_text.splitlines(), 1):
+                stripped = line.strip()
+                if not stripped or stripped.startswith('#'):
+                    continue
+                target = stripped
+                if '=>' in stripped:
+                    left, _ = stripped.split('=>', 1)
+                    target = left.strip()
+                m = re.match(r'^([A-Za-z]+):(.*)$', target)
+                if m and m.group(1).lower() in rules_mod.FIELDS:
+                    target = m.group(2).strip()
+
+                if target.startswith('re:'):
+                    pat = target[3:].strip()
+                    if not pat:
+                        regex_errors.append(f"Line {n}: Regex pattern cannot be empty")
+                    else:
+                        try:
+                            re.compile(pat, re.I)
+                        except re.error as exc:
+                            regex_errors.append(f"Line {n}: Invalid regular expression ({exc})")
+
+            if regex_errors:
+                rules_edit.setStyleSheet("border: 1px solid red;")
+                raw_val_label.setText(f"<font color='red'>⚠ {regex_errors[0]}</font>")
+                preview_btn.setEnabled(False)
+                apply_btn.setEnabled(False)
+            else:
+                rules_edit.setStyleSheet("")
+                raw_val_label.setText("")
+                preview_btn.setEnabled(True)
+
+            state['syncing'] = True
             state['active_rules'] = presets_mod.text_to_rule_dicts(raw_text)
             state['syncing'] = False
-            populate_table_from_rules()
+            populate_table_from_rules(sync_raw=False)
 
         def populate_preset_list():
             preset_list_table.setRowCount(0)
