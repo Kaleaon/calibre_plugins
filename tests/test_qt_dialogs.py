@@ -2100,18 +2100,17 @@ class GeminiDialogTests(QtCase):
             seen["log"],
         )
         self.assertIn("ISBN 9999999999999 → 9780306406157", seen["log"])
-        written = {n: m for n, m in seen["after_apply"]}
+        written = {(n, tuple(m)): list(m.values())[0] for n, m in seen["after_apply"]}
         self.assertEqual(
-            written["identifiers"][1],
+            written[("identifiers", (1,))],
             {"isbn": "9780306406157", "goodreads": "5"},
             "other identifiers are kept",
         )
-        self.assertEqual(written["identifiers"][2], {"isbn": "0306406152"})
+        self.assertEqual(written[("identifiers", (2,))], {"isbn": "0306406152"})
         restored = [
-            val
+            list(m.values())[0]
             for n, m in db.writes[len(seen["after_apply"]) :]
             if n == "identifiers"
-            for val in m.values()
         ]
         self.assertIn({"isbn": "9999999999999", "goodreads": "5"}, restored)
         self.assertIn({}, restored, "a book that had no ISBN gets none again")
