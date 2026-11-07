@@ -9,6 +9,25 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+if 'qt.core' not in sys.modules:
+    try:
+        import PyQt6.QtCore as _qtcore
+        import PyQt6.QtGui as _qtgui
+        import PyQt6.QtWidgets as _qtwidgets
+        import types
+        qt = types.ModuleType('qt')
+        qtcore = types.ModuleType('qt.core')
+        for k, v in _qtcore.__dict__.items():
+            setattr(qtcore, k, v)
+        for k, v in _qtgui.__dict__.items():
+            setattr(qtcore, k, v)
+        for k, v in _qtwidgets.__dict__.items():
+            setattr(qtcore, k, v)
+        sys.modules['qt'] = qt
+        sys.modules['qt.core'] = qtcore
+    except ImportError:
+        pass
+
 from common.storykit import build_epub, extract_epub_story, merge_epubs, strip_tags
 from common.libkit import merge_library_books
 

@@ -1329,13 +1329,20 @@ _GLOBAL_QT_APP = None
 def ensure_qt():
     global _GLOBAL_QT_APP
     try:
-        from qt.core import QApplication
-        if not QApplication.instance():
-            _GLOBAL_QT_APP = QApplication([])
+        from PyQt6 import QtWidgets
+        if not QtWidgets.QApplication.instance():
+            _GLOBAL_QT_APP = QtWidgets.QApplication([])
         else:
-            _GLOBAL_QT_APP = QApplication.instance()
+            _GLOBAL_QT_APP = QtWidgets.QApplication.instance()
     except Exception:
-        pass
+        try:
+            from qt.core import QApplication
+            if not QApplication.instance():
+                _GLOBAL_QT_APP = QApplication([])
+            else:
+                _GLOBAL_QT_APP = QApplication.instance()
+        except Exception:
+            pass
 
     if 'qt.core' not in sys.modules:
         import types
@@ -1343,7 +1350,10 @@ def ensure_qt():
 
         try:
             from PyQt6 import QtCore, QtGui, QtWidgets
-            app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+            if not QtWidgets.QApplication.instance():
+                _GLOBAL_QT_APP = QtWidgets.QApplication([])
+            else:
+                _GLOBAL_QT_APP = QtWidgets.QApplication.instance()
             qtcore = types.ModuleType('qt.core')
             for module in (QtWidgets, QtGui, QtCore):
                 for name in dir(module):

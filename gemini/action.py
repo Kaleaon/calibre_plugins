@@ -358,25 +358,24 @@ def load_undo():
     """The undo history ({book_id: {field: old}}), migrating it out of prefs the first time."""
     path = _undo_path()
     try:
-        legacy = prefs.get('undo') or {}
-    except Exception:
-        legacy = {}
-    if legacy:
-        save_undo(legacy)
-        try:
-            prefs['undo'] = {}
-        except Exception:
-            pass
-        return dict(legacy)
-    try:
         with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
-        return data if isinstance(data, dict) else {}
+        if isinstance(data, dict) and data:
+            return data
+    except Exception:
+        pass
+    try:
+        legacy = prefs.get('undo') or {}
+        return dict(legacy)
     except Exception:
         return {}
 
 
 def save_undo(undo):
+    try:
+        prefs['undo'] = undo or {}
+    except Exception:
+        pass
     path = _undo_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -663,97 +662,65 @@ class GeminiFixerAction(DialogAction):
 
         return books
 
-    @staticmethod
-    def _apply_field_batches(db, per_book):
-        """per_book: {book_id: {db_field: value}}. Writes each field for all books in one set_field call (one transaction
-        instead of one per book); if a batch fails, that field is retried book by book so one bad book does not sink the rest.
-        Returns {book_id: error_text} for the books that failed."""
-        failed = {}
-        fields = {}
-        for book_id, values in per_book.items():
-            for name, value in values.items():
-                fields.setdefault(name, {})[book_id] = value
-        # series must exist before its index is set
-        order = sorted(fields, key=lambda n: (n == 'series_index', n))
-        for name in order:
-            mapping = {bid: v for bid, v in fields[name].items() if bid not in failed}
-            if not mapping:
-                continue
-            try:
-                db.set_field(name, mapping)
-            except Exception:
-                for bid, v in mapping.items():
-                    try:
-                        db.set_field(name, {bid: v})
-                    except Exception as exc:
-                        failed[bid] = f'{name}: {exc}'
-        return failed
-
     def write_changes(self, items):
         """items: [(book_id, {field: (old, new)})]. Returns (changed_ids, errors, undo)."""
         db = self.gui.current_db.new_api
-        per_book, saved_by_book, labels = {}, {}, {}
+        done, errors, undo = [], [], {}
         for book_id, changes in items:
-            values, saved = {}, {}
-            labels[book_id] = changes.get('title', ('', ''))[0] or book_id
-            for field, (old, new) in changes.items():
-                if field == 'title':
-                    values['title'] = new
-                elif field == 'authors':
-                    values['authors'] = tuple(new)
-                elif field == 'series':
-                    values['series'] = new[0]
-                    values['series_index'] = new[1]
-                elif field == 'tags':
-                    values['tags'] = tuple(new)
-                elif field == 'language':
-                    values['languages'] = tuple(new)
-                elif field == 'isbn':
-                    values['identifiers'] = dict(db.field_for('identifiers', book_id) or {}, isbn=new)
-                else:
-                    continue
-                saved[field] = [old[0], old[1] if old[1] is not None else 1.0] if field == 'series' else old
-            if values:
-                per_book[book_id] = values
-                saved_by_book[book_id] = saved
-        failed = self._apply_field_batches(db, per_book)
-        done = [bid for bid in per_book if bid not in failed]
-        errors = [f'{labels.get(bid, bid)}: {why}' for bid, why in failed.items()]
-        undo = {str(bid): saved_by_book[bid] for bid in per_book if saved_by_book.get(bid)}
+            saved = {}
+            try:
+                for field, (old, new) in changes.items():
+                    if field == 'title':
+                        db.set_field('title', {book_id: new})
+                    elif field == 'authors':
+                        db.set_field('authors', {book_id: tuple(new)})
+                    elif field == 'series':
+                        db.set_field('series', {book_id: new[0]})
+                        db.set_field('series_index', {book_id: new[1]})
+                    elif field == 'tags':
+                        db.set_field('tags', {book_id: tuple(new)})
+                    elif field == 'language':
+                        db.set_field('languages', {book_id: tuple(new)})
+                    elif field == 'isbn':
+                        db.set_field('identifiers', {book_id: dict(db.field_for('identifiers', book_id) or {}, isbn=new)})
+                    saved[field] = [old[0], old[1] if old[1] is not None else 1.0] if field == 'series' else old
+                done.append(book_id)
+            except Exception as exc:
+                errors.append(f'{changes.get("title", ("", ""))[0] or book_id}: {exc}')
+            if saved:
+                undo[str(book_id)] = saved
         return done, errors, undo
 
     def restore(self, undo):
         db = self.gui.current_db.new_api
-        per_book = {}
+        done, errors = [], []
         for key, saved in undo.items():
             book_id = int(key)
-            if not db.has_id(book_id):
-                continue
-            values = {}
-            for field, old in saved.items():
-                if field == 'title':
-                    values['title'] = old
-                elif field == 'authors':
-                    values['authors'] = tuple(old)
-                elif field == 'series':
-                    values['series'] = old[0] or None
-                    values['series_index'] = old[1] if old[1] is not None else 1.0
-                elif field == 'tags':
-                    values['tags'] = tuple(old)
-                elif field == 'language':
-                    values['languages'] = tuple(old)
-                elif field == 'isbn':
-                    ids = dict(db.field_for('identifiers', book_id) or {})
-                    if old:
-                        ids['isbn'] = old
-                    else:
-                        ids.pop('isbn', None)
-                    values['identifiers'] = ids
-            if values:
-                per_book[book_id] = values
-        failed = self._apply_field_batches(db, per_book)
-        done = [bid for bid in per_book if bid not in failed]
-        errors = [f'book {bid}: {why}' for bid, why in failed.items()]
+            try:
+                if not db.has_id(book_id):
+                    continue
+                for field, old in saved.items():
+                    if field == 'title':
+                        db.set_field('title', {book_id: old})
+                    elif field == 'authors':
+                        db.set_field('authors', {book_id: tuple(old)})
+                    elif field == 'series':
+                        db.set_field('series', {book_id: old[0] or None})
+                        db.set_field('series_index', {book_id: old[1] if old[1] is not None else 1.0})
+                    elif field == 'tags':
+                        db.set_field('tags', {book_id: tuple(old)})
+                    elif field == 'language':
+                        db.set_field('languages', {book_id: tuple(old)})
+                    elif field == 'isbn':
+                        cur = dict(db.field_for('identifiers', book_id) or {})
+                        if old:
+                            cur['isbn'] = old
+                        else:
+                            cur.pop('isbn', None)
+                        db.set_field('identifiers', {book_id: cur})
+                done.append(book_id)
+            except Exception as exc:
+                errors.append(f'{saved.get("title") or book_id}: {exc}')
         return done, errors
 
     def refresh(self, ids):

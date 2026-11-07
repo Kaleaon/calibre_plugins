@@ -107,7 +107,7 @@ class QtCase(unittest.TestCase):
         for name in ('calibre', 'calibre.customize', 'calibre.gui2', 'calibre.utils'):
             sys.modules[name] = MagicMock()
         actions = types.ModuleType('calibre.gui2.actions')
-        actions.InterfaceAction = type('InterfaceAction', (object,), {'__init__': lambda self, gui, name: setattr(self, 'gui', gui)})
+        actions.InterfaceAction = type('InterfaceAction', (object,), {'__init__': lambda self, gui=None, name=None: setattr(self, 'gui', gui)})
         sys.modules['calibre.gui2.actions'] = actions
         for name in ('calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.book'):
             sys.modules[name] = MagicMock()
@@ -1471,6 +1471,7 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs['api_key'] = 'k'
         action_mod.prefs['batch_size'] = 1
         action_mod.prefs['min_interval'] = 0
+        action_mod.prefs['batch_dir'] = self.tmp_batch_dir.name
         seen = {}
 
         def drive(dialog):
@@ -1634,7 +1635,7 @@ class FanficDialogTests(QtCase):
         self.assertIn('[www.royalroad.com]\nuse_flaresolverr_proxy:true', advanced.toPlainText())
 
 
-class GuikitHelpersTests(unittest.TestCase):
+class GuikitHelpersTests(QtCase):
     """Unit tests for shared common.guikit helpers."""
 
     def test_parse_lines(self):

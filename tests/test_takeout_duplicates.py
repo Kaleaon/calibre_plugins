@@ -22,9 +22,23 @@ STUBS = ['calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions',
          'calibre.utils.date', 'calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.meta',
          'calibre.ebooks.metadata.book', 'calibre.ebooks.metadata.book.base']
 
+class StubPrefs(dict):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.defaults = {}
+
+    def get(self, key, default=None):
+        if key in self:
+            return self[key]
+        if key in self.defaults:
+            return self.defaults[key]
+        return default
+
 for name in STUBS:
     if name not in sys.modules:
         sys.modules[name] = MagicMock()
+
+sys.modules['calibre.utils.config'].JSONConfig = lambda name: StubPrefs()
 
 class Meta:
     def __init__(self, title, authors):

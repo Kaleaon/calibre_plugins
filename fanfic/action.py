@@ -46,9 +46,9 @@ class FanficAction(InterfaceAction):
 
         db = self.gui.current_db.new_api
         all_idents = db.all_field_for('identifiers', selected_ids, {})
-        allow_adult = prefs['allow_adult']
-        extra_adult = engine.parse_extra_adult(prefs['extra_adult'])
-        ini = prefs['advanced_ini']
+        allow_adult = prefs.get('allow_adult', False)
+        extra_adult = engine.parse_extra_adult(prefs.get('extra_adult', ''))
+        ini = prefs.get('advanced_ini', '')
 
         valid_targets = []
         skipped = []
