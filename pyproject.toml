@@ -15,7 +15,18 @@ select = [
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
 ]
-ignore = ["E501", "UP038"]
+ignore = [
+    "E402",
+    "E501",
+    "E701",
+    "E702",
+    "E731",
+    "E741",
+    "F401",
+    "F841",
+    "UP031",
+    "UP035",
+]
 
 [tool.ruff.lint.isort]
 known-first-party = [

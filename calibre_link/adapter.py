@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Calibre-facing adapter for the Calibre Link plugin.
 
 Talks to the GUI's OWN database object (gui.current_db, the legacy
@@ -19,18 +18,31 @@ Backups are the one exception to "never touch the file": they use
 SQLite's online backup API from a separate read-only connection,
 which is designed to take a consistent snapshot of a live database.
 """
+
 import os
 import re
 import shutil
 import sqlite3
-from datetime import datetime
+from datetime import UTC, datetime
 
-SUPPORTED_FIELDS = ("title", "authors", "author_sort", "tags", "isbn",
-                    "series", "series_index", "publisher", "pubdate",
-                    "rating", "comments", "language")
+SUPPORTED_FIELDS = (
+    "title",
+    "authors",
+    "author_sort",
+    "tags",
+    "isbn",
+    "series",
+    "series_index",
+    "publisher",
+    "pubdate",
+    "rating",
+    "comments",
+    "language",
+)
 
 
 import threading as _threading
+
 _OPLOG = []
 _OPLOCK = _threading.Lock()
 _WRITELOCK = _threading.Lock()
@@ -38,6 +50,7 @@ _WRITELOCK = _threading.Lock()
 
 def oplog(msg):
     import time as _t
+
     _OPLOG.append("%s %s" % (_t.strftime("%H:%M:%S"), msg))
     del _OPLOG[:-200]
 
@@ -115,14 +128,18 @@ class CalibreAdapter:
     # -- adapter interface ------------------------------------------------
     def health(self):
         db = self._db()
-        return {"library": self.library_path(),
-                "book_count": len(self._all_ids(db))}
+        return {"library": self.library_path(), "book_count": len(self._all_ids(db))}
 
     def stats(self):
         db = self._db()
         ids = self._all_ids(db)
-        out = {"total_books": len(ids), "missing_isbn": 0,
-               "missing_cover": 0, "missing_author": 0, "missing_tags": 0}
+        out = {
+            "total_books": len(ids),
+            "missing_isbn": 0,
+            "missing_cover": 0,
+            "missing_author": 0,
+            "missing_tags": 0,
+        }
         titles = {}
         for book_id in ids:
             mi = self._metadata(db, book_id)
@@ -142,8 +159,10 @@ class CalibreAdapter:
             key = (mi.title or "").lower()
             titles[key] = titles.get(key, 0) + 1
         out["duplicate_title_author"] = [
-            {"t": t, "n": n} for t, n in
-            sorted(titles.items(), key=lambda kv: -kv[1]) if n > 1][:50]
+            {"t": t, "n": n}
+            for t, n in sorted(titles.items(), key=lambda kv: -kv[1])
+            if n > 1
+        ][:50]
         return out
 
     def list_books(self, q="", limit=50, offset=0):
@@ -160,17 +179,21 @@ class CalibreAdapter:
             needle = (q or "").lower()
             for book_id in ids:
                 mi = self._metadata(db, book_id)
-                if needle and needle not in (mi.title or "").lower() and \
-                        needle not in " & ".join(mi.authors or []).lower():
+                if (
+                    needle
+                    and needle not in (mi.title or "").lower()
+                    and needle not in " & ".join(mi.authors or []).lower()
+                ):
                     continue
                 rows_all.append((mi.title or "", book_id, mi))
             rows_all.sort(key=lambda r: r[0].lower())
             ids = [r[1] for r in rows_all]
             by_id = {r[1]: r[2] for r in rows_all}
-            return [self._row(db, b, by_id[b])
-                    for b in ids[offset:offset + int(limit)]]
+            return [
+                self._row(db, b, by_id[b]) for b in ids[offset : offset + int(limit)]
+            ]
         rows = []
-        for book_id in ids[offset:offset + int(limit)]:
+        for book_id in ids[offset : offset + int(limit)]:
             rows.append(self._row(db, book_id, self._metadata(db, book_id)))
         rows.sort(key=lambda r: (r["title"] or "").lower())
         return rows
@@ -196,18 +219,20 @@ class CalibreAdapter:
                 formats = [f.strip() for f in fmts.split(",") if f.strip()]
         except Exception:
             pass
-        row.update({
-            "tags": list(mi.tags or []),
-            "series": getattr(mi, "series", None),
-            "series_index": getattr(mi, "series_index", None),
-            "publisher": getattr(mi, "publisher", None),
-            "pubdate": str(mi.pubdate) if getattr(mi, "pubdate", None) else None,
-            "rating": getattr(mi, "rating", None),
-            "languages": list(getattr(mi, "languages", None) or []),
-            "comments": getattr(mi, "comments", None),
-            "identifiers": identifiers,
-            "formats": formats,
-        })
+        row.update(
+            {
+                "tags": list(mi.tags or []),
+                "series": getattr(mi, "series", None),
+                "series_index": getattr(mi, "series_index", None),
+                "publisher": getattr(mi, "publisher", None),
+                "pubdate": str(mi.pubdate) if getattr(mi, "pubdate", None) else None,
+                "rating": getattr(mi, "rating", None),
+                "languages": list(getattr(mi, "languages", None) or []),
+                "comments": getattr(mi, "comments", None),
+                "identifiers": identifiers,
+                "formats": formats,
+            }
+        )
         return row
 
     def backup(self):
@@ -220,8 +245,9 @@ class CalibreAdapter:
         name = "metadata-%s.db" % datetime.now().strftime("%Y%m%d-%H%M%S")
         dst_path = os.path.join(dst_dir, name)
         # SQLite online backup: consistent snapshot of the live db.
-        src = sqlite3.connect("file:" + src_path.replace(os.sep, "/")
-                              + "?mode=ro", uri=True)
+        src = sqlite3.connect(
+            "file:" + src_path.replace(os.sep, "/") + "?mode=ro", uri=True
+        )
         try:
             dst = sqlite3.connect(dst_path)
             try:
@@ -233,8 +259,7 @@ class CalibreAdapter:
         return name
 
     def ops_log(self):
-        return {"lines": list(_OPLOG[-60:]),
-                "write_lock_held": _WRITELOCK.locked()}
+        return {"lines": list(_OPLOG[-60:]), "write_lock_held": _WRITELOCK.locked()}
 
     # -- calibre plugin / metadata-source inventory ----------------------
     def plugins_inventory(self):
@@ -248,9 +273,9 @@ class CalibreAdapter:
         out = {"plugins": [], "metadata_sources": [], "diagnostics": {}}
         try:
             import calibre.customize.ui as cui
+
             plugins = None
-            for attr in ("initialized_plugins", "get_plugins",
-                         "available_plugins"):
+            for attr in ("initialized_plugins", "get_plugins", "available_plugins"):
                 fn = getattr(cui, attr, None)
                 if callable(fn):
                     try:
@@ -262,11 +287,15 @@ class CalibreAdapter:
             if plugins:
                 for p in plugins:
                     try:
-                        out["plugins"].append({
-                            "name": getattr(p, "name", str(p)),
-                            "version": ".".join(map(str, getattr(
-                                p, "version", ()) or ())),
-                            "type": type(p).__name__})
+                        out["plugins"].append(
+                            {
+                                "name": getattr(p, "name", str(p)),
+                                "version": ".".join(
+                                    map(str, getattr(p, "version", ()) or ())
+                                ),
+                                "type": type(p).__name__,
+                            }
+                        )
                     except Exception:
                         pass
             else:
@@ -276,16 +305,19 @@ class CalibreAdapter:
         # metadata sources, route 1: enabled-sources helper
         try:
             from calibre.ebooks.metadata.sources.base import get_enabled_sources
+
             srcs = get_enabled_sources()
             out["metadata_sources"] = [
-                {"name": getattr(s, "name", str(s)),
-                 "id": getattr(s, "ID", None)} for s in srcs]
+                {"name": getattr(s, "name", str(s)), "id": getattr(s, "ID", None)}
+                for s in srcs
+            ]
             out["diagnostics"]["get_enabled_sources"] = "ok"
         except Exception as e:
             out["diagnostics"]["get_enabled_sources"] = str(e)
         # route 2: the identify entry point itself
         try:
             from calibre.ebooks.metadata.sources.identify import identify
+
             out["diagnostics"]["identify_import"] = "ok"
         except Exception as e:
             out["diagnostics"]["identify_import"] = str(e)
@@ -310,15 +342,20 @@ class CalibreAdapter:
         result = {"ok": True, "book_id": book_id, "candidates": []}
         try:
             import threading
+
             from calibre.ebooks.metadata.sources.identify import identify
+
             log = _ListLog()
-            results = identify(log, threading.Event(),
-                               title=mi.title, authors=list(mi.authors or []),
-                               identifiers=identifiers)
+            results = identify(
+                log,
+                threading.Event(),
+                title=mi.title,
+                authors=list(mi.authors or []),
+                identifiers=identifiers,
+            )
             result["log_tail"] = log.lines[-5:]
         except Exception as e:
-            result.update({"ok": False,
-                           "error": "identify failed: %s" % e})
+            result.update({"ok": False, "error": "identify failed: %s" % e})
             return result
         for r in (results or [])[:5]:
             cand = {
@@ -330,10 +367,12 @@ class CalibreAdapter:
                 "pubdate": str(r.pubdate) if getattr(r, "pubdate", None) else None,
                 "tags": list(getattr(r, "tags", None) or [])[:12],
                 "identifiers": {},
-                "source": getattr(r, "identify_plugin", None) or
-                          getattr(r, "source", None),
-                "has_cached_cover": bool(getattr(r, "cover_url", None) or
-                                         getattr(r, "cached_cover_url", None)),
+                "source": getattr(r, "identify_plugin", None)
+                or getattr(r, "source", None),
+                "has_cached_cover": bool(
+                    getattr(r, "cover_url", None)
+                    or getattr(r, "cached_cover_url", None)
+                ),
             }
             try:
                 cand["identifiers"] = dict(r.get_identifiers())
@@ -341,8 +380,16 @@ class CalibreAdapter:
                 pass
             result["candidates"].append(cand)
         if apply and result["candidates"]:
-            wanted = fields or ["title", "authors", "isbn", "series",
-                                "series_index", "publisher", "pubdate", "tags"]
+            wanted = fields or [
+                "title",
+                "authors",
+                "isbn",
+                "series",
+                "series_index",
+                "publisher",
+                "pubdate",
+                "tags",
+            ]
             top = (results or [])[0]
             updates = {}
             if "title" in wanted and top.title:
@@ -398,9 +445,11 @@ class CalibreAdapter:
         if new_api is None:
             return {"ok": False, "error": "cache API unavailable"}
         import io
+
         mi = None
         try:
             from calibre.ebooks.metadata.meta import get_metadata
+
             mi = get_metadata(io.BytesIO(data), "epub")
             oplog("add_book: file metadata read: %r" % (mi.title,))
         except Exception as e:
@@ -408,6 +457,7 @@ class CalibreAdapter:
             mi = None
         if mi is None:
             from calibre.ebooks.metadata.book.base import Metadata
+
             mi = Metadata(metadata.get("title") or "Unknown", [])
         if metadata.get("title"):
             mi.title = metadata["title"]
@@ -440,17 +490,26 @@ class CalibreAdapter:
         if book_id is None:
             found = []
             try:
-                found = list(new_api.search(
-                    'title:"=%s"' % (mi.title or "").replace('"', " ")))
+                found = list(
+                    new_api.search('title:"=%s"' % (mi.title or "").replace('"', " "))
+                )
             except Exception:
                 pass
-            return {"ok": False, "error": "duplicate", "title": mi.title,
-                    "existing_ids": found[:5]}
-        new_api.add_format(book_id, "EPUB", io.BytesIO(data),
-                           replace=False, run_hooks=False)
+            return {
+                "ok": False,
+                "error": "duplicate",
+                "title": mi.title,
+                "existing_ids": found[:5],
+            }
+        new_api.add_format(
+            book_id, "EPUB", io.BytesIO(data), replace=False, run_hooks=False
+        )
         oplog("add_book: format attached id=%s" % book_id)
-        return {"ok": True, "book_id": book_id,
-                "book": self._row(db, book_id, self._metadata(db, book_id))}
+        return {
+            "ok": True,
+            "book_id": book_id,
+            "book": self._row(db, book_id, self._metadata(db, book_id)),
+        }
 
     # -- first-pages text (content-vs-metadata checks, stamp hunt) --------
     def book_text(self, book_id, max_chars=8000):
@@ -477,17 +536,20 @@ class CalibreAdapter:
             except Exception:
                 formats = []
         if not formats:
-            return {"ok": False, "book_id": book_id,
-                    "error": "book has no formats"}
+            return {"ok": False, "book_id": book_id, "error": "book has no formats"}
         fmt = None
         for want in ("EPUB", "TXT", "FB2"):
             if want in [f.upper() for f in formats]:
                 fmt = want
                 break
         if fmt is None:
-            return {"ok": True, "book_id": book_id, "supported": False,
-                    "formats": formats,
-                    "note": "text extraction supports EPUB/TXT/FB2"}
+            return {
+                "ok": True,
+                "book_id": book_id,
+                "supported": False,
+                "formats": formats,
+                "note": "text extraction supports EPUB/TXT/FB2",
+            }
         path = None
         if new_api is not None:
             try:
@@ -506,23 +568,29 @@ class CalibreAdapter:
                 if fmt == "FB2":
                     text = _strip_html(text)
                 text = re.sub(r"\s+", " ", text).strip()
-                got = {"supported": True, "docs": 1,
-                       "head": text[:max_chars], "tail": text[-2000:]}
+                got = {
+                    "supported": True,
+                    "docs": 1,
+                    "head": text[:max_chars],
+                    "tail": text[-2000:],
+                }
             except Exception as e:
                 got = {"supported": False, "error": str(e)}
         got.update({"ok": True, "book_id": book_id, "format": fmt})
         if got.get("supported"):
-            got["stamps"] = find_stamps(got.get("head", "") + "\n" +
-                                         got.get("tail", ""))
+            got["stamps"] = find_stamps(
+                got.get("head", "") + "\n" + got.get("tail", "")
+            )
         return got
 
     def set_metadata(self, book_id, fields):
         db = self._db()
         unknown = [k for k in fields if k not in SUPPORTED_FIELDS]
         if unknown:
-            raise ValueError("unsupported field(s): %s (supported: %s)"
-                             % (", ".join(sorted(unknown)),
-                                ", ".join(SUPPORTED_FIELDS)))
+            raise ValueError(
+                "unsupported field(s): %s (supported: %s)"
+                % (", ".join(sorted(unknown)), ", ".join(SUPPORTED_FIELDS))
+            )
         mi = self._metadata(db, book_id)
         for key, value in fields.items():
             if key == "title":
@@ -531,17 +599,18 @@ class CalibreAdapter:
                 if isinstance(value, (list, tuple)):
                     mi.authors = [str(v) for v in value]
                 else:
-                    mi.authors = [a.strip() for a in
-                                  str(value).replace(" & ", ",").split(",")
-                                  if a.strip()]
+                    mi.authors = [
+                        a.strip()
+                        for a in str(value).replace(" & ", ",").split(",")
+                        if a.strip()
+                    ]
             elif key == "author_sort":
                 mi.author_sort = value
             elif key == "tags":
                 if isinstance(value, (list, tuple)):
                     mi.tags = [str(v) for v in value]
                 else:
-                    mi.tags = [t.strip() for t in str(value).split(",")
-                               if t.strip()]
+                    mi.tags = [t.strip() for t in str(value).split(",") if t.strip()]
             elif key == "isbn":
                 ids = dict(mi.get_identifiers())
                 if value:
@@ -632,9 +701,9 @@ def find_stamps(text):
         for m in re.finditer(pat, text or "", re.I):
             snippet = re.sub(r"\s+", " ", m.group(0)).strip()
             if ")" in snippet:
-                snippet = snippet[:snippet.index(")") + 1]
+                snippet = snippet[: snippet.index(")") + 1]
             if ". " in snippet[12:]:
-                snippet = snippet[:snippet.index(". ", 12)]
+                snippet = snippet[: snippet.index(". ", 12)]
             snippet = snippet[:60].strip()
             if snippet and snippet not in out:
                 out.append(snippet)
@@ -645,6 +714,7 @@ def _strip_html(raw):
     raw = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", raw)
     raw = re.sub(r"(?s)<[^>]+>", " ", raw)
     import html as _html
+
     return re.sub(r"\s+", " ", _html.unescape(raw)).strip()
 
 
@@ -657,6 +727,7 @@ def extract_text_from_epub(path, max_chars=8000):
     import posixpath
     import xml.etree.ElementTree as ET
     import zipfile
+
     try:
         zf = zipfile.ZipFile(path)
     except Exception as e:
@@ -684,8 +755,11 @@ def extract_text_from_epub(path, max_chars=8000):
         for idref in spine:
             href = manifest.get(idref)
             if href:
-                full = posixpath.normpath(posixpath.join(opf_dir, href)) \
-                    if opf_dir else href
+                full = (
+                    posixpath.normpath(posixpath.join(opf_dir, href))
+                    if opf_dir
+                    else href
+                )
                 docs.append(full)
         head_parts, total = [], 0
         for name in docs:
@@ -700,13 +774,16 @@ def extract_text_from_epub(path, max_chars=8000):
         tail = ""
         if docs:
             try:
-                tail_text = _strip_html(
-                    zf.read(docs[-1]).decode("utf-8", "replace"))
+                tail_text = _strip_html(zf.read(docs[-1]).decode("utf-8", "replace"))
                 tail = tail_text[-2000:]
             except KeyError:
                 pass
-        return {"supported": True, "docs": len(docs),
-                "head": " ".join(head_parts)[:max_chars], "tail": tail}
+        return {
+            "supported": True,
+            "docs": len(docs),
+            "head": " ".join(head_parts)[:max_chars],
+            "tail": tail,
+        }
     except KeyError as e:
         return {"supported": False, "error": "missing member: %s" % e}
     except Exception as e:
@@ -719,13 +796,15 @@ def _parse_date(value):
     text = str(value).strip()
     try:
         from calibre.utils.date import parse_date
+
         return parse_date(text, assume_utc=True)
     except Exception:
         pass
     from datetime import timezone
+
     for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y/%m/%d", "%Y"):
         try:
-            return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+            return datetime.strptime(text, fmt).replace(tzinfo=UTC)
         except Exception:
             continue
     raise ValueError("could not parse date: %r" % value)
@@ -776,10 +855,10 @@ def write_connection_file(adapter, host, port, token, extra_lines=None):
 
 def _local_addresses():
     import socket
+
     out = ["127.0.0.1"]
     try:
-        for info in socket.getaddrinfo(socket.gethostname(), None,
-                                       socket.AF_INET):
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
             ip = info[4][0]
             if ip not in out:
                 out.append(ip)

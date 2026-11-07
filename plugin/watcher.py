@@ -1,16 +1,16 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 try:
-    from qt.core import QObject, QFileSystemWatcher, QTimer, QApplication
+    from qt.core import QApplication, QFileSystemWatcher, QObject, QTimer
 except ImportError:
     try:
-        from PyQt6.QtCore import QObject, QFileSystemWatcher, QTimer, QApplication
+        from PyQt6.QtCore import QApplication, QFileSystemWatcher, QObject, QTimer
     except ImportError:
         QObject = object
         QFileSystemWatcher = None
@@ -31,14 +31,14 @@ except ImportError:
         from core import recover
         from importer import import_books
 
-TEMP_EXTENSIONS = {'.tmp', '.part', '.crdownload', '.download', '.partial'}
+TEMP_EXTENSIONS = {".tmp", ".part", ".crdownload", ".download", ".partial"}
 
 
-class WatchFolderManager(QObject if QObject != object else object):
+class WatchFolderManager(QObject if QObject is not object else object):
     """Monitors watch_dir for new files/folders, debounces changes, runs recovery & import, and relocates processed files."""
 
     def __init__(self, gui=None):
-        if QObject != object:
+        if QObject is not object:
             super().__init__()
         self.gui = gui
         self.watcher = None
@@ -59,11 +59,11 @@ class WatchFolderManager(QObject if QObject != object else object):
 
     def start_watching(self):
         """Start watching watch_dir according to preferences."""
-        if not prefs['auto_watch']:
+        if not prefs["auto_watch"]:
             self.stop_watching()
             return False
 
-        watch_path_str = prefs['watch_dir']
+        watch_path_str = prefs["watch_dir"]
         if not watch_path_str:
             return False
 
@@ -92,7 +92,7 @@ class WatchFolderManager(QObject if QObject != object else object):
                 self.watcher.removePaths(dirs)
 
     def _on_fs_change(self, path=None):
-        quiet_sec = max(1, int(prefs['quiet_period'] or 3))
+        quiet_sec = max(1, int(prefs["quiet_period"] or 3))
         self.schedule_scan(delay_ms=quiet_sec * 1000)
 
     def schedule_scan(self, delay_ms=3000):
@@ -113,7 +113,7 @@ class WatchFolderManager(QObject if QObject != object else object):
         """Verify that a file is complete and not actively being written to."""
         if path.is_dir():
             # For directories, check stability of all child files
-            for child in path.rglob('*'):
+            for child in path.rglob("*"):
                 if child.is_file() and not self._is_file_stable(child):
                     return False
             return True
@@ -124,7 +124,7 @@ class WatchFolderManager(QObject if QObject != object else object):
             path_str = str(path)
 
             # Attempt to open file for append/read to check lock
-            with open(path, 'rb') as f:
+            with open(path, "rb") as f:
                 f.seek(0, os.SEEK_END)
 
             prev = self._file_snapshots.get(path_str)
@@ -135,12 +135,12 @@ class WatchFolderManager(QObject if QObject != object else object):
                 if prev_size != size or prev_mtime != mtime:
                     return False
             return True
-        except (PermissionError, OSError, IOError):
+        except (PermissionError, OSError):
             return False
 
     def get_candidate_items(self):
         """Find new files/directories dropped into watch_dir, excluding processed_dir."""
-        watch_path_str = prefs['watch_dir']
+        watch_path_str = prefs["watch_dir"]
         if not watch_path_str:
             return [], None, None
 
@@ -148,10 +148,10 @@ class WatchFolderManager(QObject if QObject != object else object):
         if not watch_dir.exists():
             return [], None, None
 
-        output_path_str = prefs['output_dir'] or str(watch_dir / 'output')
+        output_path_str = prefs["output_dir"] or str(watch_dir / "output")
         output_dir = Path(output_path_str).resolve()
 
-        processed_path_str = prefs['processed_dir'] or str(watch_dir / 'processed')
+        processed_path_str = prefs["processed_dir"] or str(watch_dir / "processed")
         processed_dir = Path(processed_path_str).resolve()
 
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -160,11 +160,19 @@ class WatchFolderManager(QObject if QObject != object else object):
         candidates = []
         for item in watch_dir.iterdir():
             item_res = item.resolve()
-            if item_res == output_dir or output_dir in item_res.parents or item.name.lower() == 'output':
+            if (
+                item_res == output_dir
+                or output_dir in item_res.parents
+                or item.name.lower() == "output"
+            ):
                 continue
-            if item_res == processed_dir or processed_dir in item_res.parents or item.name.lower() == 'processed':
+            if (
+                item_res == processed_dir
+                or processed_dir in item_res.parents
+                or item.name.lower() == "processed"
+            ):
                 continue
-            if item.name.startswith('.'):
+            if item.name.startswith("."):
                 continue
             if item.suffix.lower() in TEMP_EXTENSIONS:
                 continue
@@ -198,24 +206,31 @@ class WatchFolderManager(QObject if QObject != object else object):
             if not stable_items:
                 return
 
-            convert_comics = bool(prefs['convert_comics'])
-            auto_import = bool(prefs['auto_import'])
+            convert_comics = bool(prefs["convert_comics"])
+            auto_import = bool(prefs["auto_import"])
 
             for item in stable_items:
                 try:
-                    written_files, report, report_path = recover(item, output_dir, comics=convert_comics)
+                    written_files, report, report_path = recover(
+                        item, output_dir, comics=convert_comics
+                    )
 
                     if auto_import and self.gui is not None:
                         # Perform library import
                         def do_import():
                             try:
                                 imported, import_errors = import_books(self.gui, report)
-                                with open(report_path, 'w', encoding='utf-8') as stream:
-                                    json.dump(report, stream, indent=2, ensure_ascii=False)
+                                with open(report_path, "w", encoding="utf-8") as stream:
+                                    json.dump(
+                                        report, stream, indent=2, ensure_ascii=False
+                                    )
                             except Exception as exc:
                                 pass
 
-                        if QApplication is not None and QApplication.instance() is not None:
+                        if (
+                            QApplication is not None
+                            and QApplication.instance() is not None
+                        ):
                             # Safely post/process on main thread if needed
                             do_import()
                         else:
@@ -238,8 +253,8 @@ class WatchFolderManager(QObject if QObject != object else object):
             target = processed_dir / item.name
             if target.exists():
                 stem = item.stem if item.is_file() else item.name
-                suffix = item.suffix if item.is_file() else ''
-                timestamp = time.strftime('%Y%m%d_%H%M%S')
+                suffix = item.suffix if item.is_file() else ""
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
                 target = processed_dir / f"{stem}_{timestamp}{suffix}"
                 counter = 1
                 while target.exists():
