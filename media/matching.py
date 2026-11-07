@@ -473,11 +473,12 @@ def manual_search(http, options=None, title='', artist='', album='', direct_id='
     candidates = []
 
     if id_type != 'invalid':
-        if id_type in ('mb_recording', 'mb_release'):
+        if id_type in ('mb_recording', 'mb_release', 'barcode'):
             recs = sources.mb_search_recordings(
                 http,
                 recording_id=cleaned_id if id_type == 'mb_recording' else '',
                 release_id=cleaned_id if id_type == 'mb_release' else '',
+                barcode=cleaned_id if id_type == 'barcode' else '',
                 limit=25
             )
             for rec in recs:

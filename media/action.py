@@ -244,7 +244,7 @@ class ManualSearchDialog(QDialog):
         album = initial.get('series') or initial.get('album', '')
         identifiers = initial.get('identifiers') or {}
         direct_id = ''
-        for key in ('mb_recording', 'mb_release', 'olid', 'isbn'):
+        for key in ('mb_recording', 'mb_release', 'olid', 'isbn', 'barcode', 'upc'):
             if key in identifiers and identifiers[key]:
                 direct_id = f"{key}:{identifiers[key]}"
                 break
@@ -270,7 +270,7 @@ class ManualSearchDialog(QDialog):
 
         r2.addWidget(QLabel(_('Direct Identifier:')))
         self.id_edit = QLineEdit(direct_id)
-        self.id_edit.setPlaceholderText(_('MusicBrainz MBID, Open Library OLID, or ISBN'))
+        self.id_edit.setPlaceholderText(_('MusicBrainz MBID, Open Library OLID, ISBN, or Barcode (e.g. barcode:..., upc:...)'))
         r2.addWidget(self.id_edit, 1)
         fields_layout.addLayout(r2)
 
