@@ -456,6 +456,10 @@ class Launcher:
                 process.kill()
             except OSError:
                 pass
+            try:
+                process.wait(timeout=5)
+            except (OSError, subprocess.SubprocessError):
+                pass
         return "FlareSolverr stopped."
 
 

@@ -30,10 +30,10 @@ SERVER = textwrap.dedent("""\
         '    try: os.setpgrp()\\n'
         '    except Exception: pass\\n'
         'g = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])\\n'
-        'open(' + repr({descendantfile!r}) + ', "w").write(str(g.pid))\\n'
+        'open(sys.argv[1], "w").write(str(g.pid))\\n'
         'time.sleep(300)\\n'
     )
-    child = subprocess.Popen([sys.executable, '-c', child_script])  # stands in for the browser FlareSolverr starts
+    child = subprocess.Popen([sys.executable, '-c', child_script, {descendantfile!r}])  # stands in for the browser FlareSolverr starts
     open({childfile!r}, 'w').write(str(child.pid))
     for _ in range(100):
         if os.path.exists({descendantfile!r}) and os.path.getsize({descendantfile!r}) > 0:
@@ -75,6 +75,8 @@ def alive(pid):
             handle = ctypes.windll.kernel32.OpenProcess(
                 PROCESS_QUERY_LIMITED_INFORMATION, False, pid
             )
+            if not handle:
+                handle = ctypes.windll.kernel32.OpenProcess(0x0400, False, pid)
             if not handle:
                 return False
             exit_code = ctypes.c_ulong()
@@ -204,9 +206,9 @@ class LauncherTests(unittest.TestCase):
         return self.program(
             SERVER.format(
                 python=sys.executable,
-                envfile=str(self.envfile),
-                childfile=str(self.childfile),
-                descendantfile=str(self.descendantfile),
+                envfile=str(self.envfile).replace("\\", "/"),
+                childfile=str(self.childfile).replace("\\", "/"),
+                descendantfile=str(self.descendantfile).replace("\\", "/"),
             )
         )
 
