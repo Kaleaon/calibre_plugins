@@ -34,12 +34,17 @@ from qt.core import (
 try:
     from qt.core import _
 except ImportError:
-    _ = lambda s: s
+
+    def _(s):
+        return s
+
 
 try:
     from calibre_plugins.reddit_follower import core, login, subscription
 except ImportError:
-    import core, login, subscription
+    import core
+    import login
+    import subscription
 from calibre_plugins.reddit_follower.config import prefs
 
 try:
@@ -1222,7 +1227,7 @@ class SubscriptionExchangeDialog(QDialog):
             self.import_status_label.setText("Error: Selected file does not exist.")
             return
         try:
-            with open(file_path, "r", encoding="utf-8", errors="replace") as stream:
+            with open(file_path, encoding="utf-8", errors="replace") as stream:
                 content = stream.read()
 
             if (

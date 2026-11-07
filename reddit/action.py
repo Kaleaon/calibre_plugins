@@ -5,11 +5,10 @@ import time
 
 from calibre.gui2 import info_dialog
 from calibre.gui2.actions import InterfaceAction
-from qt.core import QAction, QMenu, QTimer
-
 from calibre_plugins.reddit_follower import core, libkit
 from calibre_plugins.reddit_follower.config import prefs
 from calibre_plugins.reddit_follower.guikit import run_task
+from qt.core import QAction, QMenu, QTimer
 
 try:
     from calibre_plugins.reddit_follower.error_handler import show_friendly_error_dialog
@@ -22,26 +21,26 @@ try:
     from calibre_plugins.reddit_follower.ui import (
         DiscoverDialog,
         ManageDialog,
+        RedditAuthErrorDialog,
         SettingsDialog,
         SubscriptionExchangeDialog,
-        RedditAuthErrorDialog,
     )
 except ImportError:
     try:
         from .ui import (
             DiscoverDialog,
             ManageDialog,
+            RedditAuthErrorDialog,
             SettingsDialog,
             SubscriptionExchangeDialog,
-            RedditAuthErrorDialog,
         )
     except ImportError:
         from ui import (
             DiscoverDialog,
             ManageDialog,
+            RedditAuthErrorDialog,
             SettingsDialog,
             SubscriptionExchangeDialog,
-            RedditAuthErrorDialog,
         )
 
 
@@ -168,7 +167,8 @@ class FollowerAction(InterfaceAction):
                 try:
                     from registry import SeriesRegistry
                 except ImportError:
-                    import sys as _sys, os as _os
+                    import os as _os
+                    import sys as _sys
 
                     _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
                     if _pkg_dir not in _sys.path:
@@ -191,7 +191,8 @@ class FollowerAction(InterfaceAction):
                     from migration import migrate_json_to_sqlite
                 except ImportError:
                     try:
-                        import sys as _sys, os as _os
+                        import os as _os
+                        import sys as _sys
 
                         _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
                         if _pkg_dir not in _sys.path:
@@ -492,7 +493,7 @@ class FollowerAction(InterfaceAction):
         elif changed_books:
             self.gui.status_bar.show_message(
                 "Reddit stories updated: "
-                + "; ".join(l for l in lines if "up to date" not in l),
+                + "; ".join(line for line in lines if "up to date" not in line),
                 15000,
             )
 
