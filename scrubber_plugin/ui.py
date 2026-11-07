@@ -5,6 +5,7 @@ import html
 import io
 import json
 import os
+import sys
 import zipfile
 from pathlib import Path
 
@@ -73,38 +74,63 @@ except ImportError:
         QWidget,
     )
 
-try:
-    from calibre_plugins.epub_promo_scrubber.guikit import TreeCheckStateMixin
-    if not isinstance(TreeCheckStateMixin, type):
-        raise ImportError
-except (ImportError, AttributeError):
+TreeCheckStateMixin = None
+if "common.guikit" in sys.modules and hasattr(
+    sys.modules["common.guikit"], "TreeCheckStateMixin"
+):
+    TreeCheckStateMixin = getattr(sys.modules["common.guikit"], "TreeCheckStateMixin")
+
+if TreeCheckStateMixin is None:
+    try:
+        from common.guikit import TreeCheckStateMixin
+
+        if not isinstance(TreeCheckStateMixin, type):
+            TreeCheckStateMixin = None
+    except (ImportError, AttributeError):
+        pass
+
+if TreeCheckStateMixin is None:
+    try:
+        from calibre_plugins.epub_promo_scrubber.guikit import TreeCheckStateMixin
+
+        if not isinstance(TreeCheckStateMixin, type):
+            TreeCheckStateMixin = None
+    except (ImportError, AttributeError):
+        pass
+
+if TreeCheckStateMixin is None:
     try:
         from .guikit import TreeCheckStateMixin
-        if not isinstance(TreeCheckStateMixin, type):
-            raise ImportError
-    except (ImportError, AttributeError):
-        try:
-            from guikit import TreeCheckStateMixin
-            if not isinstance(TreeCheckStateMixin, type):
-                raise ImportError
-        except (ImportError, AttributeError):
-            try:
-                from common.guikit import TreeCheckStateMixin
-                if not isinstance(TreeCheckStateMixin, type):
-                    raise ImportError
-            except (ImportError, AttributeError):
-                import importlib.util
-                from pathlib import Path
 
-                _gk_path = Path(__file__).resolve().parents[1] / 'common' / 'guikit.py'
-                if _gk_path.exists():
-                    _spec = importlib.util.spec_from_file_location('guikit', _gk_path)
-                    _gk_mod = importlib.util.module_from_spec(_spec)
-                    _spec.loader.exec_module(_gk_mod)
-                    TreeCheckStateMixin = _gk_mod.TreeCheckStateMixin
-                else:
-                    class TreeCheckStateMixin:
-                        pass
+        if not isinstance(TreeCheckStateMixin, type):
+            TreeCheckStateMixin = None
+    except (ImportError, AttributeError):
+        pass
+
+if TreeCheckStateMixin is None:
+    try:
+        from guikit import TreeCheckStateMixin
+
+        if not isinstance(TreeCheckStateMixin, type):
+            TreeCheckStateMixin = None
+    except (ImportError, AttributeError):
+        pass
+
+if TreeCheckStateMixin is None:
+    import importlib.util
+    from pathlib import Path
+
+    _gk_path = Path(__file__).resolve().parents[1] / "common" / "guikit.py"
+    if _gk_path.exists():
+        _spec = importlib.util.spec_from_file_location("common.guikit", _gk_path)
+        _gk_mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_gk_mod)
+        TreeCheckStateMixin = getattr(_gk_mod, "TreeCheckStateMixin", None)
+
+if TreeCheckStateMixin is None or not isinstance(TreeCheckStateMixin, type):
+
+    class TreeCheckStateMixin:
+        pass
 
 try:
     from calibre_plugins.epub_promo_scrubber.scanner import LibraryScanner
