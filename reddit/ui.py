@@ -6,6 +6,7 @@ import webbrowser
 
 from qt.core import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -71,6 +72,20 @@ except ImportError:
         from error_handler import show_friendly_error_dialog
 from calibre_plugins.reddit_follower.storykit import Fetcher
 
+_ENSURED_QT_APP = None
+
+
+def _ensure_qt_app():
+    global _ENSURED_QT_APP
+    try:
+        if QApplication.instance() is None:
+            _ENSURED_QT_APP = QApplication([])
+    except Exception:
+        pass
+
+
+_ensure_qt_app()
+
 ACCESS_NOTE = (
     "Two ways to read Reddit, and what is known about each:\n"
     "• Public feeds (no account): the same Atom feeds a feed reader uses. They need nothing from you, but only reach the newest "
@@ -87,6 +102,7 @@ class SourceEditDialog(QDialog):
     """Add or edit one feed source rule for a series."""
 
     def __init__(self, parent, source=None):
+        _ensure_qt_app()
         super().__init__(parent)
         self.setWindowTitle("Feed source rule")
         self.resize(500, 260)
@@ -201,6 +217,7 @@ class ManifestDialog(QDialog):
     """View and customize post manifest entries and chapter order for a series."""
 
     def __init__(self, parent, follow, action):
+        _ensure_qt_app()
         super().__init__(parent)
         ThemeTokenEngine.register_widget(self)
         self.follow = follow
@@ -334,6 +351,7 @@ class FollowDialog(QDialog):
     """Add or edit one followed series with multi-source support."""
 
     def __init__(self, parent, follow=None):
+        _ensure_qt_app()
         super().__init__(parent)
         ThemeTokenEngine.register_widget(self)
         self.setWindowTitle(
@@ -654,6 +672,7 @@ class FollowDialog(QDialog):
 
 class SettingsDialog(QDialog):
     def __init__(self, parent):
+        _ensure_qt_app()
         super().__init__(parent)
         ThemeTokenEngine.register_widget(self)
         self.setWindowTitle("Reddit Story Follower settings")
@@ -918,6 +937,7 @@ class DiscoverDialog(QDialog):
     """Search or browse a subreddit such as r/HFY, see the stories grouped into series, and follow a whole series."""
 
     def __init__(self, parent, action):
+        _ensure_qt_app()
         super().__init__(parent)
         ThemeTokenEngine.register_widget(self)
         self.action = action
@@ -1187,6 +1207,7 @@ class SubscriptionExchangeDialog(QDialog):
     """Multi-tab dialog for subscription export and import with category mapping and conflict resolution."""
 
     def __init__(self, parent, action=None):
+        _ensure_qt_app()
         super().__init__(parent)
         self.action = action
         self.preview_subs = []
@@ -1552,6 +1573,7 @@ class ManageDialog(QDialog):
     ]
 
     def __init__(self, parent, action):
+        _ensure_qt_app()
         super().__init__(parent)
         ThemeTokenEngine.register_widget(self)
         self.action = action
