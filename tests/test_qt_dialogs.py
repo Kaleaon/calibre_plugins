@@ -142,6 +142,7 @@ class QtCase(unittest.TestCase):
         sys.modules["calibre.ebooks.metadata.book.base"] = base
         config = types.ModuleType("calibre.utils.config")
         config.JSONConfig = lambda name: StubPrefs()
+        config.config_dir = os.path.join(tempfile.gettempdir(), "calibre_config")
         sys.modules["calibre.utils.config"] = config
         sys.modules["calibre_plugins"] = types.ModuleType("calibre_plugins")
         sys.modules["calibre_plugins"].__path__ = []
@@ -228,8 +229,13 @@ class TaskAndTagSearchTests(QtCase):
 
             def accept_options_dialog():
                 for widget in QtWidgets.QApplication.topLevelWidgets():
-                    if isinstance(widget, QtWidgets.QDialog) and not isinstance(
-                        widget, QtWidgets.QProgressDialog
+                    if (
+                        isinstance(widget, QtWidgets.QDialog)
+                        and not isinstance(widget, QtWidgets.QProgressDialog)
+                        and (
+                            widget.windowTitle() == "Takeout recovery options"
+                            or widget.isVisible()
+                        )
                     ):
                         widget.accept()
                         return
@@ -1886,12 +1892,8 @@ class GeminiDialogTests(QtCase):
 
             dialog.reject()
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, "exec", drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
 
         self.assertEqual(
             seen["initial_mode_index"], 1, "Started in override mode index 1"

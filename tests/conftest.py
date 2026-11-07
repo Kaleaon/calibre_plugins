@@ -99,7 +99,12 @@ if "calibre" not in sys.modules:
 
     import tempfile
 
+    cfg_dir = os.path.join(tempfile.gettempdir(), "calibre_config")
+    os.makedirs(cfg_dir, exist_ok=True)
     sys.modules["calibre.utils.config"].JSONConfig = lambda name: StubPrefs()
-    sys.modules["calibre.utils.config"].config_dir = os.path.join(
-        tempfile.gettempdir(), "calibre_config"
-    )
+    sys.modules["calibre.utils.config"].config_dir = cfg_dir
+    constants = types.ModuleType("calibre.constants")
+    constants.config_dir = cfg_dir
+    sys.modules["calibre.constants"] = constants
+    if "calibre" in sys.modules:
+        sys.modules["calibre"].constants = constants
