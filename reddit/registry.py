@@ -11,6 +11,26 @@ import threading
 import time
 
 
+class ConnectionWrapper:
+    """Wrapper that supports both context manager and direct connection access."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __enter__(self):
+        self._conn.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            return self._conn.__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self._conn.close()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
 class SeriesRegistry:
     """Thread-safe manager for series_registry.db."""
 
@@ -20,7 +40,6 @@ class SeriesRegistry:
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self.init_db()
 
-    @contextlib.contextmanager
     def _get_connection(self):
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
@@ -37,11 +56,7 @@ class SeriesRegistry:
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='series';")
         if not cursor.fetchone():
             self._create_tables(conn)
-        try:
-            with conn:
-                yield conn
-        finally:
-            conn.close()
+        return ConnectionWrapper(conn)
 
     def _create_tables(self, conn):
         cursor = conn.cursor()
@@ -125,11 +140,21 @@ class SeriesRegistry:
             author_attribution TEXT DEFAULT '',
             is_duplicate INTEGER DEFAULT 0,
             canonical_post_id TEXT DEFAULT '',
+            is_excluded INTEGER DEFAULT 0,
+            is_custom_order INTEGER DEFAULT 0,
             PRIMARY KEY (series_id, post_id),
             FOREIGN KEY(series_id) REFERENCES series(id) ON DELETE CASCADE,
             FOREIGN KEY(post_id) REFERENCES chapters(id) ON DELETE CASCADE
         );
         """)
+        try:
+            cursor.execute("ALTER TABLE manifests ADD COLUMN is_excluded INTEGER DEFAULT 0;")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE manifests ADD COLUMN is_custom_order INTEGER DEFAULT 0;")
+        except Exception:
+            pass
 
         conn.commit()
 
@@ -360,11 +385,17 @@ class SeriesRegistry:
 
     def _update_manifest_unlocked(self, conn, series_id):
         cursor = conn.cursor()
+        cursor.execute("SELECT post_id, sequence_order, is_excluded, is_custom_order, is_duplicate, canonical_post_id FROM manifests WHERE series_id = ?", (series_id,))
+        existing_manifests = {r['post_id']: dict(r) for r in cursor.fetchall()}
+        has_custom_order = any(r.get('is_custom_order') for r in existing_manifests.values())
+
         cursor.execute("SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC", (series_id,))
         chapters = [dict(c) for c in cursor.fetchall()]
 
         # Deduplicate and calculate sequence
         seen_canonical = {}
+        max_seq = max((r.get('sequence_order', 0) for r in existing_manifests.values()), default=0)
+
         for idx, ch in enumerate(chapters, start=1):
             pid = ch['id']
             link = ch.get('link', '')
@@ -379,24 +410,88 @@ class SeriesRegistry:
                 if link:
                     seen_canonical[link] = pid
 
+            if pid in existing_manifests:
+                existing = existing_manifests[pid]
+                seq = existing['sequence_order'] if has_custom_order else idx
+                is_ex = existing.get('is_excluded', 0)
+                is_custom = existing.get('is_custom_order', 0)
+                dup = existing.get('is_duplicate', is_dup)
+                canon = existing.get('canonical_post_id', canonical_id)
+            else:
+                if has_custom_order:
+                    max_seq += 1
+                    seq = max_seq
+                    is_custom = 1
+                else:
+                    seq = idx
+                    is_custom = 0
+                is_ex = 0
+                dup = is_dup
+                canon = canonical_id
+
             cursor.execute("""
-            INSERT INTO manifests (series_id, post_id, sequence_order, chapter_title, author_attribution, is_duplicate, canonical_post_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO manifests (series_id, post_id, sequence_order, chapter_title, author_attribution, is_duplicate, canonical_post_id, is_excluded, is_custom_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(series_id, post_id) DO UPDATE SET
                 sequence_order = excluded.sequence_order,
                 chapter_title = excluded.chapter_title,
                 author_attribution = excluded.author_attribution,
                 is_duplicate = excluded.is_duplicate,
-                canonical_post_id = excluded.canonical_post_id;
+                canonical_post_id = excluded.canonical_post_id,
+                is_excluded = excluded.is_excluded,
+                is_custom_order = excluded.is_custom_order;
             """, (
                 series_id,
                 pid,
-                idx,
+                seq,
                 ch['title'],
                 ch['author'],
-                is_dup,
-                canonical_id
+                dup,
+                canon,
+                is_ex,
+                is_custom
             ))
+
+    def save_manifest_order(self, series_id, manifest_items):
+        """Persist custom sequence order, exclusion flags, and duplicate status for a series manifest."""
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.cursor()
+            for idx, item in enumerate(manifest_items, start=1):
+                if isinstance(item, dict):
+                    pid = item.get('post_id') or item.get('id')
+                    seq = item.get('sequence_order', idx)
+                    is_excluded = 1 if item.get('is_excluded') else 0
+                    is_duplicate = 1 if item.get('is_duplicate') else 0
+                else:
+                    pid = str(item)
+                    seq = idx
+                    is_excluded = 0
+                    is_duplicate = 0
+                if not pid:
+                    continue
+                cursor.execute("""
+                UPDATE manifests
+                SET sequence_order = ?,
+                    is_excluded = ?,
+                    is_duplicate = ?,
+                    is_custom_order = 1
+                WHERE series_id = ? AND post_id = ?;
+                """, (seq, is_excluded, is_duplicate, series_id, pid))
+                if cursor.rowcount == 0:
+                    cursor.execute("SELECT title, author FROM chapters WHERE id = ?", (pid,))
+                    ch = cursor.fetchone()
+                    title = ch['title'] if ch else ''
+                    author = ch['author'] if ch else ''
+                    cursor.execute("""
+                    INSERT INTO manifests (series_id, post_id, sequence_order, chapter_title, author_attribution, is_duplicate, canonical_post_id, is_excluded, is_custom_order)
+                    VALUES (?, ?, ?, ?, ?, ?, '', ?, 1)
+                    ON CONFLICT(series_id, post_id) DO UPDATE SET
+                        sequence_order = excluded.sequence_order,
+                        is_excluded = excluded.is_excluded,
+                        is_duplicate = excluded.is_duplicate,
+                        is_custom_order = 1;
+                    """, (series_id, pid, seq, title, author, is_duplicate, is_excluded))
+            conn.commit()
 
     def get_chapters(self, series_id):
         with self._lock, self._get_connection() as conn:
@@ -404,16 +499,22 @@ class SeriesRegistry:
             cursor.execute("SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC", (series_id,))
             return [dict(r) for r in cursor.fetchall()]
 
-    def get_manifest(self, series_id):
+    def get_manifest(self, series_id, include_excluded=False, include_duplicates=False):
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            query = """
             SELECT m.*, c.created, c.link, c.html, c.flair, c.note
             FROM manifests m
             JOIN chapters c ON m.post_id = c.id
-            WHERE m.series_id = ? AND m.is_duplicate = 0
-            ORDER BY m.sequence_order ASC;
-            """, (series_id,))
+            WHERE m.series_id = ?
+            """
+            params = [series_id]
+            if not include_duplicates:
+                query += " AND m.is_duplicate = 0"
+            if not include_excluded:
+                query += " AND m.is_excluded = 0"
+            query += " ORDER BY m.sequence_order ASC;"
+            cursor.execute(query, tuple(params))
             return [dict(r) for r in cursor.fetchall()]
 
     def set_added_to_lib(self, series_id, post_ids):

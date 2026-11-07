@@ -290,9 +290,13 @@ class FollowerAction(InterfaceAction):
         elif changed_books:
             self.gui.status_bar.show_message('Reddit stories updated: ' + '; '.join(l for l in lines if 'up to date' not in l), 15000)
 
+    def rebuild_book(self, follow):
+        """Rebuild the EPUB book for this follow using current manifest sequence and exclusions."""
+        return self.update_library(follow, has_changes=True)
+
     def update_library(self, follow, has_changes):
         """Rebuild the book from the cached chapters when something changed or the book is missing. Returns a message or ''."""
-        cache = core.ChapterCache(self.cache_dir(), follow['id'])
+        cache = core.ChapterCache(self.cache_dir(), follow['id'], registry=getattr(self, 'registry', lambda: None)())
         if not cache.posts:
             return ''
         if follow.get('layout') == 'each':

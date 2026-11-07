@@ -904,15 +904,16 @@ class ChapterCache:
         os.replace(tmp, self.path)
 
     def ordered(self):
-        manifest = self.registry.get_manifest(self.follow_id)
-        if manifest:
-            p_map = self.posts
-            out = []
-            for m in manifest:
-                pid = m['post_id']
-                if pid in p_map:
-                    out.append(p_map[pid])
-            if out:
+        if hasattr(self, 'registry') and self.registry:
+            all_entries = self.registry.get_manifest(self.follow_id, include_excluded=True)
+            if all_entries:
+                manifest = self.registry.get_manifest(self.follow_id, include_excluded=False)
+                p_map = self.posts
+                out = []
+                for m in manifest:
+                    pid = m['post_id']
+                    if pid in p_map and not m.get('is_excluded'):
+                        out.append(p_map[pid])
                 return out
         return sorted(self.posts.values(), key=lambda p: (p['created'], p['title']))
 
