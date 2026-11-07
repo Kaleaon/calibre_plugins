@@ -9,7 +9,7 @@ shows it, and weak matches are not offered at all.
 import difflib
 import re
 import unicodedata
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from . import sources
 from . import tags as audio
@@ -341,7 +341,10 @@ def parse_date(text):
         return None
     try:
         return datetime(
-            int(m.group(1)), int(m.group(2) or 1), int(m.group(3) or 1), tzinfo=UTC
+            int(m.group(1)),
+            int(m.group(2) or 1),
+            int(m.group(3) or 1),
+            tzinfo=timezone.utc,
         )
     except ValueError:
         return None

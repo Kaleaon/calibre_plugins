@@ -1,5 +1,6 @@
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -39,6 +40,28 @@ for name in STUBS:
         sys.modules[name] = MagicMock()
 
 
+class StubPrefs(dict):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.defaults = {}
+
+    def __getitem__(self, key):
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            return self.defaults[key]
+
+    def get(self, key, default=None):
+        if key in self:
+            return self[key]
+        if key in self.defaults:
+            return self.defaults[key]
+        return default
+
+
+sys.modules["calibre.utils.config"].JSONConfig = StubPrefs
+
+
 class Meta:
     def __init__(self, title, authors):
         self.title, self.authors, self.ids = title, authors, {}
@@ -50,7 +73,20 @@ class Meta:
 sys.modules["calibre.ebooks.metadata.book.base"].Metadata = Meta
 sys.modules["calibre.gui2.actions"].InterfaceAction = object
 
-from plugin import importer  # noqa: E402
+ROOT = Path(__file__).resolve().parents[1]
+if "calibre_plugins" not in sys.modules:
+    cp = types.ModuleType("calibre_plugins")
+    cp.__path__ = [str(ROOT)]
+    sys.modules["calibre_plugins"] = cp
+elif not getattr(sys.modules["calibre_plugins"], "__path__", None):
+    sys.modules["calibre_plugins"].__path__ = [str(ROOT)]
+
+if "calibre_plugins.takeout_book_fixer" not in sys.modules:
+    pkg = types.ModuleType("calibre_plugins.takeout_book_fixer")
+    pkg.__path__ = [str(ROOT / "plugin")]
+    sys.modules["calibre_plugins.takeout_book_fixer"] = pkg
+
+from calibre_plugins.takeout_book_fixer import importer  # noqa: E402
 
 
 class TakeoutDuplicatePolicyTests(unittest.TestCase):
@@ -174,7 +210,7 @@ class TakeoutDuplicatePolicyTests(unittest.TestCase):
             "metadata": {"title": "Existing Book", "isbn": "978-0-306-40615-7"},
         }
 
-        with patch("plugin.importer._show_conflict_dialog") as mock_dialog:
+        with patch.object(importer, "_show_conflict_dialog") as mock_dialog:
             mock_dialog.return_value = {0: "merge"}
             imported, errors = importer.import_books(
                 mock_gui, [row], duplicate_policy="prompt"
@@ -189,7 +225,7 @@ class TakeoutDuplicatePolicyTests(unittest.TestCase):
         except ImportError:
             self.skipTest("PyQt6 not available for Qt widget test")
 
-        QApplication.instance() or QApplication([])
+        _app = QApplication.instance() or QApplication([])
 
         conflicts = [
             {

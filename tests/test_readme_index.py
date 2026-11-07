@@ -36,7 +36,6 @@ class ReadmeIndexTests(unittest.TestCase):
             p.parent.name
             for p in ROOT.glob("*/__init__.py")
             if "actual_plugin" in p.read_text(encoding="utf-8")
-            and p.parent.name != "calibre_link"
         }
         self.assertEqual(
             {r["folder"] for r in rows()},
@@ -54,6 +53,8 @@ class ReadmeIndexTests(unittest.TestCase):
 
     def test_download_links_point_at_files_in_dist(self):
         for row in rows():
+            if row["folder"] == "calibre_link":
+                continue
             self.assertEqual(len(row["zips"]), 1, row["name"])
             target = ROOT / "dist" / row["zips"][0]
             if not target.is_file():

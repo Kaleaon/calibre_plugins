@@ -13,6 +13,13 @@ from unittest.mock import MagicMock
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 # Register qt.core shim for tests
+if "calibre" not in sys.modules:
+    sys.modules["calibre"] = MagicMock()
+if "calibre.customize" not in sys.modules:
+    sys.modules["calibre.customize"] = MagicMock()
+if not hasattr(sys.modules["calibre.customize"], "InterfaceActionBase"):
+    sys.modules["calibre.customize"].InterfaceActionBase = object
+
 qtcore = types.ModuleType("qt.core")
 for module in (QtWidgets, QtGui, QtCore):
     for name in dir(module):

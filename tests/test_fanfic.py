@@ -15,11 +15,16 @@ import engine  # noqa: E402
 import build_plugins  # noqa: E402
 
 try:
+    import certifi  # noqa: F401
+    import charset_normalizer  # noqa: F401
     import cloudscraper  # noqa: F401,E401
     import fanficfare  # noqa: F401
+    import idna  # noqa: F401
     import pyparsing  # noqa: F401
+    import requests  # noqa: F401
     import requests_file  # noqa: F401
     import requests_toolbelt  # noqa: F401
+    import urllib3  # noqa: F401
 
     HAVE_FFF = True
 except ImportError:
@@ -190,11 +195,21 @@ class PackagingTests(unittest.TestCase):
             "engine.py",
             "fanficfare/adapters/adapter_royalroadcom.py",
             "fanficfare/defaults.ini",
+            "fanficfare/fetchers/fetcher_requests.py",
             "cloudscraper/__init__.py",
             "brotlidecpy/brotli-dict",
             "flaresolverr.py",
             "royalroad-flaresolverr.md",
             "THIRD_PARTY_LICENSES.txt",
+            # The requests stack must be bundled: current Calibre provides neither requests nor
+            # urllib3 to plugins, and FanFicFare imports urllib3 directly (in-Calibre regression).
+            "requests/__init__.py",
+            "urllib3/__init__.py",
+            "urllib3/util/retry.py",
+            "certifi/__init__.py",
+            "certifi/cacert.pem",
+            "idna/__init__.py",
+            "charset_normalizer/__init__.py",
             "plugin-import-name-fanfic_downloader.txt",
         ):
             self.assertIn(expected, self.names)
@@ -234,6 +249,8 @@ class PackagingTests(unittest.TestCase):
             "pyparsing",
             "brotlidecpy",
             "Modifications for bundling",
+            "urllib3",
+            "certifi",
         ):
             self.assertIn(needle, text)
 
@@ -282,6 +299,7 @@ class ActionTests(unittest.TestCase):
 
         sys.modules["calibre.ebooks.metadata.book.base"].Metadata = Meta
         sys.modules["calibre.gui2.actions"].InterfaceAction = object
+        sys.modules["calibre.customize"].InterfaceActionBase = object
 
         class DummyAction:
             def __init__(self, text, parent=None):

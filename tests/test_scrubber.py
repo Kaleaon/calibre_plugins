@@ -11,6 +11,8 @@ if "calibre" not in sys.modules:
     sys.modules["calibre"] = MagicMock()
 if "calibre.customize" not in sys.modules:
     sys.modules["calibre.customize"] = MagicMock()
+if not hasattr(sys.modules["calibre.customize"], "InterfaceActionBase"):
+    sys.modules["calibre.customize"].InterfaceActionBase = object
 
 spec = importlib.util.spec_from_file_location(
     "scrub_core", Path(__file__).resolve().parents[1] / "scrubber_plugin/core.py"

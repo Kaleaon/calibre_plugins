@@ -15,7 +15,7 @@ import re
 import time
 import uuid
 import xml.etree.ElementTree as ET
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
@@ -340,7 +340,7 @@ def _epoch(text):
         stamp = datetime.fromisoformat(text)
     except ValueError:
         return 0.0
-    return (stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC)).timestamp()
+    return (stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)).timestamp()
 
 
 def parse_atom(xml_text):
@@ -813,7 +813,7 @@ def preview_series(
     ordered = sorted(posts.values(), key=lambda p: p["created"])
 
     def day(p):
-        return datetime.fromtimestamp(p["created"], UTC).date().isoformat()
+        return datetime.fromtimestamp(p["created"], timezone.utc).date().isoformat()
 
     return {
         "count": len(ordered),
@@ -884,7 +884,7 @@ def parse_index(csv_text, author=""):
         try:
             when = (
                 datetime.strptime(r[col_date].strip(), "%Y/%m/%d %H:%M")
-                .replace(tzinfo=UTC)
+                .replace(tzinfo=timezone.utc)
                 .timestamp()
                 - 2 * 3600
             )
@@ -1605,8 +1605,8 @@ def build_story(follow, cache):
         return sec_title, chapter_html(p, from_body)
 
     main_author = ", ".join(authors_list) if authors_list else "Unknown"
-    last = datetime.fromtimestamp(posts[-1]["created"], UTC).date().isoformat()
-    first = datetime.fromtimestamp(posts[0]["created"], UTC).date().isoformat()
+    last = datetime.fromtimestamp(posts[-1]["created"], timezone.utc).date().isoformat()
+    first = datetime.fromtimestamp(posts[0]["created"], timezone.utc).date().isoformat()
 
     subreddits = set()
     for src in follow.get("sources", [follow.get("source", {})]):
@@ -1656,7 +1656,9 @@ def build_each(follow, post):
         "categories": [],
         "summary": "",
         "publisher": PUBLISHER,
-        "pubdate": datetime.fromtimestamp(post["created"], UTC).date().isoformat(),
+        "pubdate": datetime.fromtimestamp(post["created"], timezone.utc)
+        .date()
+        .isoformat(),
     }
     part = _PART.match(post["title"])
     if part and len(re.sub(r"\W", "", part.group("stem"))) >= 4:

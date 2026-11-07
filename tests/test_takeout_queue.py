@@ -129,12 +129,16 @@ class TestTakeoutDaemon(unittest.TestCase):
         self.out_dir.mkdir()
         self.db_path = Path(self.tmp.name) / "daemon_queue.db"
 
+        self.old_prefs = dict(prefs)
         prefs["drop_folder"] = str(self.drop_dir)
         prefs["default_output_dir"] = str(self.out_dir)
         prefs["auto_import"] = False
         prefs["convert_comics"] = False
 
     def tearDown(self):
+        for k in list(prefs.keys()):
+            del prefs[k]
+        prefs.update(self.old_prefs)
         self.tmp.cleanup()
 
     def test_drop_folder_scanning_and_execution(self):

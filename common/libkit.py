@@ -10,6 +10,7 @@ try:
     from .storykit import (
         build_epub,
         extract_epub_story,
+        merge_epubs,  # noqa: F401
         sort_by_posting_order,
     )
 except (ImportError, ValueError):
@@ -17,12 +18,14 @@ except (ImportError, ValueError):
         from storykit import (
             build_epub,
             extract_epub_story,
+            merge_epubs,  # noqa: F401
             sort_by_posting_order,
         )
     except ImportError:
         from common.storykit import (
             build_epub,
             extract_epub_story,
+            merge_epubs,  # noqa: F401
             sort_by_posting_order,
         )
 

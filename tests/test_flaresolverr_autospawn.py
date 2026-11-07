@@ -47,7 +47,9 @@ if "calibre" not in sys.modules:
         "calibre.ebooks.metadata",
         "calibre.ebooks.metadata.book",
     ):
-        sys.modules[name] = MagicMock()
+        mod = types.ModuleType(name)
+        mod.__path__ = []
+        sys.modules[name] = mod
 
 if "calibre.ebooks.metadata.book.base" not in sys.modules:
     base = types.ModuleType("calibre.ebooks.metadata.book.base")

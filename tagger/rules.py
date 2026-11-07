@@ -5,7 +5,7 @@ Everything here is additive: the plan only ever adds tags, never removes or rena
 
 import functools
 import re
-from datetime import UTC
+from datetime import datetime, timezone
 
 try:
     from .fff_sites import FFF_SITES
@@ -359,8 +359,6 @@ def export_rule_set_data(
     rules_text, sites_text, title="Exported Rule Set", description=""
 ):
     """Serializes rules and extra sites multiline text into a versioned JSON-compatible dictionary."""
-    from datetime import datetime
-
     parsed_rules, _ = parse_rules(rules_text)
     parsed_sites, _ = parse_sites(sites_text)
 
@@ -382,7 +380,7 @@ def export_rule_set_data(
         "metadata": {
             "title": title,
             "description": description,
-            "exported_at": datetime.now(UTC).isoformat(),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
         },
         "rules": rules_list,
         "sites": sites_list,
