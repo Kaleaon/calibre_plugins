@@ -1,10 +1,43 @@
 """Metabods dialogs. Network work never runs on the GUI thread (see guikit.run_task)."""
-from qt.core import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit,
-                     QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, Qt, QVBoxLayout)
+import os
 
-from calibre_plugins.metabods_downloader.config import prefs
 from calibre_plugins.metabods_downloader import core
-from calibre_plugins.metabods_downloader.guikit import DownloadOptions, clean_lines, run_task
+from calibre_plugins.metabods_downloader.config import prefs
+from calibre_plugins.metabods_downloader.guikit import (
+    DownloadOptions,
+    clean_lines,
+    run_task,
+)
+from qt.core import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    Qt,
+    QVBoxLayout,
+)
+
+try:
+    from calibre_plugins.metabods_downloader import opml_kit
+    from calibre_plugins.metabods_downloader.error_handler import (
+        show_friendly_error_dialog,
+    )
+except ImportError:
+    try:
+        import opml_kit
+        from error_handler import show_friendly_error_dialog
+    except ImportError:
+        from common import opml_kit
+        from common.error_handler import show_friendly_error_dialog
 
 
 class DownloadDialog(QDialog):
@@ -80,6 +113,16 @@ class TagSearchDialog(QDialog):
         row.addWidget(search)
         layout.addLayout(row)
 
+        fav_actions_row = QHBoxLayout()
+        self.export_btn = QPushButton('Export List...')
+        self.export_btn.clicked.connect(self.export_favorites)
+        fav_actions_row.addWidget(self.export_btn)
+        self.import_btn = QPushButton('Import List...')
+        self.import_btn.clicked.connect(self.import_favorites)
+        fav_actions_row.addWidget(self.import_btn)
+        fav_actions_row.addStretch(1)
+        layout.addLayout(fav_actions_row)
+
         self.summary = QLabel('')
         layout.addWidget(self.summary)
         self.result_list = QListWidget()
@@ -154,6 +197,89 @@ class TagSearchDialog(QDialog):
     def clear_tags(self):
         self.checked_tags.clear()
         self.fill_tags()
+
+    def export_favorites(self):
+        file_path, selected_filter = QFileDialog.getSaveFileName(
+            self,
+            'Export Favorite Tags',
+            'metabods_tags.opml',
+            'OPML Files (*.opml *.xml);;JSON Files (*.json);;All Files (*)'
+        )
+        if not file_path:
+            return
+        try:
+            is_json = file_path.lower().endswith('.json') or 'json' in selected_filter.lower()
+            if not os.path.splitext(file_path)[1]:
+                file_path += '.json' if is_json else '.opml'
+            items = [[k, v] for k, v in self.favorites.items()]
+            if is_json:
+                opml_kit.export_list_to_json(items, target=file_path, title='Metabods Favorite Tags', item_type='metabods')
+            else:
+                opml_kit.export_list_to_opml(items, target=file_path, title='Metabods Favorite Tags', item_type='metabods')
+            QMessageBox.information(
+                self,
+                'Export Complete',
+                f'Successfully exported {len(self.favorites)} tag(s) to:\n{file_path}'
+            )
+        except Exception as exc:
+            show_friendly_error_dialog(self, 'Failed to export tags', exc)
+
+    def import_favorites(self, file_path=None, strategy=None):
+        if not file_path:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                'Import Favorite Tags',
+                '',
+                'List Files (*.opml *.xml *.json);;OPML Files (*.opml *.xml);;JSON Files (*.json);;All Files (*)'
+            )
+            if not file_path:
+                return
+
+        if strategy is None and self.favorites:
+            strategy = opml_kit.ask_import_strategy(self)
+            if strategy is None:
+                return
+        elif strategy is None:
+            strategy = opml_kit.STRATEGY_MERGE
+
+        try:
+            existing = [[k, v] for k, v in self.favorites.items()]
+            if '<opml' in file_path.lower():
+                updated_list, stats = opml_kit.import_list_from_opml(
+                    file_path, item_type='metabods', existing=existing, strategy=strategy, return_stats=True
+                )
+            elif file_path.strip().startswith(('{', '[')):
+                updated_list, stats = opml_kit.import_list_from_json(
+                    file_path, item_type='metabods', existing=existing, strategy=strategy, return_stats=True
+                )
+            else:
+                updated_list, stats = opml_kit.import_list_from_file(
+                    file_path, item_type='metabods', existing=existing, strategy=strategy, return_stats=True
+                )
+
+            tags_dict = dict(self.tags)
+            name_to_id = {v.casefold(): k for k, v in self.tags}
+            resolved_tags = []
+            for tid, name in updated_list:
+                if not tid and name.casefold() in name_to_id:
+                    tid = name_to_id[name.casefold()]
+                if tid and not name and tid in tags_dict:
+                    name = tags_dict[tid]
+                resolved_tags.append([int(tid), name])
+
+            self.favorites = {int(t[0]): t[1] for t in resolved_tags}
+            prefs['favorite_tags'] = [[k, v] for k, v in self.favorites.items()]
+            self.fill_tags()
+            QMessageBox.information(
+                self,
+                'Import Complete',
+                f"Successfully processed {stats['total']} tag(s):\n\n"
+                f"• Added: {stats['added']}\n"
+                f"• Updated: {stats['updated']}\n"
+                f"• Skipped: {stats['skipped']}"
+            )
+        except Exception as exc:
+            show_friendly_error_dialog(self, 'Failed to import tags', exc)
 
     # -- search
     def search(self):

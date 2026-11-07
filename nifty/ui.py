@@ -1,10 +1,46 @@
 """Nifty dialogs. Network work never runs on the GUI thread (see guikit.run_task)."""
-from qt.core import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
-                     QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, Qt, QTreeWidget, QTreeWidgetItem, QVBoxLayout)
+import os
 
 from calibre_plugins.nifty_downloader import core
 from calibre_plugins.nifty_downloader.config import prefs
-from calibre_plugins.nifty_downloader.guikit import DownloadOptions, clean_lines, run_task
+from calibre_plugins.nifty_downloader.guikit import (
+    DownloadOptions,
+    clean_lines,
+    run_task,
+)
+from qt.core import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    Qt,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+)
+
+try:
+    from calibre_plugins.nifty_downloader import opml_kit
+    from calibre_plugins.nifty_downloader.error_handler import (
+        show_friendly_error_dialog,
+    )
+except ImportError:
+    try:
+        import opml_kit
+        from error_handler import show_friendly_error_dialog
+    except ImportError:
+        from common import opml_kit
+        from common.error_handler import show_friendly_error_dialog
 
 
 class LinksDialog(QDialog):
@@ -62,9 +98,17 @@ class BrowseDialog(QDialog):
         row.addWidget(load)
         layout.addLayout(row)
 
+        fav_row = QHBoxLayout()
         self.favs = QComboBox()
         self.favs.activated.connect(self.jump_to_favorite)
-        layout.addWidget(self.favs)
+        fav_row.addWidget(self.favs, 1)
+        self.export_btn = QPushButton('Export List...')
+        self.export_btn.clicked.connect(self.export_favorites)
+        fav_row.addWidget(self.export_btn)
+        self.import_btn = QPushButton('Import List...')
+        self.import_btn.clicked.connect(self.import_favorites)
+        fav_row.addWidget(self.import_btn)
+        layout.addLayout(fav_row)
 
         self.filter = QLineEdit()
         self.filter.setPlaceholderText('Filter stories by title…')
@@ -143,6 +187,76 @@ class BrowseDialog(QDialog):
         if i >= 0:
             self.category.setCurrentIndex(i)
             self.load_stories()
+
+    def export_favorites(self):
+        file_path, selected_filter = QFileDialog.getSaveFileName(
+            self,
+            'Export Favorite Categories',
+            'nifty_categories.opml',
+            'OPML Files (*.opml *.xml);;JSON Files (*.json);;All Files (*)'
+        )
+        if not file_path:
+            return
+        try:
+            is_json = file_path.lower().endswith('.json') or 'json' in selected_filter.lower()
+            if not os.path.splitext(file_path)[1]:
+                file_path += '.json' if is_json else '.opml'
+            if is_json:
+                opml_kit.export_list_to_json(self.favorites, target=file_path, title='Nifty Favorite Categories', item_type='nifty')
+            else:
+                opml_kit.export_list_to_opml(self.favorites, target=file_path, title='Nifty Favorite Categories', item_type='nifty')
+            QMessageBox.information(
+                self,
+                'Export Complete',
+                f'Successfully exported {len(self.favorites)} category(ies) to:\n{file_path}'
+            )
+        except Exception as exc:
+            show_friendly_error_dialog(self, 'Failed to export categories', exc)
+
+    def import_favorites(self, file_path=None, strategy=None):
+        if not file_path:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self,
+                'Import Favorite Categories',
+                '',
+                'List Files (*.opml *.xml *.json);;OPML Files (*.opml *.xml);;JSON Files (*.json);;All Files (*)'
+            )
+            if not file_path:
+                return
+
+        if strategy is None and self.favorites:
+            strategy = opml_kit.ask_import_strategy(self)
+            if strategy is None:
+                return
+        elif strategy is None:
+            strategy = opml_kit.STRATEGY_MERGE
+
+        try:
+            if '<opml' in file_path.lower():
+                updated_list, stats = opml_kit.import_list_from_opml(
+                    file_path, item_type='nifty', existing=self.favorites, strategy=strategy, return_stats=True
+                )
+            elif file_path.strip().startswith(('{', '[')):
+                updated_list, stats = opml_kit.import_list_from_json(
+                    file_path, item_type='nifty', existing=self.favorites, strategy=strategy, return_stats=True
+                )
+            else:
+                updated_list, stats = opml_kit.import_list_from_file(
+                    file_path, item_type='nifty', existing=self.favorites, strategy=strategy, return_stats=True
+                )
+            self.favorites = updated_list
+            prefs['favorite_categories'] = self.favorites
+            self.refresh_favorites()
+            self.load_categories()
+            QMessageBox.information(
+                self,
+                'Import Complete',
+                f"Successfully processed {stats['total']} category(ies):\n\n"
+                f"• Added: {stats['added']}\n"
+                f"• Skipped: {stats['skipped']}"
+            )
+        except Exception as exc:
+            show_friendly_error_dialog(self, 'Failed to import categories', exc)
 
     # -- stories
     def load_stories(self):
