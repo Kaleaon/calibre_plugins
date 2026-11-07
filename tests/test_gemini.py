@@ -77,10 +77,14 @@ class SanitizeTests(unittest.TestCase):
     def test_series_and_index(self):
         b = book(1, title='Dune Messiah (Dune #2)')
         got = engine.sanitize(b, {'series': 'Dune', 'series_index': 2}, self.F)
-        self.assertEqual(got['series'], (('', None), ('Dune', 2.0)))
-        self.assertEqual(engine.sanitize(b, {'series': 'Dune', 'series_index': 'abc'}, self.F)['series'][1], ('Dune', 1.0))
-        self.assertEqual(engine.sanitize(b, {'series': 'Dune', 'series_index': -3}, self.F)['series'][1], ('Dune', 1.0))
-        self.assertEqual(engine.sanitize(b, {'series': 'Dune', 'series_index': True}, self.F)['series'][1], ('Dune', 1.0))
+        self.assertEqual(got['series'], ('', 'Dune'))
+        self.assertEqual(got['series_index'], (None, 2.0))
+        self.assertEqual(engine.sanitize(b, {'series': 'Dune', 'series_index': 'abc'}, self.F)['series'], ('', 'Dune'))
+        self.assertNotIn('series_index', engine.sanitize(b, {'series': 'Dune', 'series_index': 'abc'}, self.F))
+        self.assertEqual(engine.sanitize(b, {'series': 'Dune', 'series_index': -3}, self.F)['series'], ('', 'Dune'))
+        self.assertNotIn('series_index', engine.sanitize(b, {'series': 'Dune', 'series_index': -3}, self.F))
+        self.assertEqual(engine.sanitize(b, {'series': 'Dune', 'series_index': True}, self.F)['series'], ('', 'Dune'))
+        self.assertNotIn('series_index', engine.sanitize(b, {'series': 'Dune', 'series_index': True}, self.F))
         same = book(2, series='Dune', series_index=2.0)
         self.assertEqual(engine.sanitize(same, {'series': 'Dune', 'series_index': 2}, self.F), {})
 
@@ -129,18 +133,22 @@ class NumberedTitleTests(unittest.TestCase):
         answer = [{'id': 1, 'title': 'The Force Awakens', 'series': 'The Force', 'series_index': 1, 'confidence': 'high', 'reason': 'volume marker'}]
         out, _ = engine.plan_fixes([b], 'k', transport=Scripted(reply(answer)))
         self.assertEqual(out[0]['changes']['title'], ('book 1 - the force awakens', 'The Force Awakens'))
-        self.assertEqual(out[0]['changes']['series'][1], ('The Force', 1.0))
+        self.assertEqual(out[0]['changes']['series'], ('', 'The Force'))
+        self.assertEqual(out[0]['changes']['series_index'], (None, 1.0))
         self.assertFalse(out[0]['big'], 'dropping the marker is a tidy-up, not a different book')
 
     def test_unknown_series_still_fixes_the_title(self):
         b = book(1, title='book 1 - the force awakens')
         out, _ = engine.plan_fixes([b], 'k', transport=Scripted(reply([{'id': 1, 'title': 'The Force Awakens', 'series': None, 'series_index': 1, 'confidence': 'medium'}])))
-        self.assertEqual(list(out[0]['changes']), ['title'])
+        self.assertEqual(out[0]['changes']['title'], ('book 1 - the force awakens', 'The Force Awakens'))
+        self.assertEqual(out[0]['changes']['series_index'], (None, 1.0))
+        self.assertNotIn('series', out[0]['changes'])
 
     def test_volume_only_fix_for_a_book_already_in_a_series(self):
         b = book(1, title='book 2 - x', series='Saga', series_index=1.0)
         got = engine.sanitize(b, {'title': 'X', 'series': None, 'series_index': 2}, engine.FIELDS)
-        self.assertEqual(got['series'], (('Saga', 1.0), ('Saga', 2.0)))
+        self.assertEqual(got['series_index'], (1.0, 2.0))
+        self.assertNotIn('series', got)
 
     def test_same_author_books_share_a_request(self):
         t = Scripted(reply([]), reply([]))
@@ -2042,6 +2050,57 @@ class SeriesIndexNormalizationTests(unittest.TestCase):
         self.assertEqual(errors, [])
         mock_db.set_field.assert_any_call('series', {1: 'Foundation'})
         mock_db.set_field.assert_any_call('series_index', {1: 3.0})
+
+    def test_write_changes_and_restore_decoupled_series_and_index(self):
+        action = self.action_mod.GeminiFixerAction()
+        mock_db = MagicMock()
+        mock_db.has_id.return_value = True
+        action.gui = MagicMock(current_db=MagicMock(new_api=mock_db))
+
+        # Both series and series_index changed independently
+        items = [(1, {'series': ('', 'Harry Potter'), 'series_index': (None, 2.0)})]
+        done, errors, undo = action.write_changes(items)
+        self.assertEqual(done, [1])
+        self.assertEqual(errors, [])
+        self.assertEqual(undo['1']['series'], '')
+        self.assertEqual(undo['1']['series_index'], 1.0)
+        mock_db.set_field.assert_any_call('series', {1: 'Harry Potter'})
+        mock_db.set_field.assert_any_call('series_index', {1: 2.0})
+
+        restored_done, restored_errors = action.restore(undo)
+        self.assertEqual(restored_done, [1])
+        self.assertEqual(restored_errors, [])
+        mock_db.set_field.assert_any_call('series', {1: None})
+        mock_db.set_field.assert_any_call('series_index', {1: 1.0})
+
+    def test_write_changes_and_restore_decoupled_series_index_only(self):
+        action = self.action_mod.GeminiFixerAction()
+        mock_db = MagicMock()
+        mock_db.has_id.return_value = True
+        action.gui = MagicMock(current_db=MagicMock(new_api=mock_db))
+
+        items = [(1, {'series_index': (1.0, 3.0)})]
+        done, errors, undo = action.write_changes(items)
+        self.assertEqual(done, [1])
+        self.assertEqual(errors, [])
+        self.assertEqual(undo['1']['series_index'], 1.0)
+        self.assertNotIn('series', undo['1'])
+        mock_db.set_field.assert_any_call('series_index', {1: 3.0})
+
+        restored_done, restored_errors = action.restore(undo)
+        self.assertEqual(restored_done, [1])
+        self.assertEqual(restored_errors, [])
+        mock_db.set_field.assert_any_call('series_index', {1: 1.0})
+
+    def test_ui_labels_and_describe_change_decoupled(self):
+        self.assertIn('series_index', self.action_mod.SHOW)
+        self.assertEqual(self.action_mod.show_value('series', 'Dune'), 'Dune')
+        self.assertEqual(self.action_mod.show_value('series', ''), '(none)')
+        self.assertEqual(self.action_mod.show_value('series_index', 2.0), '2')
+        self.assertEqual(self.action_mod.show_value('series_index', None), '(none)')
+        self.assertEqual(engine.describe_change('series', '', 'Dune'), 'series (none) → Dune')
+        self.assertEqual(engine.describe_change('series_index', None, 2.0), 'series_index (none) → 2')
+        self.assertEqual(engine.describe_change('series_index', 1.0, 2.0), 'series_index 1 → 2')
 
 
 class FieldLevelQuickActionsTests(unittest.TestCase):

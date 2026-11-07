@@ -353,8 +353,17 @@ def describe_book(book):
 
 def describe_change(field, old, new):
     if field == 'series':
-        fmt = lambda v: (f'{v[0]} #{v[1]:g}' if v[0] and v[1] is not None else v[0]) or '(none)'
-        return f'series {fmt(old)} → {fmt(new)}'
+        if isinstance(old, (list, tuple)) or isinstance(new, (list, tuple)):
+            def fmt(v):
+                return (f'{v[0]} #{v[1]:g}' if isinstance(v, (list, tuple)) and len(v) == 2 and v[0] and v[1] is not None else (v[0] if isinstance(v, (list, tuple)) and len(v) > 0 else v)) or '(none)'
+
+            return f'series {fmt(old)} → {fmt(new)}'
+        return f'series {old or "(none)"} → {new or "(none)"}'
+    if field == 'series_index':
+        def fmt_idx(v):
+            return (f'{v:g}' if isinstance(v, (int, float)) else str(v)) if v is not None else '(none)'
+
+        return f'series_index {fmt_idx(old)} → {fmt_idx(new)}'
     if field == 'isbn':
         return f'ISBN {old or "(none)"} → {new}'
     if isinstance(new, list):
@@ -823,8 +832,11 @@ def sanitize(book, raw, fields, tags_may_be_removed=False):
         new = [a for a in new if a.lower() not in ('unknown', 'n/a', 'none')]
         if new and new != old:
             changes['authors'] = (old, new)
-    if 'series' in fields:
-        series = _clean(raw.get('series'), 200)
+    if 'series' in fields or 'series_index' in fields:
+        if 'series' in fields:
+            series = _clean(raw.get('series'), 200)
+            if series and series != (book.get('series') or ''):
+                changes['series'] = (book.get('series') or '', series)
         index = raw.get('series_index')
         try:
             index = float(index) if index is not None and not isinstance(index, bool) else None
@@ -832,12 +844,8 @@ def sanitize(book, raw, fields, tags_may_be_removed=False):
             index = None
         if index is not None and not 0 <= index <= 10000:
             index = None
-        if not series and book.get('series') and index is not None and index != book.get('series_index'):
-            series = book['series']  # the book already has a series; only the volume number is being fixed
-        if series and (series != book.get('series') or (index is not None and index != book.get('series_index'))):
-            old_index = book.get('series_index') if book.get('series') else None
-            changes['series'] = ((book.get('series') or '', old_index),
-                                 (series, index if index is not None else book.get('series_index') or 1.0))
+        if index is not None and index != book.get('series_index'):
+            changes['series_index'] = (book.get('series_index'), index)
     if 'tags' in fields and isinstance(raw.get('tags'), list):
         old = list(book.get('tags') or [])
         proposed = list(dict.fromkeys(t for t in (_clean(x, 60) for x in raw['tags']) if t))[:40]
