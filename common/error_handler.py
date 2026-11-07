@@ -10,6 +10,15 @@ try:
 except ImportError:
     error_dialog = None
 
+try:
+    import mutagen
+    _MutagenError = mutagen.MutagenError
+except ImportError:
+    try:
+        from third_party.mutagen import MutagenError as _MutagenError
+    except ImportError:
+        _MutagenError = ()
+
 
 class FriendlyError(Exception):
     """Structured exception containing category, explanation, recovery steps, and technical details."""
@@ -131,7 +140,24 @@ def format_exception(exc_or_msg, det_msg=None):
             "Try re-downloading or recovering a fresh copy of the file."
         ]
 
-    # 8. JSON or Data Parsing Error
+    # 8. Audio Tag / Metadata Corruption
+    elif (
+        (_MutagenError and isinstance(original_exc, _MutagenError))
+        or "mutagen" in type(original_exc).__name__.lower()
+        or "mutagen" in getattr(type(original_exc), "__module__", "").lower()
+        or ("tag" in msg_lower and ("corrupt" in msg_lower or "malformed" in msg_lower or "header" in msg_lower or "unsupported" in msg_lower))
+        or ("audio" in msg_lower and ("tag" in msg_lower or "header" in msg_lower or "corrupt" in msg_lower or "malformed" in msg_lower))
+        or ("id3" in msg_lower and ("corrupt" in msg_lower or "malformed" in msg_lower or "header" in msg_lower or "unsupported" in msg_lower))
+    ):
+        category = "Audio Tagging Error"
+        explanation = "The audio file tags could not be read or written because the audio headers or tags are malformed or damaged."
+        recovery = [
+            "Check that the audio file is intact and plays in a media player.",
+            "Repair or re-encode the file's tags with an audio tagging utility.",
+            "Verify that Calibre has write access to the audio file on disk."
+        ]
+
+    # 9. JSON or Data Parsing Error
     elif isinstance(original_exc, (json.JSONDecodeError, ValueError)) or "xml" in msg_lower or "parse" in msg_lower:
         category = "Data Parsing Error"
         explanation = "The input file or server response contained invalid or unexpected formatting."

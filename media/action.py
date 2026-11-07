@@ -17,6 +17,29 @@ except ImportError:
 
 from calibre_plugins.media_matcher import matching, sources, tags as audio
 from calibre_plugins.media_matcher.config import prefs
+
+try:
+    from calibre_plugins.media_matcher import mutagen_writer
+except ImportError:
+    try:
+        from . import mutagen_writer
+    except ImportError:
+        try:
+            import mutagen_writer
+        except ImportError:
+            mutagen_writer = None
+
+try:
+    from calibre_plugins.media_matcher.error_handler import format_exception
+except ImportError:
+    try:
+        from .error_handler import format_exception
+    except ImportError:
+        try:
+            from error_handler import format_exception
+        except ImportError:
+            from common.error_handler import format_exception
+
 try:
     from calibre_plugins.media_matcher.guikit import (
         EmptyStateOverlay,
@@ -477,9 +500,22 @@ class MediaMatcherAction(InterfaceAction):
                             db.set_cover({book_id: covers[book_id]})
                         continue
                     saved[field] = old
+
+                # Persist tags and cover art to audio files on disk using Mutagen
+                if mutagen_writer and mutagen_writer.is_mutagen_available():
+                    for fmt in (db.formats(book_id) or []):
+                        if fmt.upper() in audio.AUDIO_FORMATS:
+                            audio_path = db.format_abspath(book_id, fmt)
+                            if not audio_path and hasattr(db, 'format_abspath'):
+                                audio_path = db.format_abspath(book_id, fmt.upper()) or db.format_abspath(book_id, fmt.lower())
+                            if audio_path and os.path.exists(audio_path):
+                                cover_data = covers.get(book_id) if ('cover' in changes and book_id in covers) else None
+                                mutagen_writer.apply_changes_to_file(audio_path, changes, cover_bytes=cover_data)
+
                 done.append(book_id)
             except Exception as exc:
-                errors.append(f'book {book_id}: {exc}')
+                friendly = format_exception(exc)
+                errors.append(f'book {book_id}: {friendly.explanation} ({exc})')
             if saved:
                 undo[str(book_id)] = saved
         return done, errors, undo
@@ -516,9 +552,21 @@ class MediaMatcherAction(InterfaceAction):
                         else:
                             cover_bytes = base64.b64decode(old) if isinstance(old, str) else old
                             db.set_cover({book_id: cover_bytes})
+
+                # Restore previous tags and cover art to audio files on disk using Mutagen
+                if mutagen_writer and mutagen_writer.is_mutagen_available():
+                    for fmt in (db.formats(book_id) or []):
+                        if fmt.upper() in audio.AUDIO_FORMATS:
+                            audio_path = db.format_abspath(book_id, fmt)
+                            if not audio_path and hasattr(db, 'format_abspath'):
+                                audio_path = db.format_abspath(book_id, fmt.upper()) or db.format_abspath(book_id, fmt.lower())
+                            if audio_path and os.path.exists(audio_path):
+                                mutagen_writer.apply_saved_to_file(audio_path, saved)
+
                 done.append(book_id)
             except Exception as exc:
-                errors.append(f'book {book_id}: {exc}')
+                friendly = format_exception(exc)
+                errors.append(f'book {book_id}: {friendly.explanation} ({exc})')
         return done, errors
 
     def refresh(self, ids, new=False):
@@ -662,7 +710,7 @@ class MediaMatcherAction(InterfaceAction):
 
         def choose_files():
             exts = ' '.join(f'*.{e}' for e in sorted(audio.AUDIO_EXTENSIONS))
-            paths, _ = QFileDialog.getOpenFileNames(dialog, _('Choose audio files'), '', f'Audio files ({exts});;All files (*)')
+            paths, _filter = QFileDialog.getOpenFileNames(dialog, _('Choose audio files'), '', f'Audio files ({exts});;All files (*)')
             load(list(paths))
 
         def choose_folder():

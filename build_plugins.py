@@ -3,10 +3,10 @@
 The fanfic plugin also bundles the FanFicFare library and the third-party packages it imports. Those come from the Python
 environment running this script (`pip install fanficfare`); if they are missing that one zip is skipped with a message.
 """
-from pathlib import Path
 import re
 import sys
 import zipfile
+from pathlib import Path
 
 root = Path(__file__).resolve().parent
 SHARED = ['storykit.py', 'guikit.py', 'libkit.py', 'task_queue.py', 'queue_ui.py', 'error_handler.py']
@@ -19,7 +19,7 @@ PLUGINS = {
     'FanficDownloader.zip': ('fanfic', 'fanfic_downloader', SHARED, True),
     'RedditStoryFollower.zip': ('reddit', 'reddit_follower', SHARED, False),
     'GeminiLibraryFixer.zip': ('gemini', 'gemini_library_fixer', ['storykit.py', 'guikit.py', 'error_handler.py'], False),
-    'MediaMatcher.zip': ('media', 'media_matcher', ['storykit.py', 'guikit.py', 'error_handler.py'], False),
+    'MediaMatcher.zip': ('media', 'media_matcher', ['storykit.py', 'guikit.py', 'error_handler.py'], True),
 }
 PLUGINS_BY_IMPORT = [v[1] for v in PLUGINS.values()]
 
@@ -84,7 +84,11 @@ def _patch_cloudscraper(text):
 def add_vendored(z):
     """Copy FanFicFare and its imported dependencies from the running environment into the zip."""
     try:
-        import fanficfare, cloudscraper, requests_file, requests_toolbelt, pyparsing
+        import cloudscraper
+        import fanficfare
+        import pyparsing
+        import requests_file
+        import requests_toolbelt
     except ImportError as exc:
         raise ImportError(f'{exc}; run "pip install fanficfare" in this Python to build the fanfic plugin') from exc
     fff_root = Path(fanficfare.__file__).parent
@@ -124,6 +128,21 @@ def add_vendored(z):
                + (bro / 'LICENSE').read_text(encoding='utf-8') + '\nSource: https://github.com/sidney/brotlidecpy\n')
 
 
+def add_mutagen(z):
+    """Copy pure-Python mutagen from third_party/mutagen into the MediaMatcher zip."""
+    mutagen_dir = root / 'third_party' / 'mutagen'
+    if not mutagen_dir.exists():
+        raise ImportError(f'{mutagen_dir} not found; vendored mutagen is required to build MediaMatcher')
+    for path in _package_files(mutagen_dir):
+        if path.name == 'COPYING' or path.name == 'LICENSE':
+            continue
+        rel = path.relative_to(mutagen_dir).as_posix()
+        z.write(path, f'mutagen/{rel}')
+    copying = mutagen_dir / 'COPYING'
+    if copying.exists():
+        z.writestr('MUTAGEN_LICENSE.txt', copying.read_text(encoding='utf-8', errors='replace'))
+
+
 def build_all(dest, skip_unavailable=True):
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
@@ -140,7 +159,10 @@ def build_all(dest, skip_unavailable=True):
                     z.write(root / 'common' / name, name)
                 z.writestr(f'plugin-import-name-{import_name}.txt', '')
                 if vendored:
-                    add_vendored(z)
+                    if zip_name == 'FanficDownloader.zip':
+                        add_vendored(z)
+                    elif zip_name == 'MediaMatcher.zip':
+                        add_mutagen(z)
         except ImportError as exc:
             target.unlink(missing_ok=True)
             if not skip_unavailable:

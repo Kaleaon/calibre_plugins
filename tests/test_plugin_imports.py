@@ -3,13 +3,13 @@
 This does not exercise real Calibre or Qt behaviour; it only proves the packaged modules import and their pure helpers run.
 """
 import importlib
-from pathlib import Path
 import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import MagicMock
 import zipfile
+from pathlib import Path
+from unittest.mock import MagicMock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -67,7 +67,7 @@ class PluginImportTests(unittest.TestCase):
                        'epub_promo_scrubber': ['action', 'ui', 'core', 'guikit'],
                        'story_collection_tagger': ['config', 'action', 'rules', 'presets', 'ui', 'guikit'],
                        'gemini_library_fixer': ['config', 'action', 'engine', 'guikit'],
-                       'media_matcher': ['config', 'action', 'tags', 'sources', 'matching', 'guikit'],
+                       'media_matcher': ['config', 'action', 'tags', 'sources', 'matching', 'guikit', 'mutagen_writer'],
                        'fanfic_downloader': ['config', 'action', 'ui', 'engine', 'flaresolverr', 'guikit']}.get(import_name, ['config', 'action', 'ui', 'core', 'guikit'])
             for module in modules:
                 with self.subTest(plugin=import_name, module=module):
@@ -97,7 +97,7 @@ class PluginImportTests(unittest.TestCase):
             package = self.load(plugin)
             libkit = importlib.import_module(package + '.libkit')
             action_mod = importlib.import_module(package + '.action')
-            
+
             # Identify action class
             action_cls = action_mod.MetabodsAction if plugin == 'metabods_downloader' else action_mod.NiftyAction
             self.assertTrue(issubclass(action_cls, libkit.DownloaderAction))
