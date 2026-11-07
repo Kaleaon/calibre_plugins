@@ -72,6 +72,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Fetch base branch for pull request comparison
+        if: github.base_ref != ''
+        run: |
+          git fetch origin ${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }} || true
+
       - name: Install system dependencies for Qt (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -92,7 +97,11 @@ jobs:
           files = []
           diff_ok = False
           if base:
-              for ref in [f'origin/{base}', base]:
+              try:
+                  subprocess.run(['git', 'fetch', 'origin', f'+refs/heads/{base}:refs/remotes/origin/{base}'], capture_output=True)
+              except Exception:
+                  pass
+              for ref in [f'origin/{base}', base, 'HEAD^1']:
                   try:
                       proc = subprocess.run(
                           ['git', 'diff', '--name-only', '--diff-filter=d', f'{ref}...HEAD', '--', '*.py'],
@@ -160,7 +169,11 @@ jobs:
           test_targets = []
           diff_ok = False
           if base:
-              for ref in [f'origin/{base}', base]:
+              try:
+                  subprocess.run(['git', 'fetch', 'origin', f'+refs/heads/{base}:refs/remotes/origin/{base}'], capture_output=True)
+              except Exception:
+                  pass
+              for ref in [f'origin/{base}', base, 'HEAD^1']:
                   try:
                       proc = subprocess.run(
                           ['git', 'diff', '--name-only', '--diff-filter=d', f'{ref}...HEAD', '--', '*.py'],
@@ -168,7 +181,7 @@ jobs:
                       )
                       changed = [f.strip() for f in proc.stdout.splitlines() if f.strip()]
                       for c in changed:
-                          norm_c = c.replace('\\\\', '/')
+                          norm_c = Path(c).as_posix()
                           if norm_c.startswith('tests/test_') and norm_c.endswith('.py') and os.path.exists(c):
                               test_targets.append(c)
                           else:
