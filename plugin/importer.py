@@ -1,4 +1,5 @@
 """Import recovered formats through Calibre's database and metadata readers."""
+
 import hashlib
 import io
 from pathlib import Path
@@ -7,18 +8,31 @@ CHUNK_SIZE = 64 * 1024  # 64 KB
 
 try:
     from qt.core import (
-        QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
-        QTableWidget, QTableWidgetItem, QHeaderView, QPushButton,
-        QDialogButtonBox, Qt
+        QComboBox,
+        QDialog,
+        QDialogButtonBox,
+        QHBoxLayout,
+        QHeaderView,
+        QLabel,
+        QPushButton,
+        QTableWidget,
+        QTableWidgetItem,
+        QVBoxLayout,
     )
 except ImportError:
     try:
         from PyQt6.QtWidgets import (
-            QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
-            QTableWidget, QTableWidgetItem, QHeaderView, QPushButton,
-            QDialogButtonBox
+            QComboBox,
+            QDialog,
+            QDialogButtonBox,
+            QHBoxLayout,
+            QHeaderView,
+            QLabel,
+            QPushButton,
+            QTableWidget,
+            QTableWidgetItem,
+            QVBoxLayout,
         )
-        from PyQt6.QtCore import Qt
     except ImportError:
         QDialog = object
 
@@ -28,23 +42,23 @@ class DuplicateConflictDialog(QDialog):
 
     def __init__(self, parent, conflicts):
         super().__init__(parent)
-        self.setWindowTitle('Duplicate Book Conflicts')
+        self.setWindowTitle("Duplicate Book Conflicts")
         self.resize(750, 400)
         self.conflicts = conflicts
 
         layout = QVBoxLayout(self)
 
         info_label = QLabel(
-            f'Found {len(conflicts)} book(s) in the import batch that match existing items in your Calibre library.\n'
-            'Choose a resolution action for each conflict or apply a single action to all.'
+            f"Found {len(conflicts)} book(s) in the import batch that match existing items in your Calibre library.\n"
+            "Choose a resolution action for each conflict or apply a single action to all."
         )
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
 
         self.table = QTableWidget(len(conflicts), 5, self)
-        self.table.setHorizontalHeaderLabels(['Title', 'Author', 'Existing Format(s)', 'Incoming Format', 'Action'])
+        self.table.setHorizontalHeaderLabels(["Title", "Author", "Existing Format(s)", "Incoming Format", "Action"])
         header = self.table.horizontalHeader()
-        if hasattr(header, 'setSectionResizeMode'):
+        if hasattr(header, "setSectionResizeMode"):
             try:
                 header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
                 header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -57,23 +71,23 @@ class DuplicateConflictDialog(QDialog):
         self.combos = []
 
         for row_idx, conflict in enumerate(conflicts):
-            title_text = conflict.get('title', '')
+            title_text = conflict.get("title", "")
             self.table.setItem(row_idx, 0, QTableWidgetItem(str(title_text)))
 
-            author_text = conflict.get('authors', '')
+            author_text = conflict.get("authors", "")
             self.table.setItem(row_idx, 1, QTableWidgetItem(str(author_text)))
 
-            ex_fmts = conflict.get('existing_formats', '')
+            ex_fmts = conflict.get("existing_formats", "")
             self.table.setItem(row_idx, 2, QTableWidgetItem(str(ex_fmts)))
 
-            inc_fmt = conflict.get('incoming_format', '')
+            inc_fmt = conflict.get("incoming_format", "")
             self.table.setItem(row_idx, 3, QTableWidgetItem(str(inc_fmt)))
 
             combo = QComboBox()
-            combo.addItem('Merge Format', 'merge')
-            combo.addItem('Overwrite Record', 'overwrite')
-            combo.addItem('Add as New Book', 'keep_both')
-            combo.addItem('Skip Duplicate', 'skip')
+            combo.addItem("Merge Format", "merge")
+            combo.addItem("Overwrite Record", "overwrite")
+            combo.addItem("Add as New Book", "keep_both")
+            combo.addItem("Skip Duplicate", "skip")
             combo.setCurrentIndex(0)
             self.table.setCellWidget(row_idx, 4, combo)
             self.combos.append(combo)
@@ -81,14 +95,14 @@ class DuplicateConflictDialog(QDialog):
         layout.addWidget(self.table)
 
         batch_layout = QHBoxLayout()
-        batch_label = QLabel('Apply action to all remaining:')
+        batch_label = QLabel("Apply action to all remaining:")
         self.batch_combo = QComboBox()
-        self.batch_combo.addItem('Merge Format', 'merge')
-        self.batch_combo.addItem('Overwrite Record', 'overwrite')
-        self.batch_combo.addItem('Add as New Book', 'keep_both')
-        self.batch_combo.addItem('Skip Duplicate', 'skip')
+        self.batch_combo.addItem("Merge Format", "merge")
+        self.batch_combo.addItem("Overwrite Record", "overwrite")
+        self.batch_combo.addItem("Add as New Book", "keep_both")
+        self.batch_combo.addItem("Skip Duplicate", "skip")
 
-        batch_btn = QPushButton('Apply to All')
+        batch_btn = QPushButton("Apply to All")
         batch_btn.clicked.connect(self._apply_batch_action)
 
         batch_layout.addWidget(batch_label)
@@ -112,7 +126,7 @@ class DuplicateConflictDialog(QDialog):
     def get_resolutions(self):
         resolutions = {}
         for idx, combo in enumerate(self.combos):
-            resolutions[idx] = combo.currentData() or 'skip'
+            resolutions[idx] = combo.currentData() or "skip"
         return resolutions
 
 
@@ -123,27 +137,27 @@ def _show_conflict_dialog(gui, conflicts):
         try:
             from PyQt6.QtWidgets import QApplication, QDialog
         except ImportError:
-            return {idx: 'skip' for idx in range(len(conflicts))}
+            return {idx: "skip" for idx in range(len(conflicts))}
 
     try:
-        app = QApplication.instance() if hasattr(QApplication, 'instance') else None
+        app = QApplication.instance() if hasattr(QApplication, "instance") else None
         if not app or not gui:
-            return {idx: 'skip' for idx in range(len(conflicts))}
+            return {idx: "skip" for idx in range(len(conflicts))}
 
         dialog = DuplicateConflictDialog(gui, conflicts)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             return dialog.get_resolutions()
         else:
-            return {idx: 'skip' for idx in range(len(conflicts))}
+            return {idx: "skip" for idx in range(len(conflicts))}
     except Exception:
-        return {idx: 'skip' for idx in range(len(conflicts))}
+        return {idx: "skip" for idx in range(len(conflicts))}
 
 
 def normalize_isbn(raw_isbn):
     """Normalize ISBN string by removing hyphens/spaces and canonicalizing ISBN-10 to ISBN-13."""
     if not isinstance(raw_isbn, str):
         return None
-    cleaned = raw_isbn.replace('-', '').replace(' ', '').replace('.', '').strip()
+    cleaned = raw_isbn.replace("-", "").replace(" ", "").replace(".", "").strip()
     if not cleaned:
         return None
 
@@ -164,19 +178,23 @@ def normalize_isbn(raw_isbn):
 
 def _extract_candidate_isbns(mi, sidecar):
     raw_isbns = []
-    idents = getattr(mi, 'identifiers', None)
+    idents = getattr(mi, "identifiers", None)
     if isinstance(idents, dict):
         for k, v in idents.items():
-            if str(k).lower() == 'isbn' and isinstance(v, str):
+            if str(k).lower() == "isbn" and isinstance(v, str):
                 raw_isbns.append(v)
     if isinstance(sidecar, dict):
-        if isinstance(sidecar.get('isbn'), str):
-            raw_isbns.append(sidecar['isbn'])
-        identifiers = sidecar.get('industryIdentifiers', [])
+        if isinstance(sidecar.get("isbn"), str):
+            raw_isbns.append(sidecar["isbn"])
+        identifiers = sidecar.get("industryIdentifiers", [])
         if isinstance(identifiers, list):
             for identifier in identifiers:
-                if isinstance(identifier, dict) and str(identifier.get('type', '')).startswith('ISBN') and isinstance(identifier.get('identifier'), str):
-                    raw_isbns.append(identifier['identifier'])
+                if (
+                    isinstance(identifier, dict)
+                    and str(identifier.get("type", "")).startswith("ISBN")
+                    and isinstance(identifier.get("identifier"), str)
+                ):
+                    raw_isbns.append(identifier["identifier"])
     normalized = set()
     for raw in raw_isbns:
         norm = normalize_isbn(raw)
@@ -186,14 +204,14 @@ def _extract_candidate_isbns(mi, sidecar):
 
 
 def _get_format_size_for_index(db, book_id, fmt_upper):
-    if hasattr(db, 'format_metadata'):
+    if hasattr(db, "format_metadata"):
         try:
             meta = db.format_metadata(book_id, fmt_upper)
-            if isinstance(meta, dict) and meta.get('size') is not None:
-                return int(meta['size'])
+            if isinstance(meta, dict) and meta.get("size") is not None:
+                return int(meta["size"])
         except Exception:
             pass
-    if hasattr(db, 'format_abspath'):
+    if hasattr(db, "format_abspath"):
         try:
             abspath = db.format_abspath(book_id, fmt_upper)
             if abspath:
@@ -210,15 +228,15 @@ def _hash_source(source, chunk_size=CHUNK_SIZE):
     """Calculate SHA-256 digest in 64 KB chunks without loading whole files into RAM."""
     hasher = hashlib.sha256()
     if isinstance(source, (str, Path)):
-        with open(source, 'rb') as f:
+        with open(source, "rb") as f:
             while chunk := f.read(chunk_size):
                 hasher.update(chunk)
     elif isinstance(source, (bytes, bytearray)):
         view = memoryview(source)
         for i in range(0, len(view), chunk_size):
-            hasher.update(view[i:i + chunk_size])
-    elif hasattr(source, 'read'):
-        if hasattr(source, 'seek'):
+            hasher.update(view[i : i + chunk_size])
+    elif hasattr(source, "read"):
+        if hasattr(source, "seek"):
             try:
                 source.seek(0)
             except Exception:
@@ -233,16 +251,16 @@ def _hash_source(source, chunk_size=CHUNK_SIZE):
 def _get_existing_format_info(db, book_id, fmt_upper, candidate_size=None):
     """Return (size, path_or_stream_or_bytes) for format fmt_upper of book_id, or (None, None)."""
     size = None
-    if hasattr(db, 'format_metadata'):
+    if hasattr(db, "format_metadata"):
         try:
             meta = db.format_metadata(book_id, fmt_upper)
-            if isinstance(meta, dict) and meta.get('size') is not None:
-                size = int(meta['size'])
+            if isinstance(meta, dict) and meta.get("size") is not None:
+                size = int(meta["size"])
         except Exception:
             pass
 
     fmt_path = None
-    if hasattr(db, 'format_abspath'):
+    if hasattr(db, "format_abspath"):
         try:
             abspath = db.format_abspath(book_id, fmt_upper)
             if abspath:
@@ -272,9 +290,9 @@ def _get_existing_format_info(db, book_id, fmt_upper, candidate_size=None):
     if isinstance(data, (bytes, bytearray)):
         if size is None:
             size = len(data)
-    elif hasattr(data, 'read'):
+    elif hasattr(data, "read"):
         if size is None:
-            if hasattr(data, 'seek') and hasattr(data, 'tell'):
+            if hasattr(data, "seek") and hasattr(data, "tell"):
                 try:
                     data.seek(0, 2)
                     size = data.tell()
@@ -287,12 +305,14 @@ def _get_existing_format_info(db, book_id, fmt_upper, candidate_size=None):
 
 def repair_library_books(gui, book_ids, comics=False):
     """Repair formats already stored in the current Calibre library."""
+    from tempfile import TemporaryDirectory
+
     from calibre.ebooks.metadata.meta import get_metadata
     from calibre_plugins.takeout_book_fixer.core import detect, image_pdf_to_cbz
-    from tempfile import TemporaryDirectory
+
     db = gui.current_db.new_api
     repaired, skipped, errors = [], [], []
-    with TemporaryDirectory(prefix='takeout-book-fixer-') as tmp:
+    with TemporaryDirectory(prefix="takeout-book-fixer-"):
         for book_id in book_ids:
             try:
                 for old_fmt in list(db.formats(book_id) or ()):
@@ -301,18 +321,18 @@ def repair_library_books(gui, book_ids, comics=False):
                     if not data:
                         continue
                     kind = detect(data)
-                    if kind == 'cbr' and old_fmt != 'cbr':
+                    if kind == "cbr" and old_fmt != "cbr":
                         kind = None
-                    if comics and kind == 'pdf':
+                    if comics and kind == "pdf":
                         converted = image_pdf_to_cbz(data)
                         if converted is not None:
-                            data, kind = converted, 'cbz'
+                            data, kind = converted, "cbz"
                     if kind is None or kind == old_fmt:
                         skipped.append(book_id)
                         continue
                     new_fmt = kind.upper()
                     if not db.add_format(book_id, new_fmt, io.BytesIO(data), replace=False):
-                        raise ValueError('Calibre could not save corrected format')
+                        raise ValueError("Calibre could not save corrected format")
                     try:
                         mi = get_metadata(io.BytesIO(data), stream_type=kind)
                         if mi.title:
@@ -322,16 +342,18 @@ def repair_library_books(gui, book_ids, comics=False):
                     db.remove_formats({book_id: {old_fmt.upper()}})
                     repaired.append((book_id, old_fmt, kind))
             except Exception as exc:
-                errors.append(f'{book_id}: {exc}')
+                errors.append(f"{book_id}: {exc}")
     if repaired:
         gui.library_view.model().refresh()
         gui.tags_view.recount()
     return repaired, skipped, errors
 
-def import_books(gui, rows, duplicate_policy='prompt'):
-    from calibre.ebooks.metadata.meta import get_metadata
+
+def import_books(gui, rows, duplicate_policy="prompt"):
     from calibre.ebooks.metadata.book.base import Metadata
+    from calibre.ebooks.metadata.meta import get_metadata
     from calibre.utils.date import parse_date
+
     db = gui.current_db.new_api
     imported, errors = [], []
     seen = set()
@@ -350,10 +372,10 @@ def import_books(gui, rows, duplicate_policy='prompt'):
         # Title index
         titles_map = None
         try:
-            titles_map = db.all_field_for('title', all_ids)
+            titles_map = db.all_field_for("title", all_ids)
         except Exception:
             try:
-                titles_map = db.all_field_for('title', all_ids, default='')
+                titles_map = db.all_field_for("title", all_ids, default="")
             except Exception:
                 titles_map = None
 
@@ -364,19 +386,19 @@ def import_books(gui, rows, duplicate_policy='prompt'):
         else:
             for b_id in all_ids:
                 try:
-                    title = db.field_for('title', b_id, '')
+                    title = db.field_for("title", b_id, "")
                 except Exception:
-                    title = ''
+                    title = ""
                 if title:
                     title_to_ids.setdefault(str(title).casefold(), []).append(b_id)
 
         # ISBN index
         identifiers_map = None
         try:
-            identifiers_map = db.all_field_for('identifiers', all_ids)
+            identifiers_map = db.all_field_for("identifiers", all_ids)
         except Exception:
             try:
-                identifiers_map = db.all_field_for('identifiers', all_ids, default={})
+                identifiers_map = db.all_field_for("identifiers", all_ids, default={})
             except Exception:
                 identifiers_map = None
 
@@ -384,17 +406,17 @@ def import_books(gui, rows, duplicate_policy='prompt'):
             for b_id, idents in identifiers_map.items():
                 if isinstance(idents, dict):
                     for k, v in idents.items():
-                        if str(k).lower() == 'isbn' and v and isinstance(v, str):
+                        if str(k).lower() == "isbn" and v and isinstance(v, str):
                             norm = normalize_isbn(v)
                             if norm:
                                 isbn_to_ids.setdefault(norm, []).append(b_id)
         else:
             for b_id in all_ids:
                 try:
-                    idents = db.field_for('identifiers', b_id, {})
+                    idents = db.field_for("identifiers", b_id, {})
                     if isinstance(idents, dict):
                         for k, v in idents.items():
-                            if str(k).lower() == 'isbn' and v and isinstance(v, str):
+                            if str(k).lower() == "isbn" and v and isinstance(v, str):
                                 norm = normalize_isbn(v)
                                 if norm:
                                     isbn_to_ids.setdefault(norm, []).append(b_id)
@@ -404,10 +426,10 @@ def import_books(gui, rows, duplicate_policy='prompt'):
         # Format file size index
         formats_map = None
         try:
-            formats_map = db.all_field_for('formats', all_ids)
+            formats_map = db.all_field_for("formats", all_ids)
         except Exception:
             try:
-                formats_map = db.all_field_for('formats', all_ids, default=())
+                formats_map = db.all_field_for("formats", all_ids, default=())
             except Exception:
                 formats_map = None
 
@@ -441,55 +463,59 @@ def import_books(gui, rows, duplicate_policy='prompt'):
     tracking_titles = {k: list(v) for k, v in title_to_ids.items()}
 
     for row in rows:
-        filename = row.get('output')
+        filename = row.get("output")
         if not filename:
-            parsed_rows.append({'row': row, 'status': 'no_file'})
+            parsed_rows.append({"row": row, "status": "no_file"})
             continue
         if filename in seen:
-            parsed_rows.append({'row': row, 'status': 'seen_duplicate'})
+            parsed_rows.append({"row": row, "status": "seen_duplicate"})
             continue
         seen.add(filename)
 
         try:
             path = Path(filename)
-            fmt = row['format']
-            fallback = Path(row['source'].replace('\\', '/')).stem
+            fmt = row["format"]
+            fallback = Path(row["source"].replace("\\", "/")).stem
             try:
-                with path.open('rb') as stream:
+                with path.open("rb") as stream:
                     mi = get_metadata(stream, stream_type=fmt)
             except Exception:
-                mi = Metadata(fallback, ['Unknown'])
-            if not mi.title or mi.title.lower() in ('unknown', 'untitled'):
+                mi = Metadata(fallback, ["Unknown"])
+            if not mi.title or mi.title.lower() in ("unknown", "untitled"):
                 mi.title = fallback
-            sidecar = row.get('metadata') or {}
-            title = sidecar.get('title')
+            sidecar = row.get("metadata") or {}
+            title = sidecar.get("title")
             if isinstance(title, str) and title.strip():
                 mi.title = title.strip()
-            authors = sidecar.get('authors', sidecar.get('author'))
+            authors = sidecar.get("authors", sidecar.get("author"))
             if isinstance(authors, str):
                 authors = [authors]
             if isinstance(authors, list) and all(isinstance(x, str) for x in authors) and authors:
                 mi.authors = authors
-            for key, field in [('publisher', 'publisher'), ('description', 'comments')]:
+            for key, field in [("publisher", "publisher"), ("description", "comments")]:
                 if isinstance(sidecar.get(key), str):
                     setattr(mi, field, sidecar[key])
-            if isinstance(sidecar.get('language'), str):
-                mi.languages = [sidecar['language']]
-            categories = sidecar.get('categories')
+            if isinstance(sidecar.get("language"), str):
+                mi.languages = [sidecar["language"]]
+            categories = sidecar.get("categories")
             if isinstance(categories, list) and all(isinstance(x, str) for x in categories):
                 mi.tags = categories
-            if isinstance(sidecar.get('publishedDate'), str):
+            if isinstance(sidecar.get("publishedDate"), str):
                 try:
-                    mi.pubdate = parse_date(sidecar['publishedDate'], assume_utc=True)
+                    mi.pubdate = parse_date(sidecar["publishedDate"], assume_utc=True)
                 except Exception:
                     pass
-            if isinstance(sidecar.get('isbn'), str):
-                mi.set_identifier('isbn', sidecar['isbn'])
-            identifiers = sidecar.get('industryIdentifiers', [])
+            if isinstance(sidecar.get("isbn"), str):
+                mi.set_identifier("isbn", sidecar["isbn"])
+            identifiers = sidecar.get("industryIdentifiers", [])
             if isinstance(identifiers, list):
                 for identifier in identifiers:
-                    if isinstance(identifier, dict) and str(identifier.get('type', '')).startswith('ISBN') and isinstance(identifier.get('identifier'), str):
-                        mi.set_identifier('isbn', identifier['identifier'])
+                    if (
+                        isinstance(identifier, dict)
+                        and str(identifier.get("type", "")).startswith("ISBN")
+                        and isinstance(identifier.get("identifier"), str)
+                    ):
+                        mi.set_identifier("isbn", identifier["identifier"])
 
             duplicate = False
             matched_id = None
@@ -501,7 +527,9 @@ def import_books(gui, rows, duplicate_policy='prompt'):
             # Stage 1: Exact binary content hash match
             possible_hash_ids = size_fmt_to_ids.get((candidate_size, fmt_upper), [])
             for existing_id in possible_hash_ids:
-                existing_size, existing_source = _get_existing_format_info(db, existing_id, fmt_upper, candidate_size=candidate_size)
+                existing_size, existing_source = _get_existing_format_info(
+                    db, existing_id, fmt_upper, candidate_size=candidate_size
+                )
                 if existing_size is None or existing_size != candidate_size or existing_source is None:
                     continue
                 if candidate_sha256 is None:
@@ -525,7 +553,9 @@ def import_books(gui, rows, duplicate_policy='prompt'):
                 title_key = mi.title.casefold()
                 candidate_ids = tracking_titles.get(title_key, [])
                 for existing_id in candidate_ids:
-                    existing_size, existing_source = _get_existing_format_info(db, existing_id, fmt_upper, candidate_size=candidate_size)
+                    existing_size, existing_source = _get_existing_format_info(
+                        db, existing_id, fmt_upper, candidate_size=candidate_size
+                    )
                     if existing_size is None or existing_size != candidate_size or existing_source is None:
                         continue
                     if candidate_sha256 is None:
@@ -537,51 +567,51 @@ def import_books(gui, rows, duplicate_policy='prompt'):
                         break
 
             item_data = {
-                'row': row,
-                'path': path,
-                'fmt': fmt,
-                'fmt_upper': fmt_upper,
-                'mi': mi,
-                'candidate_isbns': candidate_isbns,
-                'candidate_size': candidate_size,
-                'duplicate': duplicate,
-                'matched_id': matched_id,
-                'status': 'valid'
+                "row": row,
+                "path": path,
+                "fmt": fmt,
+                "fmt_upper": fmt_upper,
+                "mi": mi,
+                "candidate_isbns": candidate_isbns,
+                "candidate_size": candidate_size,
+                "duplicate": duplicate,
+                "matched_id": matched_id,
+                "status": "valid",
             }
 
             if duplicate:
-                ex_title = ''
+                ex_title = ""
                 try:
-                    ex_title = db.field_for('title', matched_id, '') or ''
+                    ex_title = db.field_for("title", matched_id, "") or ""
                 except Exception:
                     pass
 
-                ex_authors = ''
+                ex_authors = ""
                 try:
-                    auths = db.field_for('authors', matched_id, ()) or ()
-                    ex_authors = ', '.join(auths) if isinstance(auths, (list, tuple)) else str(auths)
+                    auths = db.field_for("authors", matched_id, ()) or ()
+                    ex_authors = ", ".join(auths) if isinstance(auths, (list, tuple)) else str(auths)
                 except Exception:
                     pass
 
-                ex_fmts = ''
+                ex_fmts = ""
                 try:
                     fmts = db.formats(matched_id) or ()
-                    ex_fmts = ', '.join(f.upper() for f in fmts) if fmts else 'None'
+                    ex_fmts = ", ".join(f.upper() for f in fmts) if fmts else "None"
                 except Exception:
-                    ex_fmts = 'None'
+                    ex_fmts = "None"
 
                 conflict_info = {
-                    'parsed_idx': len(parsed_rows),
-                    'title': mi.title,
-                    'authors': ', '.join(mi.authors) if getattr(mi, 'authors', None) else 'Unknown',
-                    'existing_title': ex_title,
-                    'existing_authors': ex_authors,
-                    'existing_formats': ex_fmts,
-                    'incoming_format': fmt_upper,
-                    'matched_id': matched_id
+                    "parsed_idx": len(parsed_rows),
+                    "title": mi.title,
+                    "authors": ", ".join(mi.authors) if getattr(mi, "authors", None) else "Unknown",
+                    "existing_title": ex_title,
+                    "existing_authors": ex_authors,
+                    "existing_formats": ex_fmts,
+                    "incoming_format": fmt_upper,
+                    "matched_id": matched_id,
                 }
                 conflicts.append(conflict_info)
-                item_data['conflict_idx'] = len(conflicts) - 1
+                item_data["conflict_idx"] = len(conflicts) - 1
             else:
                 fake_id = f"batch_{len(parsed_rows)}"
                 for norm_isbn in candidate_isbns:
@@ -591,80 +621,80 @@ def import_books(gui, rows, duplicate_policy='prompt'):
             parsed_rows.append(item_data)
 
         except Exception as e:
-            parsed_rows.append({'row': row, 'status': 'parse_error', 'error': str(e)})
+            parsed_rows.append({"row": row, "status": "parse_error", "error": str(e)})
 
     conflict_actions = {}
     if conflicts:
-        if duplicate_policy == 'prompt':
+        if duplicate_policy == "prompt":
             conflict_actions = _show_conflict_dialog(gui, conflicts)
         else:
             for idx in range(len(conflicts)):
                 conflict_actions[idx] = duplicate_policy
 
     for item in parsed_rows:
-        status = item.get('status')
-        row = item['row']
+        status = item.get("status")
+        row = item["row"]
 
-        if status == 'no_file':
+        if status == "no_file":
             continue
-        if status == 'seen_duplicate':
-            row['import_status'] = 'duplicate skipped'
+        if status == "seen_duplicate":
+            row["import_status"] = "duplicate skipped"
             continue
-        if status == 'parse_error':
-            row.update(import_status='error', import_error=item['error'])
+        if status == "parse_error":
+            row.update(import_status="error", import_error=item["error"])
             errors.append(f"{row['source']}: {item['error']}")
             continue
 
         book_id = None
         try:
-            path = item['path']
-            fmt_upper = item['fmt_upper']
-            mi = item['mi']
-            candidate_isbns = item['candidate_isbns']
-            candidate_size = item['candidate_size']
-            duplicate = item['duplicate']
-            matched_id = item['matched_id']
+            path = item["path"]
+            fmt_upper = item["fmt_upper"]
+            mi = item["mi"]
+            candidate_isbns = item["candidate_isbns"]
+            candidate_size = item["candidate_size"]
+            duplicate = item["duplicate"]
+            matched_id = item["matched_id"]
 
             if duplicate:
-                c_idx = item.get('conflict_idx')
-                action = conflict_actions.get(c_idx, 'skip')
+                c_idx = item.get("conflict_idx")
+                action = conflict_actions.get(c_idx, "skip")
 
-                if action == 'skip':
-                    row['import_status'] = 'duplicate skipped'
+                if action == "skip":
+                    row["import_status"] = "duplicate skipped"
                     continue
 
-                if action == 'merge':
-                    with path.open('rb') as stream:
+                if action == "merge":
+                    with path.open("rb") as stream:
                         try:
                             db.add_format(matched_id, fmt_upper, stream, replace=True)
                         except TypeError:
                             stream.seek(0)
                             db.add_format(matched_id, fmt_upper, stream)
-                    row.update(import_status='merged', calibre_id=matched_id)
+                    row.update(import_status="merged", calibre_id=matched_id)
                     imported.append(matched_id)
                     size_fmt_to_ids.setdefault((candidate_size, fmt_upper), []).append(matched_id)
                     continue
 
-                if action == 'overwrite':
-                    if hasattr(db, 'set_metadata'):
+                if action == "overwrite":
+                    if hasattr(db, "set_metadata"):
                         try:
                             db.set_metadata(matched_id, mi)
                         except Exception:
                             pass
-                    with path.open('rb') as stream:
+                    with path.open("rb") as stream:
                         try:
                             db.add_format(matched_id, fmt_upper, stream, replace=True)
                         except TypeError:
                             stream.seek(0)
                             db.add_format(matched_id, fmt_upper, stream)
-                    if hasattr(db, 'set_cover'):
+                    if hasattr(db, "set_cover"):
                         try:
-                            cover = getattr(mi, 'cover_data', None)
+                            cover = getattr(mi, "cover_data", None)
                             if cover and cover[1]:
                                 db.set_cover({matched_id: cover[1]})
                         except Exception:
                             pass
-                    row.update(import_status='overwritten', calibre_id=matched_id)
+                    row.update(import_status="overwritten", calibre_id=matched_id)
                     imported.append(matched_id)
                     size_fmt_to_ids.setdefault((candidate_size, fmt_upper), []).append(matched_id)
                     continue
@@ -673,18 +703,18 @@ def import_books(gui, rows, duplicate_policy='prompt'):
 
             book_id = db.create_book_entry(mi)
             if book_id is None:
-                raise ValueError('Calibre did not create a library entry')
-            with path.open('rb') as stream:
+                raise ValueError("Calibre did not create a library entry")
+            with path.open("rb") as stream:
                 if not db.add_format(book_id, fmt_upper, stream):
-                    raise ValueError('Calibre did not save the book format')
-            cover = getattr(mi, 'cover_data', None)
+                    raise ValueError("Calibre did not save the book format")
+            cover = getattr(mi, "cover_data", None)
             if cover and cover[1]:
-                if hasattr(db, 'set_cover'):
+                if hasattr(db, "set_cover"):
                     try:
                         db.set_cover({book_id: cover[1]})
                     except Exception:
                         pass
-            row.update(import_status='imported', calibre_id=book_id)
+            row.update(import_status="imported", calibre_id=book_id)
             imported.append(book_id)
             title_to_ids.setdefault(mi.title.casefold(), []).append(book_id)
             for norm_isbn in candidate_isbns:
@@ -696,8 +726,8 @@ def import_books(gui, rows, duplicate_policy='prompt'):
                 try:
                     db.remove_books({book_id})
                 except Exception as cleanup:
-                    row['cleanup_error'] = str(cleanup)
-            row.update(import_status='error', import_error=str(e))
+                    row["cleanup_error"] = str(cleanup)
+            row.update(import_status="error", import_error=str(e))
             errors.append(f"{row['source']}: {e}")
 
     if imported:
@@ -707,4 +737,3 @@ def import_books(gui, rows, duplicate_policy='prompt'):
         except Exception:
             pass
     return imported, errors
-
