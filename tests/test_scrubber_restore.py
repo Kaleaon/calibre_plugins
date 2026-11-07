@@ -3,6 +3,7 @@ pre-scrubbed OPF metadata recovery, and standalone folder sidecar backups.
 """
 
 import io
+import os
 import sys
 import tempfile
 import types
@@ -11,10 +12,13 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "scrubber_plugin"))
-sys.path.insert(0, str(ROOT / "common"))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+if str(ROOT / "common") not in sys.path:
+    sys.path.insert(0, str(ROOT / "common"))
 
 from PyQt6 import QtCore, QtGui, QtWidgets  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402

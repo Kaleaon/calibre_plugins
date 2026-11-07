@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import os
 import struct
 import sys
 import tempfile
@@ -8,11 +9,19 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from scrubber_plugin.image_classifier import (
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+if str(ROOT / "common") not in sys.path:
+    sys.path.insert(0, str(ROOT / "common"))
+
+from scrubber_plugin.image_classifier import (  # noqa: E402
     classify_image_context,
     get_image_dimensions,
 )
-from scrubber_plugin.scanner import LibraryScanner
+from scrubber_plugin.scanner import LibraryScanner  # noqa: E402
 
 spec = importlib.util.spec_from_file_location(
     "scrub_core", Path(__file__).resolve().parents[1] / "scrubber_plugin/core.py"
