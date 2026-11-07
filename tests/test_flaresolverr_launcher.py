@@ -1,13 +1,15 @@
 import importlib.util
 import os
-from pathlib import Path
+import signal
 import socket
 import stat
+import subprocess
 import sys
 import tempfile
 import textwrap
 import time
 import unittest
+from pathlib import Path
 
 spec = importlib.util.spec_from_file_location('fs', Path(__file__).resolve().parents[1] / 'fanfic/flaresolverr.py')
 fs = importlib.util.module_from_spec(spec)
@@ -17,10 +19,23 @@ POSIX = not sys.platform.startswith('win')
 
 SERVER = textwrap.dedent('''\
     #!{python}
-    import http.server, json, os, subprocess, sys
+    import http.server, json, os, subprocess, sys, time
     open({envfile!r}, 'w').write(os.environ.get('HOST', '') + ' ' + os.environ.get('PORT', ''))
-    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])  # stands in for the browser FlareSolverr starts
+    child_script = (
+        'import os, subprocess, sys, time\\n'
+        'if hasattr(os, "setpgrp"):\\n'
+        '    try: os.setpgrp()\\n'
+        '    except Exception: pass\\n'
+        'g = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])\\n'
+        'open(' + repr({descendantfile!r}) + ', "w").write(str(g.pid))\\n'
+        'time.sleep(300)\\n'
+    )
+    child = subprocess.Popen([sys.executable, '-c', child_script])  # stands in for the browser FlareSolverr starts
     open({childfile!r}, 'w').write(str(child.pid))
+    for _ in range(100):
+        if os.path.exists({descendantfile!r}) and os.path.getsize({descendantfile!r}) > 0:
+            break
+        time.sleep(0.05)
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a): pass
         def do_POST(self):
@@ -123,6 +138,7 @@ class LauncherTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self.tmp.name)
         self.envfile, self.childfile = self.dir / 'env.txt', self.dir / 'child.txt'
+        self.descendantfile = self.dir / 'descendant.txt'
         self.settings = {'address': 'localhost', 'port': free_port(), 'protocol': 'http'}
         self.launchers = []
 
@@ -132,7 +148,7 @@ class LauncherTests(unittest.TestCase):
         try:
             self.tmp.cleanup()
         except OSError:
-            import time; time.sleep(0.5)
+            time.sleep(0.5)
             try:
                 self.tmp.cleanup()
             except OSError:
@@ -159,7 +175,12 @@ class LauncherTests(unittest.TestCase):
         return str(path)
 
     def server_program(self):
-        return self.program(SERVER.format(python=sys.executable, envfile=str(self.envfile), childfile=str(self.childfile)))
+        return self.program(SERVER.format(
+            python=sys.executable,
+            envfile=str(self.envfile),
+            childfile=str(self.childfile),
+            descendantfile=str(self.descendantfile),
+        ))
 
     def test_start_answer_and_stop_kills_the_whole_tree(self):
         launcher = self.launcher()
@@ -168,12 +189,39 @@ class LauncherTests(unittest.TestCase):
         self.assertTrue(launcher.running())
         self.assertTrue(fs.check_server(self.settings)[0])
         child = int(self.childfile.read_text())
+        descendant = int(self.descendantfile.read_text())
         self.assertTrue(alive(child))
+        self.assertTrue(alive(descendant))
         self.assertEqual(self.envfile.read_text(), f"127.0.0.1 {self.settings['port']}")  # bound to this computer only
         self.assertIn('stopped', launcher.stop())
         self.assertFalse(launcher.running())
         self.assertFalse(fs.check_server(self.settings, timeout=2)[0])
         self.assertTrue(wait_gone(child), 'the helper process it started was left running')
+        self.assertTrue(wait_gone(descendant), 'the descendant child process was left running')
+
+    def test_get_child_pids_discovers_descendants(self):
+        p1 = subprocess.Popen([sys.executable, '-c', (
+            'import subprocess, sys, time\n'
+            'p2 = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])\n'
+            'print(p2.pid, flush=True)\n'
+            'time.sleep(300)\n'
+        )], stdout=subprocess.PIPE, text=True)
+        p2_pid = None
+        try:
+            line = p1.stdout.readline().strip()
+            p2_pid = int(line)
+            children = fs._get_child_pids(p1.pid)
+            self.assertIn(p2_pid, children)
+        finally:
+            if p1.stdout:
+                p1.stdout.close()
+            for pid in (p2_pid, p1.pid):
+                if pid:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+            p1.wait()
 
     def test_does_not_start_a_second_copy(self):
         first, second = self.launcher(), self.launcher()
