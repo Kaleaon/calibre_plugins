@@ -373,7 +373,7 @@ def load_undo():
 
 def save_undo(undo):
     try:
-        prefs['undo'] = dict(undo) if undo else {}
+        prefs['undo'] = dict(undo or {})
     except Exception:
         pass
     path = _undo_path()
@@ -685,71 +685,88 @@ class GeminiFixerAction(DialogAction):
                     failed[bid] = f'{name}: {exc}'
         return failed
 
-    def write_changes(self, items):
+    def write_changes(self, items, on_progress=None):
         """items: [(book_id, {field: (old, new)})]. Returns (changed_ids, errors, undo)."""
         db = self.gui.current_db.new_api
-        per_book, saved_by_book, labels = {}, {}, {}
-        for book_id, changes in items:
-            values, saved = {}, {}
-            labels[book_id] = changes.get('title', ('', ''))[0] or book_id
+        done, errors, undo = [], [], {}
+        total = len(items)
+        for idx, (book_id, changes) in enumerate(items, 1):
+            saved = {}
+            book_label = changes.get('title', ('', ''))[0] or book_id
+            try:
+                mi = db.get_metadata(book_id, get_cover=False)
+                if mi and getattr(mi, 'title', None):
+                    book_label = mi.title
+            except Exception:
+                pass
+            book_failed = False
             for field, (old, new) in changes.items():
-                if field == 'title':
-                    values['title'] = new
-                elif field == 'authors':
-                    values['authors'] = tuple(new)
-                elif field == 'series':
-                    values['series'] = new[0]
-                    values['series_index'] = new[1]
-                elif field == 'tags':
-                    values['tags'] = tuple(new)
-                elif field == 'language':
-                    values['languages'] = tuple(new)
-                elif field == 'isbn':
-                    values['identifiers'] = dict(db.field_for('identifiers', book_id) or {}, isbn=new)
-                else:
-                    continue
-                saved[field] = [old[0], old[1] if old[1] is not None else 1.0] if field == 'series' else old
-            if values:
-                per_book[book_id] = values
-                saved_by_book[book_id] = saved
-        failed = self._apply_field_batches(db, per_book)
-        done = [bid for bid in per_book if bid not in failed]
-        errors = [f'{labels.get(bid, bid)}: {why}' for bid, why in failed.items()]
-        undo = {str(bid): saved_by_book[bid] for bid in per_book if saved_by_book.get(bid)}
+                try:
+                    if field == 'title':
+                        db.set_field('title', {book_id: new})
+                    elif field == 'authors':
+                        db.set_field('authors', {book_id: tuple(new)})
+                    elif field == 'series':
+                        db.set_field('series', {book_id: new[0]})
+                        db.set_field('series_index', {book_id: new[1]})
+                    elif field == 'tags':
+                        db.set_field('tags', {book_id: tuple(new)})
+                    elif field == 'language':
+                        db.set_field('languages', {book_id: tuple(new)})
+                    elif field == 'isbn':
+                        current_ids = dict(db.field_for('identifiers', book_id) or {})
+                        current_ids['isbn'] = new
+                        db.set_field('identifiers', {book_id: current_ids})
+                    else:
+                        continue
+                    saved[field] = [old[0], old[1] if old[1] is not None else 1.0] if field == 'series' else old
+                except Exception as exc:
+                    book_failed = True
+                    errors.append(f'{book_label}: {field}: {exc}')
+            if not book_failed:
+                done.append(book_id)
+            if saved:
+                undo[str(book_id)] = saved
+            if on_progress:
+                on_progress(idx, total, book_id, book_label)
         return done, errors, undo
 
-    def restore(self, undo):
+    def restore(self, undo, on_progress=None):
         db = self.gui.current_db.new_api
-        per_book = {}
-        for key, saved in undo.items():
+        done, errors = [], []
+        total = len(undo)
+        for idx, (key, saved) in enumerate(undo.items(), 1):
             book_id = int(key)
             if not db.has_id(book_id):
                 continue
-            values = {}
+            book_failed = False
             for field, old in saved.items():
-                if field == 'title':
-                    values['title'] = old
-                elif field == 'authors':
-                    values['authors'] = tuple(old)
-                elif field == 'series':
-                    values['series'] = old[0] or None
-                    values['series_index'] = old[1] if old[1] is not None else 1.0
-                elif field == 'tags':
-                    values['tags'] = tuple(old)
-                elif field == 'language':
-                    values['languages'] = tuple(old)
-                elif field == 'isbn':
-                    ids = dict(db.field_for('identifiers', book_id) or {})
-                    if old:
-                        ids['isbn'] = old
-                    else:
-                        ids.pop('isbn', None)
-                    values['identifiers'] = ids
-            if values:
-                per_book[book_id] = values
-        failed = self._apply_field_batches(db, per_book)
-        done = [bid for bid in per_book if bid not in failed]
-        errors = [f'book {bid}: {why}' for bid, why in failed.items()]
+                try:
+                    if field == 'title':
+                        db.set_field('title', {book_id: old})
+                    elif field == 'authors':
+                        db.set_field('authors', {book_id: tuple(old)})
+                    elif field == 'series':
+                        db.set_field('series', {book_id: old[0] or None})
+                        db.set_field('series_index', {book_id: old[1] if old[1] is not None else 1.0})
+                    elif field == 'tags':
+                        db.set_field('tags', {book_id: tuple(old)})
+                    elif field == 'language':
+                        db.set_field('languages', {book_id: tuple(old)})
+                    elif field == 'isbn':
+                        ids = dict(db.field_for('identifiers', book_id) or {})
+                        if old:
+                            ids['isbn'] = old
+                        else:
+                            ids.pop('isbn', None)
+                        db.set_field('identifiers', {book_id: ids})
+                except Exception as exc:
+                    book_failed = True
+                    errors.append(f'book {book_id}: {field}: {exc}')
+            if not book_failed:
+                done.append(book_id)
+            if on_progress:
+                on_progress(idx, total, book_id)
         return done, errors
 
     def refresh(self, ids):
@@ -922,7 +939,8 @@ class GeminiFixerAction(DialogAction):
         bar = QProgressBar()
         bar.setRange(0, 1)
         bar.setValue(0)
-        bar.setFormat('%v of %m')
+        bar.setTextVisible(True)
+        bar.setFormat(_('%v of %m'))
         row.addWidget(bar, 1)
         stop_btn = create_token_button(_('Cancel'))
         stop_btn.setEnabled(False)
@@ -1486,6 +1504,7 @@ class GeminiFixerAction(DialogAction):
                 total_books=total_books, total_chunks=total_chunks, per_request=per_request))
             bar.setRange(0, max(1, total_books))
             bar.setValue(0)
+            bar.setFormat(_('Fixing books: %v of %m (%p%)'))
 
             fb_model = (fallback_model.currentText().strip() or 'gemini-flash-lite-latest') if enable_fallback.isChecked() else None
 
@@ -1601,6 +1620,11 @@ class GeminiFixerAction(DialogAction):
                         idx=info['batch_idx'], total=info['total_batches'], count=info['count']))
                 elif kind == 'read_progress':
                     index, tot, book = info
+                    title = (book.get('title') or '').strip() or f"book {book.get('id', '')}"
+                    clean_title = title.replace('%', '%%')
+                    disp_title = (clean_title[:32] + '…') if len(clean_title) > 32 else clean_title
+                    bar.setFormat(_('Reading: {title} (%v/%m)').format(title=disp_title))
+                    phase.setText(_('Reading book {index} of {total}: {title}…').format(index=index, total=tot, title=title))
                     log(_('  read {index}/{total}: {desc}').format(index=index, total=tot, desc=engine.describe_book(book)))
                 elif kind == 'batch_saved':
                     log(_('✔ Batch {idx}/{total} saved separately to {filename} ({s_count} suggestion(s), {sk_count} skipped)').format(
@@ -1608,9 +1632,11 @@ class GeminiFixerAction(DialogAction):
                         filename=os.path.basename(info['path']),
                         s_count=info['suggestions_count'], sk_count=info['skipped_count']))
                     completed_books = info['done']
+                    bar.setRange(0, max(1, total_books))
                     bar.setValue(info['done'])
-                    phase.setText(_('Batch {idx} of {total} completed').format(
-                        idx=info['batch_idx'], total=info['total_batches']))
+                    bar.setFormat(_('Fixing books: %v of %m (%p%)'))
+                    phase.setText(_('Batch {idx} of {total} completed ({done}/{all_books} books)').format(
+                        idx=info['batch_idx'], total=info['total_batches'], done=completed_books, all_books=total_books))
                 elif kind == 'compiling':
                     phase.setText(_('Compiling separate batch outputs together…'))
                     log(_('Compiling all separate batch output files together…'))
@@ -1618,6 +1644,7 @@ class GeminiFixerAction(DialogAction):
                     batch_books = info['books']
                     waiting['since'], waiting['count'] = time.time(), len(batch_books)
                     bar.setRange(0, 0)
+                    bar.setFormat(_('Asking Gemini for {count} book(s)…').format(count=len(batch_books)).replace('%', '%%'))
                     log(_('→ Sending {count} book(s) to Gemini:').format(count=len(batch_books)))
                     for b in batch_books:
                         log(f'     {engine.describe_book(b)}')
@@ -1627,18 +1654,28 @@ class GeminiFixerAction(DialogAction):
                     waiting['since'] = None
                     bar.setRange(0, max(1, total_books))
                     bar.setValue(completed_books)
+                    bar.setFormat(_('Fixing books: %v of %m (%p%)'))
                 elif kind == 'answer':
                     book, changes = info['book'], info['changes']
+                    raw_title = (book.get('title') or '').strip() or str(book.get('id', ''))
+                    clean_title = raw_title.replace('%', '%%')
+                    disp_title = (clean_title[:32] + '…') if len(clean_title) > 32 else clean_title
                     name = f"“{book.get('title') or book['id']}”"
                     if info.get('cover_text'):
                         log(_('   📖 read from the pictures for {name}: {text}').format(name=name, text=info['cover_text']))
                     if info['kept']:
+                        bar.setFormat(_('Fixing: {title} (%v/%m)').format(title=disp_title))
+                        phase.setText(_('Fixed {name} [{confidence}]').format(name=name, confidence=info['confidence']))
                         log(_('   ✔ {name} [{confidence}]: ').format(name=name, confidence=info['confidence'])
                             + '; '.join(engine.describe_change(f, o, n) for f, (o, n) in changes.items())
                             + (f" — {info['reason']}" if info['reason'] else ''))
                     elif changes:
+                        bar.setFormat(_('Checked: {title} (%v/%m)').format(title=disp_title))
+                        phase.setText(_('Checked {name} (dropped: {why})').format(name=name, why=info['dropped_why']))
                         log(_('   ✖ {name}: suggestion dropped, {why}').format(name=name, why=info['dropped_why']))
                     else:
+                        bar.setFormat(_('Checked: {title} (%v/%m)').format(title=disp_title))
+                        phase.setText(_('Checked {name}: no change needed').format(name=name))
                         log(_('   – {name}: no change needed').format(name=name))
                 elif kind == 'notice':
                     log(_('⚠ {text}').format(text=info['text']))
@@ -1648,6 +1685,7 @@ class GeminiFixerAction(DialogAction):
                     completed_books = info['done']
                     bar.setRange(0, max(1, total_books))
                     bar.setValue(completed_books)
+                    bar.setFormat(_('Fixing books: %v of %m (%p%)'))
 
             while worker.is_alive() or not messages.empty():
                 while not messages.empty():
@@ -1663,11 +1701,15 @@ class GeminiFixerAction(DialogAction):
                 time.sleep(0.05)
             bar.setRange(0, max(1, total_books))
             bar.setValue(completed_books)
+            bar.setFormat(_('%v of %m books checked (%p%)'))
             return box.get('result'), box.get('error')
 
         def finish_run(result, count, error=None):
             phase.setText(_('Idle.'))
             bar.setRange(0, max(1, count))
+            if result is not None:
+                bar.setValue(count)
+            bar.setFormat(_('%v of %m books checked (%p%)'))
             partial_error = None
             if error:
                 if hasattr(error, 'suggestions') and getattr(error, 'suggestions') is not None:
@@ -1706,7 +1748,7 @@ class GeminiFixerAction(DialogAction):
                     top.setData(0, Qt.ItemDataRole.UserRole, s['id'])
                     top.setData(0, Qt.ItemDataRole.UserRole + 2, bool(s['big']))
                     for field, (old, new) in s['changes'].items():
-                        child = QTreeWidgetItem(top, [f'{SHOW.get(field, field)}:  {show_value(field, old)}  →  {show_value(field, new)}', s['reason'] if field == 'title' else ''])
+                        child = QTreeWidgetItem(top, [f'{SHOW.get(field, field)}:  {show_value(field, old)}  →  {show_value(field, new)}', s.get('reason', '') if field == 'title' else ''])
                         child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                         child.setCheckState(0, want)
                         child.setData(0, Qt.ItemDataRole.UserRole, field)
@@ -1746,45 +1788,93 @@ class GeminiFixerAction(DialogAction):
             items = collect()
             if not items:
                 return error_dialog(dialog, _('Gemini'), _('Nothing is ticked.'), show=True)
-            done, errors, undo = self.write_changes(items)
-            if undo:
-                undo_state[0] = undo
-                save_undo(undo)
-                undo_btn.setEnabled(True)
-            self.refresh(done)
-            if embed_updated.isChecked() and done:
-                try:
-                    embed_action = self.gui.iactions.get('Embed Metadata')
-                    if embed_action and hasattr(embed_action, 'do_embed'):
-                        embed_action.do_embed(tuple(done))
-                except Exception as embed_exc:
-                    errors.append(f'Metadata embed: {embed_exc}')
-            text = _('Updated {count} book(s). "Undo last run" can put the old values back.').format(count=len(done))
-            if errors:
-                text += _('\n\nProblems:\n') + '\n'.join(errors[:10])
-            info_dialog(self.gui, _('Gemini'), text, show=True)
-            tree.clear()
-            overlay.show_empty(
-                title='Check your books with Gemini',
-                message='Select books and click "Check books" to ask Gemini for metadata suggestions.',
-                icon='✨',
-                action_text='Check books',
-                on_action=check_btn.click
-            )
-            update_ticked()
+            set_busy(True)
+            total = len(items)
+            bar.setRange(0, max(1, total))
+            bar.setValue(0)
+            bar.setFormat(_('Fixing: %v of %m books (%p%)'))
+            phase.setText(_('Fixing {count} book(s)…').format(count=total))
+            log(_('Applying changes to {count} book(s)…').format(count=total))
+            QApplication.processEvents()
+            try:
+                def on_apply_progress(idx, tot, book_id, title):
+                    bar.setValue(idx)
+                    clean_title = str(title).replace('%', '%%')
+                    disp_title = (clean_title[:32] + '…') if len(clean_title) > 32 else clean_title
+                    bar.setFormat(_('Fixing: {title} (%v/%m)').format(title=disp_title))
+                    phase.setText(_('Fixing book {idx} of {total}: {title}…').format(idx=idx, total=tot, title=title))
+                    log(_('  ✔ Fixed book {idx}/{total}: {title}').format(idx=idx, total=tot, title=title))
+                    QApplication.processEvents()
+
+                done, errors, undo = self.write_changes(items, on_progress=on_apply_progress)
+                if undo:
+                    undo_state[0] = undo
+                    save_undo(undo)
+                    undo_btn.setEnabled(True)
+                self.refresh(done)
+                if embed_updated.isChecked() and done:
+                    try:
+                        bar.setRange(0, 0)
+                        bar.setFormat(_('Embedding metadata into fixed books…'))
+                        phase.setText(_('Embedding metadata into {count} fixed book(s)…').format(count=len(done)))
+                        log(_('Embedding metadata into {count} fixed book(s)…').format(count=len(done)))
+                        QApplication.processEvents()
+                        embed_action = self.gui.iactions.get('Embed Metadata')
+                        if embed_action and hasattr(embed_action, 'do_embed'):
+                            embed_action.do_embed(tuple(done))
+                    except Exception as embed_exc:
+                        errors.append(f'Metadata embed: {embed_exc}')
+                bar.setRange(0, max(1, total))
+                bar.setValue(len(done))
+                bar.setFormat(_('Fixed %v of %m books (100%)'))
+                phase.setText(_('Fixing complete: {count} book(s) updated.').format(count=len(done)))
+                text = _('Updated {count} book(s). "Undo last run" can put the old values back.').format(count=len(done))
+                if errors:
+                    text += _('\n\nProblems:\n') + '\n'.join(errors[:10])
+                info_dialog(self.gui, _('Gemini'), text, show=True)
+                tree.clear()
+                overlay.show_empty(
+                    title='Check your books with Gemini',
+                    message='Select books and click "Check books" to ask Gemini for metadata suggestions.',
+                    icon='✨',
+                    action_text='Check books',
+                    on_action=check_btn.click
+                )
+                update_ticked()
+            finally:
+                set_busy(False)
 
         def do_undo():
             undo = dict(undo_state[0])
             if not undo or not question_dialog(dialog, _('Gemini'), _('Put back the old values for {count} book(s) changed in the last run?').format(count=len(undo))):
                 return
-            done, errors = self.restore(undo)
-            self.refresh(done)
-            if not errors:
-                undo_state[0] = {}
-                save_undo({})
-                undo_btn.setEnabled(False)
-            text = _('Restored {count} book(s).').format(count=len(done)) + (_('\n\nProblems:\n') + '\n'.join(errors[:10]) if errors else '')
-            info_dialog(self.gui, _('Gemini'), text, show=True)
+            set_busy(True)
+            total = len(undo)
+            bar.setRange(0, max(1, total))
+            bar.setValue(0)
+            bar.setFormat(_('Restoring: %v of %m books (%p%)'))
+            phase.setText(_('Restoring {count} book(s)…').format(count=total))
+            QApplication.processEvents()
+            try:
+                def on_undo_progress(idx, tot, book_id):
+                    bar.setValue(idx)
+                    bar.setFormat(_('Restoring: book {id} (%v/%m)').format(id=book_id))
+                    phase.setText(_('Restoring book {idx} of {total}…').format(idx=idx, total=tot))
+                    QApplication.processEvents()
+
+                done, errors = self.restore(undo, on_progress=on_undo_progress)
+                self.refresh(done)
+                if not errors:
+                    undo_state[0] = {}
+                    save_undo({})
+                    undo_btn.setEnabled(False)
+                bar.setValue(len(done))
+                bar.setFormat(_('Restored %v of %m books (100%)'))
+                phase.setText(_('Restored {count} book(s).').format(count=len(done)))
+                text = _('Restored {count} book(s).').format(count=len(done)) + (_('\n\nProblems:\n') + '\n'.join(errors[:10]) if errors else '')
+                info_dialog(self.gui, _('Gemini'), text, show=True)
+            finally:
+                set_busy(False)
 
         key.editingFinished.connect(save_prefs)  # the key is remembered as soon as it is typed, not only after a check
         dialog.finished.connect(lambda _result: save_prefs())
