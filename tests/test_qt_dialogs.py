@@ -103,7 +103,7 @@ class QtCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-        cls.tmp = tempfile.TemporaryDirectory()
+        cls.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         cls.built = build_plugins.build_all(Path(cls.tmp.name) / "dist")
 
     @classmethod
@@ -163,7 +163,8 @@ class QtCase(unittest.TestCase):
         target = Path(self.tmp.name) / import_name
         if target.exists():
             shutil.rmtree(target)
-        zipfile.ZipFile(self.built[import_name]).extractall(target)
+        with zipfile.ZipFile(self.built[import_name]) as zf:
+            zf.extractall(target)
         package = types.ModuleType(f"calibre_plugins.{import_name}")
         package.__path__ = [str(target)]
         sys.modules[package.__name__] = package

@@ -212,6 +212,9 @@ class ScrubActionTests(unittest.TestCase):
             def __getitem__(self, key):
                 return self.get(key, self.defaults.get(key))
 
+        self.saved_json_config = getattr(
+            sys.modules.get("calibre.utils.config"), "JSONConfig", None
+        )
         sys.modules["calibre.utils.config"].JSONConfig = lambda name: FakePrefs()
         sys.modules["calibre.gui2.actions"].InterfaceAction = object
 
@@ -231,6 +234,14 @@ class ScrubActionTests(unittest.TestCase):
         for k in list(sys.modules):
             if k.startswith(("calibre", "qt")) and k not in self.saved_modules:
                 del sys.modules[k]
+        sys.modules.update(self.saved_modules)
+        if hasattr(self, "saved_json_config"):
+            if self.saved_json_config is not None:
+                sys.modules["calibre.utils.config"].JSONConfig = self.saved_json_config
+            elif "calibre.utils.config" in sys.modules and hasattr(
+                sys.modules["calibre.utils.config"], "JSONConfig"
+            ):
+                delattr(sys.modules["calibre.utils.config"], "JSONConfig")
 
     def test_scrub_selected_runs_in_background_and_reports_progress(self):
         act_spec = importlib.util.spec_from_file_location(
