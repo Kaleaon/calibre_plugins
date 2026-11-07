@@ -75,6 +75,18 @@ except ImportError:
     QFormLayout = QSpinBox = QWidget = QDialogButtonBox = DummyWidget
     DummyWidget.ResizeMode = type('RM', (), {'Stretch': 1})()
     DummyWidget.SelectionBehavior = type('SB', (), {'SelectRows': 1})()
+
+    class DummyStandardButton:
+        Yes = 16384
+        No = 65536
+        Cancel = 4194304
+
+    DummyWidget.StandardButton = DummyStandardButton
+    DummyWidget.Yes = DummyStandardButton.Yes
+    DummyWidget.No = DummyStandardButton.No
+    DummyWidget.question = staticmethod(lambda *args, **kwargs: DummyStandardButton.Yes)
+    DummyWidget.information = staticmethod(lambda *args, **kwargs: None)
+
     QFileDialog = QMessageBox = QTimer = QAbstractItemView = DummyWidget
     Qt = type('Qt', (), {'WindowModality': type('WM', (), {'NonModal': 0})(), 'ItemDataRole': type('IDR', (), {'UserRole': 32})()})()
 
@@ -323,6 +335,49 @@ class QueueManagerDialog(QDialog):
         self.refresh()
 
     def clear_all(self):
+        jobs = get_all_jobs(self.db_path)
+        if not jobs:
+            return
+
+        active_jobs = [j for j in jobs if j.get('status') in ('processing', 'pending')]
+        finished_jobs = [j for j in jobs if j.get('status') not in ('processing', 'pending')]
+
+        active_count = len(active_jobs)
+        total_count = len(jobs)
+        finished_count = len(finished_jobs)
+
+        if active_count > 0:
+            title = "Warning: Active Jobs in Progress"
+            msg = (
+                f"Warning: {active_count} active or pending job(s) will be interrupted and lost.\n\n"
+                f"Queue breakdown: {active_count} active/pending, {finished_count} completed/failed (Total: {total_count}).\n\n"
+                f"Are you sure you want to clear all jobs?"
+            )
+        else:
+            title = "Confirm Clear"
+            msg = f"Clear {total_count} completed/failed jobs?"
+
+        if QMessageBox is not None:
+            standard_buttons = (
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                if hasattr(QMessageBox, 'StandardButton')
+                else QMessageBox.Yes | QMessageBox.No
+            )
+            default_btn = (
+                QMessageBox.StandardButton.No
+                if hasattr(QMessageBox, 'StandardButton')
+                else QMessageBox.No
+            )
+            yes_btn = (
+                QMessageBox.StandardButton.Yes
+                if hasattr(QMessageBox, 'StandardButton')
+                else QMessageBox.Yes
+            )
+
+            reply = QMessageBox.question(self, title, msg, standard_buttons, default_btn)
+            if reply != yes_btn:
+                return
+
         clear_all_jobs(self.db_path)
         self.refresh()
 

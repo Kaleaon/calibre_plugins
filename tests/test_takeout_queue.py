@@ -227,6 +227,108 @@ class TestTakeoutUI(unittest.TestCase):
         jobs = queue_db.get_all_jobs(self.db_path)
         self.assertEqual(len(jobs), 0)
 
+    def test_clear_all_empty_queue_bypasses_prompt(self):
+        dlg = ui.QueueManagerDialog(daemon=None, parent=None, db_path=self.db_path)
+        with patch.object(ui.QMessageBox, 'question') as mock_question:
+            dlg.clear_all()
+            mock_question.assert_not_called()
+        jobs = queue_db.get_all_jobs(self.db_path)
+        self.assertEqual(len(jobs), 0)
+
+    def test_clear_all_completed_only_confirmed(self):
+        j1 = queue_db.enqueue_job('/tmp/c1.zip', '/tmp/out', db_path=self.db_path)
+        j2 = queue_db.enqueue_job('/tmp/c2.zip', '/tmp/out', db_path=self.db_path)
+        queue_db.update_job_status(j1, 'completed', db_path=self.db_path)
+        queue_db.update_job_status(j2, 'failed', error_log='Failed file', db_path=self.db_path)
+
+        dlg = ui.QueueManagerDialog(daemon=None, parent=None, db_path=self.db_path)
+        yes_btn = getattr(getattr(ui.QMessageBox, 'StandardButton', ui.QMessageBox), 'Yes', 16384)
+
+        with patch.object(ui.QMessageBox, 'question', return_value=yes_btn) as mock_question:
+            dlg.clear_all()
+            mock_question.assert_called_once()
+            call_args = mock_question.call_args[0]
+            self.assertEqual(call_args[1], 'Confirm Clear')
+            self.assertIn('Clear 2 completed/failed jobs?', call_args[2])
+
+        jobs = queue_db.get_all_jobs(self.db_path)
+        self.assertEqual(len(jobs), 0)
+
+    def test_clear_all_completed_only_aborted(self):
+        j1 = queue_db.enqueue_job('/tmp/c1.zip', '/tmp/out', db_path=self.db_path)
+        j2 = queue_db.enqueue_job('/tmp/c2.zip', '/tmp/out', db_path=self.db_path)
+        queue_db.update_job_status(j1, 'completed', db_path=self.db_path)
+        queue_db.update_job_status(j2, 'failed', error_log='Failed file', db_path=self.db_path)
+
+        dlg = ui.QueueManagerDialog(daemon=None, parent=None, db_path=self.db_path)
+        no_btn = getattr(getattr(ui.QMessageBox, 'StandardButton', ui.QMessageBox), 'No', 65536)
+
+        with patch.object(ui.QMessageBox, 'question', return_value=no_btn) as mock_question:
+            dlg.clear_all()
+            mock_question.assert_called_once()
+
+        jobs = queue_db.get_all_jobs(self.db_path)
+        self.assertEqual(len(jobs), 2)
+
+    def test_clear_all_active_jobs_confirmed(self):
+        j1 = queue_db.enqueue_job('/tmp/a1.zip', '/tmp/out', db_path=self.db_path)
+        j2 = queue_db.enqueue_job('/tmp/a2.zip', '/tmp/out', db_path=self.db_path)
+        queue_db.update_job_status(j1, 'processing', db_path=self.db_path)
+        # j2 remains pending
+
+        dlg = ui.QueueManagerDialog(daemon=None, parent=None, db_path=self.db_path)
+        yes_btn = getattr(getattr(ui.QMessageBox, 'StandardButton', ui.QMessageBox), 'Yes', 16384)
+
+        with patch.object(ui.QMessageBox, 'question', return_value=yes_btn) as mock_question:
+            dlg.clear_all()
+            mock_question.assert_called_once()
+            call_args = mock_question.call_args[0]
+            self.assertEqual(call_args[1], 'Warning: Active Jobs in Progress')
+            self.assertIn('Warning: 2 active or pending job(s) will be interrupted and lost.', call_args[2])
+            self.assertIn('2 active/pending, 0 completed/failed (Total: 2)', call_args[2])
+
+        jobs = queue_db.get_all_jobs(self.db_path)
+        self.assertEqual(len(jobs), 0)
+
+    def test_clear_all_active_jobs_aborted(self):
+        j1 = queue_db.enqueue_job('/tmp/a1.zip', '/tmp/out', db_path=self.db_path)
+        j2 = queue_db.enqueue_job('/tmp/a2.zip', '/tmp/out', db_path=self.db_path)
+        queue_db.update_job_status(j1, 'processing', db_path=self.db_path)
+
+        dlg = ui.QueueManagerDialog(daemon=None, parent=None, db_path=self.db_path)
+        no_btn = getattr(getattr(ui.QMessageBox, 'StandardButton', ui.QMessageBox), 'No', 65536)
+
+        with patch.object(ui.QMessageBox, 'question', return_value=no_btn) as mock_question:
+            dlg.clear_all()
+            mock_question.assert_called_once()
+
+        jobs = queue_db.get_all_jobs(self.db_path)
+        self.assertEqual(len(jobs), 2)
+
+    def test_clear_all_mixed_status_breakdown(self):
+        j1 = queue_db.enqueue_job('/tmp/m1.zip', '/tmp/out', db_path=self.db_path)
+        j2 = queue_db.enqueue_job('/tmp/m2.zip', '/tmp/out', db_path=self.db_path)
+        j3 = queue_db.enqueue_job('/tmp/m3.zip', '/tmp/out', db_path=self.db_path)
+        j4 = queue_db.enqueue_job('/tmp/m4.zip', '/tmp/out', db_path=self.db_path)
+        queue_db.update_job_status(j1, 'processing', db_path=self.db_path)
+        # j2 is pending
+        queue_db.update_job_status(j3, 'completed', db_path=self.db_path)
+        queue_db.update_job_status(j4, 'failed', error_log='Corrupt', db_path=self.db_path)
+
+        dlg = ui.QueueManagerDialog(daemon=None, parent=None, db_path=self.db_path)
+        yes_btn = getattr(getattr(ui.QMessageBox, 'StandardButton', ui.QMessageBox), 'Yes', 16384)
+
+        with patch.object(ui.QMessageBox, 'question', return_value=yes_btn) as mock_question:
+            dlg.clear_all()
+            mock_question.assert_called_once()
+            call_args = mock_question.call_args[0]
+            self.assertEqual(call_args[1], 'Warning: Active Jobs in Progress')
+            self.assertIn('Warning: 2 active or pending job(s) will be interrupted and lost.', call_args[2])
+            self.assertIn('2 active/pending, 2 completed/failed (Total: 4)', call_args[2])
+
+        jobs = queue_db.get_all_jobs(self.db_path)
+        self.assertEqual(len(jobs), 0)
+
 
 if __name__ == '__main__':
     unittest.main()
