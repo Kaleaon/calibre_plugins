@@ -24,6 +24,14 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
     from PyQt6 import QtCore, QtGui, QtWidgets
     HAVE_QT = True
+    if 'qt.core' not in sys.modules:
+        qtcore = types.ModuleType('qt.core')
+        for module in (QtWidgets, QtGui, QtCore):
+            for name in dir(module):
+                setattr(qtcore, name, getattr(module, name))
+        qtcore._ = lambda s: s
+        sys.modules['qt'] = types.ModuleType('qt')
+        sys.modules['qt.core'] = qtcore
 except ImportError:  # also raised when system libraries such as libEGL are missing
     HAVE_QT = False
     QtCore = QtGui = QtWidgets = None
@@ -1313,12 +1321,8 @@ class GeminiDialogTests(QtCase):
 
             dialog.reject()
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, 'exec', drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
 
         self.assertEqual(seen['initial_mode_index'], 1, 'Started in override mode index 1')
         self.assertEqual(seen['initial_text'], 'Custom test instruction prompt')
@@ -1644,7 +1648,7 @@ class FanficDialogTests(QtCase):
         self.assertIn('[www.royalroad.com]\nuse_flaresolverr_proxy:true', advanced.toPlainText())
 
 
-class GuikitHelpersTests(unittest.TestCase):
+class GuikitHelpersTests(QtCase):
     """Unit tests for shared common.guikit helpers."""
 
     def test_parse_lines(self):
