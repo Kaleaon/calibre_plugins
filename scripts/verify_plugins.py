@@ -14,6 +14,7 @@ EXPECTED_ZIPS = [
     "GeminiLibraryFixer.zip",
     "MediaMatcher.zip",
     "InkbunnySoFurryDownloader.zip",
+    "CalibreLink.zip",
 ]
 
 
