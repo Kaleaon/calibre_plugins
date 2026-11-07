@@ -28,6 +28,7 @@ for name in (
         except AttributeError:
             pass
 
+
 class StubMetadata:
     def __init__(self, title="Unknown", authors=None):
         self.title = title
@@ -36,6 +37,7 @@ class StubMetadata:
 
     def set_identifier(self, key, val):
         pass
+
 
 if not hasattr(sys.modules["calibre.ebooks.metadata.book.base"], "Metadata"):
     sys.modules["calibre.ebooks.metadata.book.base"].Metadata = StubMetadata
