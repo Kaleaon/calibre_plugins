@@ -8,6 +8,7 @@ extend-exclude = [
     "calibre_link",
     "common",
     "fanfic",
+    "furry",
     "gemini",
     "media",
     "metabods",
@@ -39,6 +40,7 @@ extend-exclude = [
     "tests/test_flaresolverr.py",
     "tests/test_flaresolverr_autospawn.py",
     "tests/test_flaresolverr_launcher.py",
+    "tests/test_furry.py",
     "tests/test_gemini.py",
     "tests/test_guikit.py",
     "tests/test_importer.py",
@@ -80,6 +82,7 @@ ignore = ["E501", "UP017"]
 known-first-party = [
     "common",
     "fanfic",
+    "furry",
     "gemini",
     "media",
     "metabods",
