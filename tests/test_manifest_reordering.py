@@ -32,6 +32,7 @@ def ensure_qt():
     global _GLOBAL_QT_APP
     if "qt.core" not in sys.modules:
         try:
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
             from PyQt6 import QtCore, QtGui, QtWidgets
 
             _GLOBAL_QT_APP = (
