@@ -1,10 +1,12 @@
 import importlib.util
 import io
-from pathlib import Path
 import sys
+import types
 import unittest
 import xml.dom.minidom
 import zipfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'common'))
 import storykit
@@ -70,6 +72,49 @@ class ListTests(unittest.TestCase):
         self.assertEqual([x['id'] for x in core.combine_tag_results(results, True)], ['b'])
         self.assertEqual([x['id'] for x in core.combine_tag_results(results, False)], ['a', 'b', 'c'])
         self.assertEqual(core.combine_tag_results({}, True), [])
+
+    def test_expand_targets_without_skip_ids(self):
+        page = ('<td><a href="/mbxy/site/story.php?id=story-1">Story One</a> by <a href="?list=author&id=1">Author</a></td>'
+                '<td><a href="/mbxy/site/story.php?id=story-2">Story Two</a></td>')
+        fetcher = ConcurrentFakeFetcher()
+        fetcher.get = lambda url: page
+        lines = ['direct-story', 'https://metabods.com/mbxy/site/archive.php?list=author&id=1']
+        rows, errors = core.expand_targets(fetcher, lines)
+        self.assertEqual([r['id'] for r in rows], ['direct-story', 'story-1', 'story-2'])
+        self.assertEqual(errors, [])
+
+    def test_expand_targets_with_skip_ids_filters_story_rows(self):
+        page = ('<td><a href="/mbxy/site/story.php?id=story-1">Story One</a> by <a href="?list=author&id=1">Author</a></td>'
+                '<td><a href="/mbxy/site/story.php?id=story-2">Story Two</a></td>')
+        fetcher = ConcurrentFakeFetcher()
+        fetch_calls = []
+
+        def fake_get(url):
+            fetch_calls.append(url)
+            return page
+
+        fetcher.get = fake_get
+        lines = [
+            'direct-story-1',
+            'https://metabods.com/mbxy/site/archive.php?list=author&id=1',
+            'direct-story-2',
+            'not a link!',
+        ]
+        skip_ids = {'story-1', 'direct-story-2'}
+        rows, errors = core.expand_targets(fetcher, lines, skip_ids=skip_ids)
+
+        self.assertEqual(len(fetch_calls), 1)
+        self.assertEqual([r['id'] for r in rows], ['direct-story-1', 'story-2'])
+        self.assertEqual(len(errors), 1)
+        self.assertIn('Not a Metabods story or list address: not a link!', errors[0])
+
+    def test_expand_targets_no_stories_found(self):
+        fetcher = ConcurrentFakeFetcher()
+        fetcher.get = lambda url: '<html><body>Empty page</body></html>'
+        rows, errors = core.expand_targets(fetcher, ['https://metabods.com/mbxy/site/archive.php?list=author&id=999'])
+        self.assertEqual(rows, [])
+        self.assertEqual(len(errors), 1)
+        self.assertIn('No stories found', errors[0])
 
 
 class ConcurrentFakeFetcher:
@@ -243,6 +288,127 @@ class FetcherTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         with self.assertRaises(storykit.Cancelled):
             storykit.Fetcher(min_interval=0, cancelled=lambda: True, opener=opener).get('https://metabods.com/x')
+
+
+def _load_action_module():
+    root = Path(__file__).resolve().parents[1]
+    stubs = ['calibre', 'calibre.utils', 'calibre.utils.config', 'calibre.gui2', 'calibre.gui2.actions', 'qt', 'qt.core']
+    for mod in stubs:
+        if mod not in sys.modules:
+            sys.modules[mod] = MagicMock()
+    sys.modules['calibre.gui2.actions'].InterfaceAction = object
+    sys.modules['calibre.utils.config'].JSONConfig = lambda name: type('Prefs', (dict,), {'defaults': {}})()
+
+    pkg_name = 'calibre_plugins.metabods_downloader'
+    if 'calibre_plugins' not in sys.modules:
+        sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+        sys.modules['calibre_plugins'].__path__ = []
+    if pkg_name not in sys.modules:
+        pkg = types.ModuleType(pkg_name)
+        pkg.__path__ = [str(root / 'metabods'), str(root / 'common')]
+        sys.modules[pkg_name] = pkg
+
+    spec_c = importlib.util.spec_from_file_location(f'{pkg_name}.core', root / 'metabods/core.py')
+    core_mod = importlib.util.module_from_spec(spec_c)
+    sys.modules[f'{pkg_name}.core'] = core_mod
+    spec_c.loader.exec_module(core_mod)
+
+    act_spec = importlib.util.spec_from_file_location(f'{pkg_name}.action', root / 'metabods/action.py')
+    action_mod = importlib.util.module_from_spec(act_spec)
+    sys.modules[f'{pkg_name}.action'] = action_mod
+    act_spec.loader.exec_module(action_mod)
+    return action_mod, core_mod
+
+
+class DownloadByLinkTests(unittest.TestCase):
+    def setUp(self):
+        self.action_mod, self.core_mod = _load_action_module()
+
+    def test_download_by_link_skip_enabled_queries_library_before_network(self):
+        act = self.action_mod.MetabodsAction()
+        act.gui = MagicMock()
+        act.download = MagicMock()
+
+        call_order = []
+
+        def fake_existing_ids():
+            call_order.append('existing_ids')
+            return {'story-1', 'direct-1'}
+
+        act.existing_ids = MagicMock(side_effect=fake_existing_ids)
+
+        mock_dialog = MagicMock()
+        mock_dialog.exec.return_value = mock_dialog.DialogCode.Accepted
+        mock_dialog.lines.return_value = [
+            'direct-1',
+            'direct-2',
+            'https://metabods.com/mbxy/site/archive.php?list=author&id=1',
+        ]
+        mock_dialog.options = {'skip': True, 'combine': False, 'title': '', 'chapter_range': None}
+
+        def fake_run_task(gui, msg, fn):
+            call_order.append('run_task')
+            task = MagicMock()
+            task.error = None
+            task.cancelled = lambda: False
+            task.result = fn(task)
+            return task
+
+        page = ('<td><a href="/mbxy/site/story.php?id=story-1">S1</a></td>'
+                '<td><a href="/mbxy/site/story.php?id=story-2">S2</a></td>')
+
+        with patch.object(self.action_mod, 'DownloadDialog', return_value=mock_dialog), \
+             patch.object(self.action_mod, 'run_task', side_effect=fake_run_task), \
+             patch.object(self.core_mod, 'expand_targets', wraps=self.core_mod.expand_targets) as spy_expand, \
+             patch.object(self.core_mod.Fetcher, 'get', return_value=page) as mock_get:
+            act.download_by_link()
+
+        self.assertEqual(call_order, ['existing_ids', 'run_task'])
+        self.assertEqual(mock_get.call_count, 1)  # list HTML fetched once
+        self.assertEqual(spy_expand.call_args[0][1], ['direct-2', 'https://metabods.com/mbxy/site/archive.php?list=author&id=1'])
+        self.assertEqual(spy_expand.call_args[1].get('skip_ids'), {'story-1', 'direct-1'})
+        act.download.assert_called_once_with(['direct-2', 'story-2'], False, '', [], 1, chapter_range=None)
+
+    def test_download_by_link_all_direct_stories_skipped_no_network(self):
+        act = self.action_mod.MetabodsAction()
+        act.gui = MagicMock()
+        act.existing_ids = MagicMock(return_value={'direct-1', 'direct-2'})
+        act.download = MagicMock()
+
+        mock_dialog = MagicMock()
+        mock_dialog.exec.return_value = mock_dialog.DialogCode.Accepted
+        mock_dialog.lines.return_value = ['direct-1', 'direct-2']
+        mock_dialog.options = {'skip': True, 'combine': False, 'title': '', 'chapter_range': None}
+
+        get_mock = MagicMock()
+        with patch.object(self.action_mod, 'DownloadDialog', return_value=mock_dialog), \
+             patch.object(self.action_mod, 'run_task', side_effect=lambda gui, msg, fn: MagicMock(error=None, result=fn(MagicMock(cancelled=lambda: False)))), \
+             patch.object(self.core_mod.Fetcher, 'get', get_mock):
+            act.download_by_link()
+
+        self.assertEqual(get_mock.call_count, 0)
+        act.download.assert_called_once_with([], False, '', [], 2, chapter_range=None)
+
+    def test_download_by_link_skip_disabled_processes_all(self):
+        act = self.action_mod.MetabodsAction()
+        act.gui = MagicMock()
+        act.existing_ids = MagicMock(return_value={'direct-1'})
+        act.download = MagicMock()
+
+        mock_dialog = MagicMock()
+        mock_dialog.exec.return_value = mock_dialog.DialogCode.Accepted
+        mock_dialog.lines.return_value = ['direct-1']
+        mock_dialog.options = {'skip': False, 'combine': False, 'title': '', 'chapter_range': None}
+
+        with patch.object(self.action_mod, 'DownloadDialog', return_value=mock_dialog), \
+             patch.object(self.action_mod, 'run_task', side_effect=lambda gui, msg, fn: MagicMock(error=None, result=fn(MagicMock(cancelled=lambda: False)))), \
+             patch.object(self.core_mod, 'expand_targets', wraps=self.core_mod.expand_targets) as spy_expand:
+            act.download_by_link()
+
+        self.assertEqual(act.existing_ids.call_count, 0)
+        self.assertEqual(spy_expand.call_args[0][1], ['direct-1'])
+        self.assertIsNone(spy_expand.call_args[1].get('skip_ids'))
+        act.download.assert_called_once_with(['direct-1'], False, '', [], 0, chapter_range=None)
 
 
 if __name__ == '__main__':

@@ -32,10 +32,26 @@ class MetabodsAction(libkit.DownloaderAction):
         if not lines:
             return
         skip, combine, title, chapter_range = dialog.options.values()
+        have = self.existing_ids() if skip else None
+        skipped = 0
+        if have:
+            kept_lines = []
+            for line in lines:
+                k = core.classify(line)
+                if k and k[0] == 'story' and k[1] in have:
+                    skipped += 1
+                else:
+                    kept_lines.append(line)
+            lines = kept_lines
 
         def expand(task):
             task.status = 'Reading links…'
-            return core.expand_targets(core.Fetcher(cancelled=task.cancelled), lines, lambda msg: setattr(task, 'status', msg))
+            return core.expand_targets(
+                core.Fetcher(cancelled=task.cancelled),
+                lines,
+                lambda msg: setattr(task, 'status', msg),
+                skip_ids=have,
+            )
 
         task = run_task(self.gui, 'Reading links…', expand)
         if task.error:
@@ -44,10 +60,9 @@ class MetabodsAction(libkit.DownloaderAction):
             return
         rows, problems = task.result
         ids = [r['id'] for r in rows]
-        if skip:
-            have = self.existing_ids()
+        if skip and have:
             ids = [i for i in ids if i not in have]
-        self.download(ids, combine, title, problems, len(rows) - len(ids), chapter_range=chapter_range)
+        self.download(ids, combine, title, problems, skipped + (len(rows) - len(ids)), chapter_range=chapter_range)
 
     def search_by_tag(self):
         dialog = TagSearchDialog(self.gui, self.existing_ids())

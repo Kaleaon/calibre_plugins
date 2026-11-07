@@ -251,9 +251,10 @@ def fetch_story(fetcher, story_id, chapter_range=None):
     return story
 
 
-def expand_targets(fetcher, lines, progress=lambda msg: None):
+def expand_targets(fetcher, lines, progress=lambda msg: None, skip_ids=None):
     """Resolve pasted story ids/URLs and list pages (author, tag, category, archive) into story rows."""
     rows, errors = {}, []
+    skip = set(skip_ids) if skip_ids else set()
     for line in lines:
         kind = classify(line)
         if kind is None:
@@ -261,16 +262,20 @@ def expand_targets(fetcher, lines, progress=lambda msg: None):
                 errors.append(f'Not a Metabods story or list address: {line.strip()}')
             continue
         if kind[0] == 'story':
+            if kind[1] in skip:
+                continue
             rows.setdefault(kind[1], {'id': kind[1], 'title': kind[1], 'author': ''})
             continue
         progress(f'Reading list {kind[1]}')
         try:
             found = parse_story_rows(fetcher.get(kind[1]))
-        except IOError as exc:
+        except OSError as exc:
             errors.append(str(exc))
             continue
         if not found:
             errors.append(f'No stories found at {kind[1]}')
         for row in found:
+            if row['id'] in skip:
+                continue
             rows.setdefault(row['id'], row)
     return list(rows.values()), errors
