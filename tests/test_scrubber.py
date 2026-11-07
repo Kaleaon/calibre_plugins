@@ -3,9 +3,14 @@ import io
 import sys
 import tempfile
 import unittest
-from unittest.mock import MagicMock
 import zipfile
 from pathlib import Path
+from unittest.mock import MagicMock
+
+STUBS = ['calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config', 'qt', 'qt.core']
+for name in STUBS:
+    if name not in sys.modules:
+        sys.modules[name] = MagicMock()
 
 spec = importlib.util.spec_from_file_location('scrub_core', Path(__file__).resolve().parents[1] / 'scrubber_plugin/core.py')
 core = importlib.util.module_from_spec(spec)
@@ -106,6 +111,25 @@ class ScrubTests(unittest.TestCase):
             self.assertFalse(list(Path(d).glob('*.scrub-tmp')))
             with self.assertRaises(ValueError):
                 core.scrub_files(d)
+
+    def test_in_place_creates_bak_backup(self):
+        with tempfile.TemporaryDirectory() as d:
+            clean = OPF.replace(' - OceanofPDF.com', '').replace('OceanofPDF.com', 'Some Press')
+            dirty_bytes = make('<p>Dirty content</p>')
+            clean_bytes = make('<p>Clean content</p>', '<p>Cover</p>', clean)
+            (Path(d) / 'dirty.epub').write_bytes(dirty_bytes)
+            (Path(d) / 'clean.epub').write_bytes(clean_bytes)
+
+            rows, report = core.scrub_files(d, in_place=True)
+            bak_dir = Path(d) / '.bak'
+            self.assertTrue(bak_dir.exists())
+            self.assertTrue((bak_dir / 'dirty.epub').exists())
+            self.assertEqual((bak_dir / 'dirty.epub').read_bytes(), dirty_bytes)
+            self.assertFalse((bak_dir / 'clean.epub').exists())
+
+            rows2, _ = core.scrub_files(d, in_place=True)
+            self.assertEqual(len(rows2), 2)
+            self.assertTrue(all('.bak' not in r['input'] for r in rows2))
 
 
 class ScrubActionTests(unittest.TestCase):
@@ -264,6 +288,109 @@ class ScrubActionTests(unittest.TestCase):
         info_dialog_mock.assert_called_once()
         msg = info_dialog_mock.call_args[0][2]
         self.assertIn('Operation cancelled.', msg)
+
+    def test_restore_selected_menu_item_present(self):
+        act_spec = importlib.util.spec_from_file_location('scrub_action', Path(__file__).resolve().parents[1] / 'scrubber_plugin/action.py')
+        action_mod = importlib.util.module_from_spec(act_spec)
+        act_spec.loader.exec_module(action_mod)
+
+        gui = MagicMock()
+        action = action_mod.ScrubAction()
+        action.gui = gui
+        action.qaction = MagicMock()
+        action_mod.QAction = MagicMock()
+        action.genesis()
+
+        titles = [call[0][0] for call in action_mod.QAction.call_args_list if call[0]]
+        self.assertIn('Restore selected books from ORIGINAL_EPUB', titles)
+
+    def test_restore_selected_no_selection_shows_info(self):
+        act_spec = importlib.util.spec_from_file_location('scrub_action', Path(__file__).resolve().parents[1] / 'scrubber_plugin/action.py')
+        action_mod = importlib.util.module_from_spec(act_spec)
+        act_spec.loader.exec_module(action_mod)
+
+        gui = MagicMock()
+        gui.library_view.get_selected_ids.return_value = []
+        action = action_mod.ScrubAction()
+        action.gui = gui
+
+        info_dialog_mock = MagicMock()
+        action_mod.info_dialog = info_dialog_mock
+
+        action.restore_selected()
+        info_dialog_mock.assert_called_once()
+        self.assertIn('Select one or more books in Calibre first.', info_dialog_mock.call_args[0][2])
+
+    def test_restore_selected_no_backups_shows_info(self):
+        act_spec = importlib.util.spec_from_file_location('scrub_action', Path(__file__).resolve().parents[1] / 'scrubber_plugin/action.py')
+        action_mod = importlib.util.module_from_spec(act_spec)
+        act_spec.loader.exec_module(action_mod)
+
+        gui = MagicMock()
+        gui.library_view.get_selected_ids.return_value = [1, 2]
+        db = MagicMock()
+        gui.current_db.new_api = db
+        db.formats.return_value = ['EPUB']
+
+        action = action_mod.ScrubAction()
+        action.gui = gui
+
+        info_dialog_mock = MagicMock()
+        action_mod.info_dialog = info_dialog_mock
+        action_mod.QMessageBox.question = MagicMock()
+
+        action.restore_selected()
+        action_mod.QMessageBox.question.assert_not_called()
+        info_dialog_mock.assert_called_once()
+        self.assertIn('No ORIGINAL_EPUB backup available', info_dialog_mock.call_args[0][2])
+
+    def test_restore_selected_restores_epub_and_refreshes_library(self):
+        act_spec = importlib.util.spec_from_file_location('scrub_action', Path(__file__).resolve().parents[1] / 'scrubber_plugin/action.py')
+        action_mod = importlib.util.module_from_spec(act_spec)
+        act_spec.loader.exec_module(action_mod)
+
+        gui = MagicMock()
+        gui.library_view.get_selected_ids.return_value = [1, 2]
+
+        db = MagicMock()
+        gui.current_db.new_api = db
+
+        def fake_formats(bid):
+            return ['EPUB', 'ORIGINAL_EPUB'] if bid == 1 else ['EPUB']
+
+        backup_bytes = b'original_book_1'
+        def fake_format(bid, fmt):
+            if bid == 1 and fmt == 'ORIGINAL_EPUB':
+                return backup_bytes
+            return b'scrubbed_epub'
+
+        db.formats.side_effect = fake_formats
+        db.format.side_effect = fake_format
+        db.add_format.return_value = True
+
+        action = action_mod.ScrubAction()
+        action.gui = gui
+
+        info_dialog_mock = MagicMock()
+        action_mod.info_dialog = info_dialog_mock
+        action_mod.QMessageBox.question = MagicMock(return_value=action_mod.QMessageBox.StandardButton.Yes)
+
+        action.restore_selected()
+
+        action_mod.QMessageBox.question.assert_called_once()
+        confirm_text = action_mod.QMessageBox.question.call_args[0][2]
+        self.assertIn('1 book(s) with ORIGINAL_EPUB backup(s) out of 2 selected', confirm_text)
+
+        db.add_format.assert_called_once()
+        self.assertEqual(db.add_format.call_args[0][0], 1)
+        self.assertEqual(db.add_format.call_args[0][1], 'EPUB')
+        self.assertEqual(db.add_format.call_args[0][2].read(), backup_bytes)
+        self.assertEqual(db.add_format.call_args[1].get('replace'), True)
+
+        gui.library_view.model().refresh.assert_called_once()
+        gui.tags_view.recount.assert_called_once()
+        info_dialog_mock.assert_called_once()
+        self.assertIn('1 book(s) restored from ORIGINAL_EPUB backup.', info_dialog_mock.call_args[0][2])
 
 
 

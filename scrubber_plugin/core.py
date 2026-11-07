@@ -8,6 +8,7 @@ import json
 import os
 import posixpath
 import re
+import shutil
 import zipfile
 from pathlib import Path
 from urllib.parse import unquote, urldefrag
@@ -915,7 +916,7 @@ def scrub_files(source, output=None, extra_patterns=(), heuristic=True, drop_emp
         raise ValueError('An output folder is required unless replacing originals in place')
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
-    paths = [source] if source.is_file() else sorted(source.rglob('*.epub'))
+    paths = [source] if source.is_file() else sorted(p for p in source.rglob('*.epub') if '.bak' not in p.parts)
     rows = []
     for path in paths:
         row = {'input': str(path)}
@@ -925,6 +926,10 @@ def scrub_files(source, output=None, extra_patterns=(), heuristic=True, drop_emp
             if data is None:
                 row['status'] = 'unchanged'
             elif in_place:
+                bak_dir = output / '.bak'
+                bak_file = bak_dir / (path.relative_to(output) if path.is_relative_to(output) else path.name)
+                bak_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, bak_file)
                 tmp = path.with_name(path.name + '.scrub-tmp')
                 tmp.write_bytes(data)
                 os.replace(tmp, path)

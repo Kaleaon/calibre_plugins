@@ -1894,6 +1894,87 @@ class ScrubberPluginTests(QtCase):
             mock_q.assert_called_once()
         self.assertNotIn('ORIGINAL_EPUB', db.formats(1))
 
+    def test_restore_action_appears_in_menu(self):
+        action = self.make_action([1])
+        menu = action.qaction.setMenu.call_args[0][0]
+        titles = [a.text() for a in menu.actions()]
+        self.assertIn('Restore selected books from ORIGINAL_EPUB', titles)
+
+    def test_restore_selected_no_backups_shows_info_dialog(self):
+        action = self.make_action([1])
+        db = action.gui.db
+        db.books[1] = {
+            'mi': StubMetadata('Book Title', ['Author']),
+            'formats': {'EPUB': b'epub_bytes'}
+        }
+        with unittest.mock.patch.object(self.action_module, 'info_dialog') as mock_info, \
+             unittest.mock.patch.object(self.action_module.QMessageBox, 'question') as mock_q:
+            action.restore_selected()
+            mock_q.assert_not_called()
+            mock_info.assert_called_once()
+            self.assertIn('No ORIGINAL_EPUB backup available', mock_info.call_args[0][2])
+
+    def test_restore_selected_confirmed_restores_epub_and_refreshes(self):
+        action = self.make_action([1])
+        db = action.gui.db
+        orig_bytes = b'original_backup_bytes'
+        scrubbed_bytes = b'scrubbed_bytes'
+        db.books[1] = {
+            'mi': StubMetadata('Book Title', ['Author']),
+            'formats': {'EPUB': scrubbed_bytes, 'ORIGINAL_EPUB': orig_bytes}
+        }
+        with unittest.mock.patch.object(self.action_module.QMessageBox, 'question',
+                                       return_value=QtWidgets.QMessageBox.StandardButton.Yes) as mock_q, \
+             unittest.mock.patch.object(self.action_module, 'info_dialog') as mock_info:
+            action.restore_selected()
+            mock_q.assert_called_once()
+            self.assertIn('Restore 1 selected book(s)', mock_q.call_args[0][2])
+            mock_info.assert_called_once()
+            self.assertIn('1 book(s) restored', mock_info.call_args[0][2])
+        self.assertEqual(db.format(1, 'EPUB'), orig_bytes)
+        action.gui.library_view.model().refresh.assert_called_once()
+        action.gui.tags_view.recount.assert_called_once()
+
+    def test_restore_selected_declined_leaves_primary_epub_intact(self):
+        action = self.make_action([1])
+        db = action.gui.db
+        orig_bytes = b'original_backup_bytes'
+        scrubbed_bytes = b'scrubbed_bytes'
+        db.books[1] = {
+            'mi': StubMetadata('Book Title', ['Author']),
+            'formats': {'EPUB': scrubbed_bytes, 'ORIGINAL_EPUB': orig_bytes}
+        }
+        with unittest.mock.patch.object(self.action_module.QMessageBox, 'question',
+                                       return_value=QtWidgets.QMessageBox.StandardButton.No) as mock_q:
+            action.restore_selected()
+            mock_q.assert_called_once()
+        self.assertEqual(db.format(1, 'EPUB'), scrubbed_bytes)
+
+    def test_restore_selected_partial_backups_skips_books_without_backup(self):
+        action = self.make_action([1, 2])
+        db = action.gui.db
+        orig_bytes = b'original_backup_bytes_1'
+        db.books[1] = {
+            'mi': StubMetadata('Book 1', ['Author']),
+            'formats': {'EPUB': b'scrubbed_1', 'ORIGINAL_EPUB': orig_bytes}
+        }
+        db.books[2] = {
+            'mi': StubMetadata('Book 2', ['Author']),
+            'formats': {'EPUB': b'scrubbed_2'}
+        }
+        with unittest.mock.patch.object(self.action_module.QMessageBox, 'question',
+                                       return_value=QtWidgets.QMessageBox.StandardButton.Yes) as mock_q, \
+             unittest.mock.patch.object(self.action_module, 'info_dialog') as mock_info:
+            action.restore_selected()
+            mock_q.assert_called_once()
+            self.assertIn('Found 1 book(s) with ORIGINAL_EPUB backup(s) out of 2 selected', mock_q.call_args[0][2])
+            mock_info.assert_called_once()
+            self.assertIn('1 book(s) restored', mock_info.call_args[0][2])
+        self.assertEqual(db.format(1, 'EPUB'), orig_bytes)
+        self.assertEqual(db.format(2, 'EPUB'), b'scrubbed_2')
+        action.gui.library_view.model().refresh.assert_called_once()
+        action.gui.tags_view.recount.assert_called_once()
+
 
 @unittest.skipUnless(HAVE_QT, 'PyQt6 (with its system libraries) is not installed')
 class RedditDialogTests(QtCase):
