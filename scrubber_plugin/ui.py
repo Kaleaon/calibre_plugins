@@ -1706,6 +1706,17 @@ class LibraryScannerDialog(QDialog):
             return
 
         backup = self.chk_backup.isChecked()
+        count = len(allowed_ids)
+        if backup:
+            confirm_text = (
+                f"Are you sure you want to scrub {count} selected finding(s)?\n\n"
+                "An ORIGINAL_EPUB backup will be created for each modified book."
+            )
+        else:
+            confirm_text = (
+                f"Are you sure you want to scrub {count} selected finding(s)?\n\n"
+                "Warning: Backup creation is disabled. Modifications will be written without creating backups."
+            )
         sure = QMessageBox.question(
             self,
             'Confirm Scrubbing',
