@@ -154,7 +154,7 @@ def parse_rules(text):
     return rules, errors
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def _host_pattern(host):
     return re.compile(r'(?<![\w-])' + re.escape(host) + r'(?![\w-])', re.I)
 
@@ -295,7 +295,7 @@ RULE_SET_SCHEMA_VERSION = 1
 
 def export_rule_set_data(rules_text, sites_text, title="Exported Rule Set", description=""):
     """Serializes rules and extra sites multiline text into a versioned JSON-compatible dictionary."""
-    from datetime import datetime, timezone
+    from datetime import UTC, datetime
     parsed_rules, _ = parse_rules(rules_text)
     parsed_sites, _ = parse_sites(sites_text)
 
@@ -324,7 +324,7 @@ def export_rule_set_data(rules_text, sites_text, title="Exported Rule Set", desc
         "metadata": {
             "title": title,
             "description": description,
-            "exported_at": datetime.now(timezone.utc).isoformat()
+            "exported_at": datetime.now(UTC).isoformat()
         },
         "rules": rules_list,
         "sites": sites_list,
