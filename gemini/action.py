@@ -811,6 +811,8 @@ class GeminiFixerAction(DialogAction):
         key.setEchoMode(QLineEdit.EchoMode.Password)
         key.setPlaceholderText(_('Free key from https://aistudio.google.com/apikey — no billing needed (or set GEMINI_API_KEY)'))
         row.addWidget(key, 1)
+        test_key_btn = create_token_button(_('Test API key'))
+        row.addWidget(test_key_btn)
         layout.addLayout(row)
         row = QHBoxLayout()
         row.addWidget(QLabel(_('Model:')))
@@ -1202,13 +1204,26 @@ class GeminiFixerAction(DialogAction):
             run_busy[0] = busy
             for w in (all_btn, none_btn, safe_btn, field_btn):
                 w.setEnabled(not busy)
-            for w in (check_btn, apply_btn, undo_btn, models_btn, compile_btn, open_batch_dir_btn):
+            for w in (check_btn, apply_btn, undo_btn, models_btn, test_key_btn, compile_btn, open_batch_dir_btn):
                 w.setEnabled(not busy and (w is not apply_btn) and (w is not undo_btn or bool(undo_state[0])))
             stop_btn.setEnabled(busy)
             buttons.button(QDialogButtonBox.StandardButton.Close).setEnabled(not busy)
 
         stop_btn.clicked.connect(lambda: (cancel_flag.set(), log(_('Cancel pressed; stopping after the current step.'))))
         dialog.finished.connect(lambda _result: cancel_flag.set())
+
+        def do_test_api_key():
+            save_prefs()
+            if not api_key():
+                return error_dialog(dialog, _('Gemini'), _('Enter your API key first.'), show=True)
+            task = run_task(dialog, _('Testing Google AI API key…'), lambda t: engine.validate_api_key(api_key(), cancelled=t.cancelled))
+            if task.error:
+                if task.cancelled() or 'Cancelled' in str(task.error):
+                    return
+                return error_dialog(dialog, _('Gemini'), str(task.error), show=True)
+            if task.cancelled():
+                return
+            info_dialog(dialog, _('Gemini'), _('API key is valid and working!'), show=True)
 
         def do_list_models():
             save_prefs()
@@ -1274,6 +1289,11 @@ class GeminiFixerAction(DialogAction):
             current_scope = 'selected' if scope_selected.isChecked() else 'all'
             if not ids:
                 return info_dialog(dialog, _('Gemini'), _('No books found to check.'), show=True)
+
+            try:
+                engine.validate_api_key(api_key())
+            except Exception as exc:
+                return error_dialog(dialog, _('Gemini'), str(exc), show=True)
 
             b_dir = get_batch_dir()
             existing_batches = engine.list_batch_files(b_dir)
@@ -1772,6 +1792,7 @@ class GeminiFixerAction(DialogAction):
 
         key.editingFinished.connect(save_prefs)  # the key is remembered as soon as it is typed, not only after a check
         dialog.finished.connect(lambda _result: save_prefs())
+        test_key_btn.clicked.connect(do_test_api_key)
         models_btn.clicked.connect(do_list_models)
         compile_btn.clicked.connect(do_compile_saved)
         open_batch_dir_btn.clicked.connect(do_open_batch_dir)

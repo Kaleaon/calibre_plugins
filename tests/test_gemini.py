@@ -1782,8 +1782,11 @@ class MarqueeBatchProgressTests(unittest.TestCase):
         sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine
         sys.modules['calibre_plugins.gemini_library_fixer.config'] = gemini_pkg.config
         sys.modules['calibre_plugins.gemini_library_fixer.guikit'] = gemini_pkg.guikit
+        self.validate_patcher = patch.object(engine, 'validate_api_key', return_value=True)
+        self.validate_patcher.start()
 
     def tearDown(self):
+        self.validate_patcher.stop()
         import shutil
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
         for k in list(sys.modules.keys()):
@@ -2464,6 +2467,211 @@ class CrashResumptionScanStateTests(unittest.TestCase):
         self.assertEqual(state['status'], 'completed')
         self.assertEqual(state['completed_count'], 4)
         self.assertEqual(len(state['remaining_ids']), 0)
+
+
+class ApiKeyValidationTests(unittest.TestCase):
+    def setUp(self):
+        self.saved_env = dict(os.environ)
+        os.environ.pop('GEMINI_API_KEY', None)
+        os.environ.pop('GOOGLE_API_KEY', None)
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.saved_env)
+
+    def test_validate_api_key_valid(self):
+        calls = []
+
+        def fake_transport(url, headers, body, timeout):
+            calls.append((url, headers))
+            return json.dumps({'models': [{'name': 'models/gemini-2.5-flash'}]}).encode('utf-8')
+
+        result = engine.validate_api_key('test-valid-key', transport=fake_transport)
+        self.assertTrue(result)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], f'{engine.API_ROOT}/models?pageSize=1')
+        self.assertEqual(calls[0][1].get('x-goog-api-key'), 'test-valid-key')
+
+    def test_validate_api_key_invalid_credentials(self):
+        err = http_error(400, 'API key not valid')
+        t = Scripted(err)
+        with self.assertRaises(engine.GeminiError) as cm:
+            engine.validate_api_key('bad-key', transport=t, retries=0)
+        self.assertIn('rejected the API key', str(cm.exception))
+
+    def test_validate_api_key_empty_or_whitespace(self):
+        with self.assertRaises(engine.GeminiError) as cm1:
+            engine.validate_api_key('')
+        self.assertIn('missing or empty', str(cm1.exception))
+
+        with self.assertRaises(engine.GeminiError) as cm2:
+            engine.validate_api_key('   ')
+        self.assertIn('missing or empty', str(cm2.exception))
+
+        with self.assertRaises(engine.GeminiError) as cm3:
+            engine.validate_api_key(None)
+        self.assertIn('missing or empty', str(cm3.exception))
+
+    def test_validate_api_key_gemini_env_fallback(self):
+        os.environ['GEMINI_API_KEY'] = 'gemini-env-key'
+        calls = []
+
+        def fake_transport(url, headers, body, timeout):
+            calls.append(headers.get('x-goog-api-key'))
+            return json.dumps({'models': [{'name': 'models/gemini-2.5-flash'}]}).encode('utf-8')
+
+        result = engine.validate_api_key(None, transport=fake_transport)
+        self.assertTrue(result)
+        self.assertEqual(calls, ['gemini-env-key'])
+
+        calls.clear()
+        result2 = engine.validate_api_key('', transport=fake_transport)
+        self.assertTrue(result2)
+        self.assertEqual(calls, ['gemini-env-key'])
+
+    def test_validate_api_key_google_env_fallback(self):
+        os.environ['GOOGLE_API_KEY'] = 'google-env-key'
+        calls = []
+
+        def fake_transport(url, headers, body, timeout):
+            calls.append(headers.get('x-goog-api-key'))
+            return json.dumps({'models': [{'name': 'models/gemini-2.5-flash'}]}).encode('utf-8')
+
+        result = engine.validate_api_key(None, transport=fake_transport)
+        self.assertTrue(result)
+        self.assertEqual(calls, ['google-env-key'])
+
+    def test_validate_api_key_network_error(self):
+        def timeout_transport(url, headers, body, timeout):
+            raise urllib.error.URLError('Network connection timed out')
+
+        with self.assertRaises(engine.GeminiError) as cm:
+            engine.validate_api_key('valid-key', transport=timeout_transport, retries=0)
+        self.assertIn('Could not reach Google', str(cm.exception))
+
+    def test_action_ui_test_api_key_button_and_dialogs(self):
+        saved_modules = dict(sys.modules)
+        try:
+            for name in ('calibre', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config'):
+                sys.modules[name] = MagicMock()
+            sys.modules['calibre.gui2.actions'].InterfaceAction = object
+            qt_mod = MagicMock()
+            qt_mod.core = MagicMock()
+            qt_mod.core._ = lambda s: s
+            sys.modules['qt'] = qt_mod
+            sys.modules['qt.core'] = qt_mod.core
+
+            gemini_pkg = types.ModuleType('calibre_plugins.gemini_library_fixer')
+            gemini_pkg.engine = engine
+            gemini_pkg.config = MagicMock(prefs={
+                'api_key': 'test-key', 'model': 'gemini-1.5-flash', 'fields': ['title'],
+                'tags_remove': False, 'excerpt': False, 'covers': False,
+                'min_confidence': 'medium', 'batch_size': 2, 'min_interval': 0, 'undo': {},
+                'batch_dir': '/tmp/gemini_batches', 'system_instruction_mode': 'append',
+                'custom_system_instructions': ''
+            })
+            gemini_pkg.guikit = MagicMock()
+            from common.guikit import DialogAction
+            gemini_pkg.guikit.DialogAction = DialogAction
+
+            class MockTask:
+                def __init__(self, func):
+                    self.cancelled_flag = False
+                    self.error = None
+                    self.result = None
+                    try:
+                        self.result = func(self)
+                    except Exception as exc:
+                        self.error = exc
+
+                def cancelled(self):
+                    return self.cancelled_flag
+
+            gemini_pkg.guikit.run_task = lambda parent, title, func: MockTask(func)
+
+            sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+            sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
+            sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine
+            sys.modules['calibre_plugins.gemini_library_fixer.config'] = gemini_pkg.config
+            sys.modules['calibre_plugins.gemini_library_fixer.guikit'] = gemini_pkg.guikit
+
+            spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+            action_mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(action_mod)
+
+            action = action_mod.GeminiFixerAction()
+            action.gui = MagicMock()
+            action.gui.library_view.get_selected_ids.return_value = [1]
+            action.gui.current_db.new_api.all_book_ids.return_value = [1]
+
+            clicked_handlers = {}
+
+            def mock_create_token_button(label, *args, **kwargs):
+                btn = MagicMock()
+
+                def connect_slot(slot):
+                    clicked_handlers[label] = slot
+
+                btn.clicked.connect.side_effect = connect_slot
+                return btn
+
+            action_mod.create_token_button = mock_create_token_button
+
+            with patch.object(engine, 'validate_api_key', return_value=True):
+                action.show_dialog()
+
+            self.assertIn('Test API key', clicked_handlers)
+            test_handler = clicked_handlers['Test API key']
+            self.assertEqual(getattr(test_handler, '__name__', ''), 'do_test_api_key')
+
+            info_dialog_mock = sys.modules['calibre.gui2'].info_dialog
+            error_dialog_mock = sys.modules['calibre.gui2'].error_dialog
+            info_dialog_mock.reset_mock()
+            error_dialog_mock.reset_mock()
+
+            with patch.object(engine, 'validate_api_key', return_value=True):
+                test_handler()
+            info_dialog_mock.assert_called_once()
+            self.assertIn('valid', str(info_dialog_mock.call_args))
+
+            info_dialog_mock.reset_mock()
+            error_dialog_mock.reset_mock()
+            with patch.object(engine, 'validate_api_key', side_effect=engine.GeminiError('Invalid API Key')):
+                test_handler()
+            error_dialog_mock.assert_called_once()
+            self.assertIn('Invalid API Key', str(error_dialog_mock.call_args))
+
+            info_dialog_mock.reset_mock()
+            error_dialog_mock.reset_mock()
+            qt_core = sys.modules['qt.core']
+            qt_core.QLineEdit.return_value.text.return_value = ''
+            test_handler()
+            error_dialog_mock.assert_called_once()
+            self.assertIn('Enter your API key first', str(error_dialog_mock.call_args))
+
+            self.assertIn('Check books', clicked_handlers)
+            check_handler = clicked_handlers['Check books']
+
+            qt_core.QSpinBox.return_value.value.return_value = 2
+            qt_core.QLineEdit.return_value.text.return_value = 'valid-key'
+
+            error_dialog_mock.reset_mock()
+            plan_fixes_mock = MagicMock()
+            with patch.object(engine, 'validate_api_key', side_effect=engine.GeminiError('Preflight auth failed')), \
+                 patch.object(engine, 'plan_fixes', plan_fixes_mock):
+                check_handler()
+            error_dialog_mock.assert_called_once()
+            self.assertIn('Preflight auth failed', str(error_dialog_mock.call_args))
+            plan_fixes_mock.assert_not_called()
+
+            error_dialog_mock.reset_mock()
+            sys.modules['calibre.gui2'].question_dialog.return_value = False
+            with patch.object(engine, 'validate_api_key', return_value=True) as val_mock:
+                check_handler()
+            val_mock.assert_called_once_with('valid-key')
+        finally:
+            sys.modules.clear()
+            sys.modules.update(saved_modules)
 
 
 if __name__ == '__main__':

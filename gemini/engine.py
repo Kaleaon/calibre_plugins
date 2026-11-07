@@ -485,6 +485,20 @@ def generate(api_key, model, prompt, system_instruction_mode='append', custom_in
     return result
 
 
+def validate_api_key(api_key=None, **kw):
+    """Validates the Gemini API key by sending a lightweight GET request to the models endpoint.
+    Returns True on success or raises an error if authentication fails."""
+    resolved_key = (api_key if api_key is not None else '').strip()
+    if not resolved_key:
+        resolved_key = (os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY') or '').strip()
+    if not resolved_key:
+        raise GeminiError('Google AI API key is missing or empty.')
+    data = _request('GET', f'{API_ROOT}/models?pageSize=1', resolved_key, **kw)
+    if not isinstance(data, dict):
+        raise GeminiError('Google sent an unexpected response while validating the API key.')
+    return True
+
+
 def list_models(api_key, **kw):
     """Names of models that can generate content, such as 'gemini-2.5-flash'."""
     names = []
