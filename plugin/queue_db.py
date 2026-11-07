@@ -23,6 +23,8 @@ def get_queue_db_path(db_path=None):
     try:
         from calibre.utils.config import config_dir
 
+        if not isinstance(config_dir, str) or not config_dir.strip():
+            raise TypeError("config_dir is not a valid string path")
         base_dir = Path(config_dir) / "plugins" / "takeout_book_fixer"
     except Exception:
         base_dir = (

@@ -238,24 +238,21 @@ class RuleSetManagerDialog(QDialog):
         self.rules_table.blockSignals(True)
         self.sites_table.blockSignals(True)
 
-        self.rules_table.setRowCount(0)
-        for r in self.local_rules:
-            self._insert_rule_row(
-                r.field, r.pattern, r.tags, checked=True, status="Existing"
+        self.rules_table.setRowCount(len(self.local_rules))
+        for row, r in enumerate(self.local_rules):
+            self._set_rule_row(
+                row, r.field, r.pattern, r.tags, checked=True, status="Existing"
             )
 
-        self.sites_table.setRowCount(0)
-        for name, hosts, _ in self.local_sites:
-            self._insert_site_row(hosts, name, checked=True, status="Existing")
+        self.sites_table.setRowCount(len(self.local_sites))
+        for row, (name, hosts, _) in enumerate(self.local_sites):
+            self._set_site_row(row, hosts, name, checked=True, status="Existing")
 
         self.rules_table.blockSignals(False)
         self.sites_table.blockSignals(False)
         self._update_counts()
 
-    def _insert_rule_row(self, field, pattern, tags, checked=True, status="Existing"):
-        row = self.rules_table.rowCount()
-        self.rules_table.insertRow(row)
-
+    def _set_rule_row(self, row, field, pattern, tags, checked=True, status="Existing"):
         chk = QTableWidgetItem()
         chk.setFlags(
             Qt.ItemFlag.ItemIsUserCheckable
@@ -275,10 +272,12 @@ class RuleSetManagerDialog(QDialog):
         self.rules_table.setItem(row, 3, QTableWidgetItem(tags_str))
         self.rules_table.setItem(row, 4, QTableWidgetItem(status))
 
-    def _insert_site_row(self, hosts, name, checked=True, status="Existing"):
-        row = self.sites_table.rowCount()
-        self.sites_table.insertRow(row)
+    def _insert_rule_row(self, field, pattern, tags, checked=True, status="Existing"):
+        row = self.rules_table.rowCount()
+        self.rules_table.insertRow(row)
+        self._set_rule_row(row, field, pattern, tags, checked=checked, status=status)
 
+    def _set_site_row(self, row, hosts, name, checked=True, status="Existing"):
         chk = QTableWidgetItem()
         chk.setFlags(
             Qt.ItemFlag.ItemIsUserCheckable
@@ -294,6 +293,11 @@ class RuleSetManagerDialog(QDialog):
         self.sites_table.setItem(row, 1, QTableWidgetItem(hosts_str))
         self.sites_table.setItem(row, 2, QTableWidgetItem(name or ""))
         self.sites_table.setItem(row, 3, QTableWidgetItem(status))
+
+    def _insert_site_row(self, hosts, name, checked=True, status="Existing"):
+        row = self.sites_table.rowCount()
+        self.sites_table.insertRow(row)
+        self._set_site_row(row, hosts, name, checked=checked, status=status)
 
     def _add_rule_row(self):
         self._insert_rule_row("", "", "", checked=True, status="New")

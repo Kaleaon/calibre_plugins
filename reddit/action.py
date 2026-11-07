@@ -78,11 +78,20 @@ class FollowerAction(InterfaceAction):
     # -- helpers
     def cache_dir(self):
         if self._cache_dir is None:
-            from calibre.constants import config_dir
+            try:
+                from calibre.constants import config_dir
 
-            self._cache_dir = os.path.join(
-                config_dir, "plugins", "reddit_follower_cache"
-            )
+                if not isinstance(config_dir, str) or not config_dir.strip():
+                    raise TypeError("config_dir is not a valid string path")
+                self._cache_dir = os.path.join(
+                    config_dir, "plugins", "reddit_follower_cache"
+                )
+            except Exception:
+                import tempfile
+
+                self._cache_dir = os.path.join(
+                    tempfile.gettempdir(), "calibre_plugins", "reddit_follower_cache"
+                )
         return self._cache_dir
 
     def get_queue_manager(self):

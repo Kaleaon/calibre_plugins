@@ -49,6 +49,7 @@ def ensure_stubs():
         "calibre.utils",
         "calibre.utils.config",
         "calibre.utils.date",
+        "calibre.constants",
         "calibre.ebooks",
         "calibre.ebooks.metadata",
         "calibre.ebooks.metadata.meta",
@@ -95,12 +96,31 @@ def ensure_stubs():
     if not hasattr(sys.modules["calibre.utils.config"], "JSONConfig"):
         sys.modules["calibre.utils.config"].JSONConfig = _get_config
 
-    if not hasattr(sys.modules["calibre.utils.config"], "config_dir"):
+    if not hasattr(sys.modules["calibre.utils.config"], "config_dir") or not isinstance(
+        getattr(sys.modules["calibre.utils.config"], "config_dir", None), str
+    ):
         sys.modules["calibre.utils.config"].config_dir = tempfile.gettempdir()
+
+    if "calibre.constants" in sys.modules:
+        c_mod = sys.modules["calibre.constants"]
+        if not hasattr(c_mod, "config_dir") or not isinstance(
+            getattr(c_mod, "config_dir", None), str
+        ):
+            c_mod.config_dir = tempfile.gettempdir()
+        if not hasattr(c_mod, "islinux"):
+            c_mod.islinux = sys.platform.startswith("linux")
+        if not hasattr(c_mod, "iswindows"):
+            c_mod.iswindows = sys.platform.startswith("win")
+        if not hasattr(c_mod, "isosx"):
+            c_mod.isosx = sys.platform == "darwin"
 
 
 ensure_stubs()
 
 
 def pytest_runtest_setup(item):
+    ensure_stubs()
+
+
+def pytest_runtest_teardown(item, nextitem=None):
     ensure_stubs()

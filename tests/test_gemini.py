@@ -961,6 +961,7 @@ class BackgroundScanTests(unittest.TestCase):
             "calibre.utils.config",
         ):
             sys.modules[name] = MagicMock()
+        sys.modules["calibre.utils.config"].config_dir = tempfile.gettempdir()
         sys.modules["calibre.gui2.actions"].InterfaceAction = object
         qt_mod = MagicMock()
         sys.modules["qt"] = qt_mod
@@ -1844,6 +1845,7 @@ class UndoSeriesTests(unittest.TestCase):
             "calibre.utils.config",
         ):
             sys.modules[name] = MagicMock()
+        sys.modules["calibre.utils.config"].config_dir = tempfile.gettempdir()
         sys.modules["calibre.gui2.actions"].InterfaceAction = object
         qt_mod = MagicMock()
         sys.modules["qt"] = qt_mod
@@ -1952,6 +1954,7 @@ class TemplateManagerDialogUiTests(unittest.TestCase):
             "calibre.utils.config",
         ):
             sys.modules[name] = MagicMock()
+        sys.modules["calibre.utils.config"].config_dir = tempfile.gettempdir()
         sys.modules["calibre.gui2.actions"].InterfaceAction = object
         qt_mod = MagicMock()
         sys.modules["qt"] = qt_mod
@@ -2833,6 +2836,7 @@ class MarqueeBatchProgressTests(unittest.TestCase):
             "calibre.utils.config",
         ):
             sys.modules[name] = MagicMock()
+        sys.modules["calibre.utils.config"].config_dir = tempfile.gettempdir()
         sys.modules["calibre.gui2.actions"].InterfaceAction = object
         qt_mod = MagicMock()
         qt_mod.core._ = lambda s: s
@@ -3300,6 +3304,7 @@ class SeriesIndexNormalizationTests(unittest.TestCase):
             "calibre.utils.config",
         ):
             sys.modules[name] = MagicMock()
+        sys.modules["calibre.utils.config"].config_dir = tempfile.gettempdir()
         sys.modules["calibre.gui2.actions"].InterfaceAction = object
         qt_mod = MagicMock()
         sys.modules["qt"] = qt_mod

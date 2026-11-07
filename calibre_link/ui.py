@@ -147,11 +147,12 @@ class CalibreLinkAction(InterfaceAction):
             try:
                 from calibre.utils.config import config_dir
 
-                pdir = os.path.join(config_dir, "plugins")
-                if os.path.isdir(pdir):
-                    for name in os.listdir(pdir):
-                        if name.lower().endswith(".zip"):
-                            candidates.append(os.path.join(pdir, name))
+                if isinstance(config_dir, str) and config_dir.strip():
+                    pdir = os.path.join(config_dir, "plugins")
+                    if os.path.isdir(pdir):
+                        for name in os.listdir(pdir):
+                            if name.lower().endswith(".zip"):
+                                candidates.append(os.path.join(pdir, name))
             except Exception:
                 pass
             for cand in candidates:
@@ -216,9 +217,16 @@ class CalibreLinkAction(InterfaceAction):
         return dest
 
     def _ts_dir(self):
-        from calibre.utils.config import config_dir
+        try:
+            from calibre.utils.config import config_dir
 
-        path = os.path.join(config_dir, "calibre_link")
+            if not isinstance(config_dir, str) or not config_dir.strip():
+                raise TypeError("config_dir is not a valid string path")
+            path = os.path.join(config_dir, "calibre_link")
+        except Exception:
+            import tempfile
+
+            path = os.path.join(tempfile.gettempdir(), "calibre_link")
         os.makedirs(path, exist_ok=True)
         return path
 
