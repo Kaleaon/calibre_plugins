@@ -21,6 +21,26 @@ sys.modules['qt.core'] = qtcore
 sys.modules['qt'] = types.ModuleType('qt')
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'common'))
+sys.path.insert(0, str(ROOT / 'scrubber_plugin'))
+
+for stub_name in ['calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions']:
+    if stub_name not in sys.modules:
+        sys.modules[stub_name] = MagicMock()
+
+if 'calibre_plugins' not in sys.modules:
+    cp = types.ModuleType('calibre_plugins')
+    cp.__path__ = []
+    sys.modules['calibre_plugins'] = cp
+else:
+    cp = sys.modules['calibre_plugins']
+
+if 'calibre_plugins.epub_promo_scrubber' not in sys.modules:
+    scrubber_pkg = types.ModuleType('calibre_plugins.epub_promo_scrubber')
+    scrubber_pkg.__path__ = [str(ROOT / 'scrubber_plugin'), str(ROOT / 'common')]
+    sys.modules['calibre_plugins.epub_promo_scrubber'] = scrubber_pkg
+    setattr(cp, 'epub_promo_scrubber', scrubber_pkg)
 
 # Dynamically import profiles and core modules
 spec_prof = importlib.util.spec_from_file_location('profiles', ROOT / 'scrubber_plugin/profiles.py')

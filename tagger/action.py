@@ -5,50 +5,12 @@ from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonB
                      QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
                      QPushButton, QRadioButton, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
                      Qt, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
-try:
-    from calibre_plugins.story_collection_tagger.error_handler import show_friendly_error_dialog
-except (ImportError, AttributeError):
-    try:
-        from .error_handler import show_friendly_error_dialog
-    except ImportError:
-        try:
-            from error_handler import show_friendly_error_dialog
-        except ImportError:
-            from common.error_handler import show_friendly_error_dialog
-
-try:
-    from calibre_plugins.story_collection_tagger.ui import TaggerPreviewDialog
-except ImportError:
-    try:
-        from .ui import TaggerPreviewDialog
-    except ImportError:
-        try:
-            from ui import TaggerPreviewDialog
-        except ImportError:
-            TaggerPreviewDialog = None
-
-try:
-    from calibre_plugins.story_collection_tagger import rules as rules_mod
-    from calibre_plugins.story_collection_tagger import presets as presets_mod
-    from calibre_plugins.story_collection_tagger.config import prefs
-    from calibre_plugins.story_collection_tagger.guikit import DialogAction
-except ImportError:
-    try:
-        from . import rules as rules_mod
-        from . import presets as presets_mod
-        from .config import prefs
-        from .guikit import DialogAction
-    except ImportError:
-        import rules as rules_mod
-        try:
-            import presets as presets_mod
-        except ImportError:
-            presets_mod = None
-        from config import prefs
-        try:
-            from guikit import DialogAction
-        except ImportError:
-            from common.guikit import DialogAction
+from calibre_plugins.story_collection_tagger.error_handler import show_friendly_error_dialog
+from calibre_plugins.story_collection_tagger.ui import TaggerPreviewDialog
+from calibre_plugins.story_collection_tagger import rules as rules_mod
+from calibre_plugins.story_collection_tagger import presets as presets_mod
+from calibre_plugins.story_collection_tagger.config import prefs
+from calibre_plugins.story_collection_tagger.guikit import DialogAction
 
 RULES_HELP = ('One rule per line:  [field:]pattern => Tag, Tag\n'
               'Fields: tags, title, author, series, comments, publisher, source, any (default: title, tags and series).\n'

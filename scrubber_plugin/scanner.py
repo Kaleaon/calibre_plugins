@@ -15,24 +15,16 @@ import time
 from io import BytesIO
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-try:
-    from calibre_plugins.epub_promo_scrubber.core import (
-        Matcher,
-        scrub_epub,
-        tidy,
-    )
-    from calibre_plugins.epub_promo_scrubber.profiles import (
-        extract_domains_from_metadata,
-        get_profiles_from_prefs,
-        resolve_profile,
-    )
-except ImportError:
-    try:
-        from .core import Matcher, scrub_epub, tidy
-        from .profiles import extract_domains_from_metadata, get_profiles_from_prefs, resolve_profile
-    except ImportError:
-        from core import Matcher, scrub_epub, tidy
-        from profiles import extract_domains_from_metadata, get_profiles_from_prefs, resolve_profile
+from calibre_plugins.epub_promo_scrubber.core import (
+    Matcher,
+    scrub_epub,
+    tidy,
+)
+from calibre_plugins.epub_promo_scrubber.profiles import (
+    extract_domains_from_metadata,
+    get_profiles_from_prefs,
+    resolve_profile,
+)
 
 logger = logging.getLogger('scrubber.scanner')
 

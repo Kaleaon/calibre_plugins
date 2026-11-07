@@ -53,10 +53,15 @@ class PluginImportTests(unittest.TestCase):
             self.built = build_plugins.build_all(Path(self.tmp.name) / 'dist')
         target = Path(self.tmp.name) / import_name
         zipfile.ZipFile(self.built[import_name]).extractall(target)
+        if 'calibre_plugins' not in sys.modules:
+            cp = types.ModuleType('calibre_plugins')
+            cp.__path__ = []
+            sys.modules['calibre_plugins'] = cp
         package = f'calibre_plugins.{import_name}'
         module = types.ModuleType(package)
         module.__path__ = [str(target)]
         sys.modules[package] = module
+        setattr(sys.modules['calibre_plugins'], import_name, module)
         return package
 
     def test_every_plugin_module_imports(self):
@@ -64,8 +69,8 @@ class PluginImportTests(unittest.TestCase):
         for import_name in self.built:
             package = self.load(import_name)
             modules = {'takeout_book_fixer': ['config', 'action', 'ui', 'core', 'importer', 'queue_db', 'daemon', 'watcher', 'guikit'],
-                       'epub_promo_scrubber': ['action', 'ui', 'core', 'guikit'],
-                       'story_collection_tagger': ['config', 'action', 'rules', 'presets', 'ui', 'guikit'],
+                       'epub_promo_scrubber': ['action', 'ui', 'core', 'guikit', 'scanner', 'profiles'],
+                       'story_collection_tagger': ['config', 'action', 'rules', 'presets', 'ui', 'guikit', 'error_handler'],
                        'gemini_library_fixer': ['config', 'action', 'engine', 'guikit'],
                        'media_matcher': ['config', 'action', 'tags', 'sources', 'matching', 'guikit'],
                        'fanfic_downloader': ['config', 'action', 'ui', 'engine', 'flaresolverr', 'guikit']}.get(import_name, ['config', 'action', 'ui', 'core', 'guikit'])

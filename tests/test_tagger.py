@@ -13,6 +13,10 @@ spec = importlib.util.spec_from_file_location('rules', Path(__file__).resolve().
 rules = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rules)
 
+spec_presets = importlib.util.spec_from_file_location('presets', Path(__file__).resolve().parents[1] / 'tagger/presets.py')
+presets = importlib.util.module_from_spec(spec_presets)
+spec_presets.loader.exec_module(presets)
+
 
 def book(i, **kw):
     base = {'id': i, 'title': f'Book {i}', 'authors': ['A'], 'tags': [], 'identifiers': {}, 'publisher': '', 'comments': '', 'series': ''}
@@ -206,13 +210,19 @@ class TaggerDialogTests(unittest.TestCase):
         from common.guikit import DialogAction
         tagger_pkg.guikit = MagicMock()
         tagger_pkg.guikit.DialogAction = DialogAction
+        tagger_pkg.presets = presets
+        tagger_pkg.ui = MagicMock()
+        tagger_pkg.ui.TaggerPreviewDialog = MagicMock()
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins'].__path__ = []
+        setattr(sys.modules['calibre_plugins'], 'story_collection_tagger', tagger_pkg)
         sys.modules['calibre_plugins.story_collection_tagger'] = tagger_pkg
         sys.modules['calibre_plugins.story_collection_tagger.config'] = tagger_pkg.config
         sys.modules['calibre_plugins.story_collection_tagger.rules'] = tagger_pkg.rules
         sys.modules['calibre_plugins.story_collection_tagger.error_handler'] = tagger_pkg.error_handler
         sys.modules['calibre_plugins.story_collection_tagger.guikit'] = tagger_pkg.guikit
+        sys.modules['calibre_plugins.story_collection_tagger.presets'] = tagger_pkg.presets
+        sys.modules['calibre_plugins.story_collection_tagger.ui'] = tagger_pkg.ui
         sys.modules['error_handler'] = tagger_pkg.error_handler
 
     def tearDown(self):
@@ -745,13 +755,23 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         tagger_pkg.__path__ = [str(Path(__file__).resolve().parents[1] / 'tagger')]
         tagger_pkg.config = MagicMock(prefs={'add_source': True, 'source_prefix': 'Source.', 'series_prefix': 'Series.', 'scan_comments': False, 'rules': 'litrpg => LitRPG', 'sites': 'sol.net => Stories Online'})
         tagger_pkg.rules = rules
+        error_handler_mod = MagicMock()
+        tagger_pkg.error_handler = error_handler_mod
         from common.guikit import DialogAction
         tagger_pkg.guikit = MagicMock()
         tagger_pkg.guikit.DialogAction = DialogAction
+        tagger_pkg.presets = presets
+        tagger_pkg.ui = MagicMock()
+        tagger_pkg.ui.TaggerPreviewDialog = MagicMock()
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+        sys.modules['calibre_plugins'].__path__ = []
+        setattr(sys.modules['calibre_plugins'], 'story_collection_tagger', tagger_pkg)
         sys.modules['calibre_plugins.story_collection_tagger'] = tagger_pkg
         sys.modules['calibre_plugins.story_collection_tagger.config'] = tagger_pkg.config
         sys.modules['calibre_plugins.story_collection_tagger.rules'] = tagger_pkg.rules
+        sys.modules['calibre_plugins.story_collection_tagger.error_handler'] = error_handler_mod
+        sys.modules['calibre_plugins.story_collection_tagger.presets'] = tagger_pkg.presets
+        sys.modules['calibre_plugins.story_collection_tagger.ui'] = tagger_pkg.ui
         sys.modules['calibre_plugins.story_collection_tagger.guikit'] = tagger_pkg.guikit
 
     def tearDown(self):

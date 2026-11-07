@@ -2,12 +2,35 @@ import importlib.util
 import io
 import sys
 import tempfile
+import types
 import unittest
 from unittest.mock import MagicMock
 import zipfile
 from pathlib import Path
 
-spec = importlib.util.spec_from_file_location('scrub_core', Path(__file__).resolve().parents[1] / 'scrubber_plugin/core.py')
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / 'common'))
+sys.path.insert(0, str(ROOT / 'scrubber_plugin'))
+
+for stub_name in ['calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions']:
+    if stub_name not in sys.modules:
+        sys.modules[stub_name] = MagicMock()
+
+if 'calibre_plugins' not in sys.modules:
+    cp = types.ModuleType('calibre_plugins')
+    cp.__path__ = []
+    sys.modules['calibre_plugins'] = cp
+else:
+    cp = sys.modules['calibre_plugins']
+
+if 'calibre_plugins.epub_promo_scrubber' not in sys.modules:
+    scrubber_pkg = types.ModuleType('calibre_plugins.epub_promo_scrubber')
+    scrubber_pkg.__path__ = [str(ROOT / 'scrubber_plugin'), str(ROOT / 'common')]
+    sys.modules['calibre_plugins.epub_promo_scrubber'] = scrubber_pkg
+    setattr(cp, 'epub_promo_scrubber', scrubber_pkg)
+
+spec = importlib.util.spec_from_file_location('scrub_core', ROOT / 'scrubber_plugin/core.py')
 core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
 
@@ -133,6 +156,7 @@ class ScrubActionTests(unittest.TestCase):
         scrubber_pkg = types.ModuleType('calibre_plugins.epub_promo_scrubber')
         scrubber_pkg.__path__ = [str(root_dir / 'scrubber_plugin'), str(root_dir / 'common')]
         sys.modules['calibre_plugins.epub_promo_scrubber'] = scrubber_pkg
+        setattr(calibre_plugins, 'epub_promo_scrubber', scrubber_pkg)
 
     def tearDown(self):
         for k in list(sys.modules):
@@ -559,6 +583,14 @@ class LibraryScannerTests(unittest.TestCase):
 
 
 class LibraryScannerDialogTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from PyQt6 import QtWidgets
+            cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        except ImportError:
+            cls.app = None
+
     def test_dialog_instantiation_and_filtering(self):
         try:
             from scrubber_plugin.ui import LibraryScannerDialog
