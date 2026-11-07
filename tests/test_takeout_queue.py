@@ -205,21 +205,24 @@ class TestTakeoutDaemon(unittest.TestCase):
 
     def test_pause_and_resume(self):
         d = daemon.ImportQueueDaemon(gui=None, db_path=self.db_path)
-        d.pause()
-        self.assertTrue(d.is_paused)
+        try:
+            d.pause()
+            self.assertTrue(d.is_paused)
 
-        dummy_file = self.drop_dir / "book.pdf"
-        dummy_file.write_bytes(b"%PDF-1.4 header text")
+            dummy_file = self.drop_dir / "book.pdf"
+            dummy_file.write_bytes(b"%PDF-1.4 header text")
 
-        d.tick()
-        jobs = queue_db.get_all_jobs(self.db_path)
-        self.assertEqual(len(jobs), 0)
+            d.tick()
+            jobs = queue_db.get_all_jobs(self.db_path)
+            self.assertEqual(len(jobs), 0)
 
-        d.resume()
-        d.tick()
-        time.sleep(0.1)
-        jobs = queue_db.get_all_jobs(self.db_path)
-        self.assertEqual(len(jobs), 1)
+            d.resume()
+            d.tick()
+            time.sleep(0.1)
+            jobs = queue_db.get_all_jobs(self.db_path)
+            self.assertEqual(len(jobs), 1)
+        finally:
+            d.stop()
 
 
 class TestTakeoutUI(unittest.TestCase):
@@ -235,37 +238,51 @@ class TestTakeoutUI(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tmp.name) / "ui_queue.db"
         queue_db.init_db(self.db_path)
+        self.dialogs = []
 
     def tearDown(self):
+        for dlg in getattr(self, "dialogs", []):
+            try:
+                dlg.close()
+            except Exception:
+                pass
         self.tmp.cleanup()
+
+    def make_dialog(self, daemon=None, parent=None):
+        dlg = ui.QueueManagerDialog(daemon=daemon, parent=parent, db_path=self.db_path)
+        self.dialogs.append(dlg)
+        return dlg
 
     def test_queue_manager_dialog_headless(self):
         queue_db.enqueue_job("/tmp/file1.zip", "/tmp/out", db_path=self.db_path)
         queue_db.enqueue_job("/tmp/file2.zip", "/tmp/out", db_path=self.db_path)
 
         d = daemon.ImportQueueDaemon(gui=None, db_path=self.db_path)
-        dlg = ui.QueueManagerDialog(daemon=d, parent=None, db_path=self.db_path)
+        try:
+            dlg = self.make_dialog(daemon=d, parent=None)
 
-        # Refresh populates table or internal items
-        dlg.refresh()
+            # Refresh populates table or internal items
+            dlg.refresh()
 
-        # Test retry all button action
-        dlg.retry_all()
+            # Test retry all button action
+            dlg.retry_all()
 
-        # Test clear completed button action
-        dlg.clear_completed()
+            # Test clear completed button action
+            dlg.clear_completed()
 
-        # Test clear all button action
-        yes_btn = getattr(
-            getattr(ui.QMessageBox, "StandardButton", ui.QMessageBox), "Yes", 16384
-        )
-        with patch.object(ui.QMessageBox, "question", return_value=yes_btn):
-            dlg.clear_all()
-        jobs = queue_db.get_all_jobs(self.db_path)
-        self.assertEqual(len(jobs), 0)
+            # Test clear all button action
+            yes_btn = getattr(
+                getattr(ui.QMessageBox, "StandardButton", ui.QMessageBox), "Yes", 16384
+            )
+            with patch.object(ui.QMessageBox, "question", return_value=yes_btn):
+                dlg.clear_all()
+            jobs = queue_db.get_all_jobs(self.db_path)
+            self.assertEqual(len(jobs), 0)
+        finally:
+            d.stop()
 
     def test_clear_all_empty_queue_bypasses_prompt(self):
-        dlg = ui.QueueManagerDialog(daemon=None, parent=None, db_path=self.db_path)
+        dlg = self.make_dialog(daemon=None, parent=None)
         with patch.object(ui.QMessageBox, "question") as mock_question:
             dlg.clear_all()
             mock_question.assert_not_called()
@@ -280,7 +297,7 @@ class TestTakeoutUI(unittest.TestCase):
             j2, "failed", error_log="Failed file", db_path=self.db_path
         )
 
-        dlg = ui.QueueManagerDialog(daemon=None, parent=None, db_path=self.db_path)
+        dlg = self.make_dialog(daemon=None, parent=None)
         yes_btn = getattr(
             getattr(ui.QMessageBox, "StandardButton", ui.QMessageBox), "Yes", 16384
         )
@@ -305,7 +322,7 @@ class TestTakeoutUI(unittest.TestCase):
             j2, "failed", error_log="Failed file", db_path=self.db_path
         )
 
-        dlg = ui.QueueManagerDialog(daemon=None, parent=None, db_path=self.db_path)
+        dlg = self.make_dialog(daemon=None, parent=None)
         no_btn = getattr(
             getattr(ui.QMessageBox, "StandardButton", ui.QMessageBox), "No", 65536
         )
@@ -325,7 +342,7 @@ class TestTakeoutUI(unittest.TestCase):
         queue_db.update_job_status(j1, "processing", db_path=self.db_path)
         # a2 remains pending
 
-        dlg = ui.QueueManagerDialog(daemon=None, parent=None, db_path=self.db_path)
+        dlg = self.make_dialog(daemon=None, parent=None)
         yes_btn = getattr(
             getattr(ui.QMessageBox, "StandardButton", ui.QMessageBox), "Yes", 16384
         )
@@ -353,7 +370,7 @@ class TestTakeoutUI(unittest.TestCase):
         queue_db.enqueue_job("/tmp/a2.zip", "/tmp/out", db_path=self.db_path)
         queue_db.update_job_status(j1, "processing", db_path=self.db_path)
 
-        dlg = ui.QueueManagerDialog(daemon=None, parent=None, db_path=self.db_path)
+        dlg = self.make_dialog(daemon=None, parent=None)
         no_btn = getattr(
             getattr(ui.QMessageBox, "StandardButton", ui.QMessageBox), "No", 65536
         )
@@ -379,7 +396,7 @@ class TestTakeoutUI(unittest.TestCase):
             j4, "failed", error_log="Corrupt", db_path=self.db_path
         )
 
-        dlg = ui.QueueManagerDialog(daemon=None, parent=None, db_path=self.db_path)
+        dlg = self.make_dialog(daemon=None, parent=None)
         yes_btn = getattr(
             getattr(ui.QMessageBox, "StandardButton", ui.QMessageBox), "Yes", 16384
         )

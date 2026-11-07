@@ -44,6 +44,12 @@ except ImportError:
         def reject(self):
             pass
 
+        def close(self):
+            return True
+
+        def closeEvent(self, event=None):
+            pass
+
     class DummyWidget:
         def __init__(self, *args, **kwargs):
             self.clicked = self
@@ -488,6 +494,34 @@ class QueueManagerDialog(QDialog):
             QMessageBox.information(self, f"Job Details #{job['id']}", msg)
         else:
             print(msg)
+
+    def stop_timer(self):
+        if hasattr(self, "refresh_timer") and self.refresh_timer is not None:
+            try:
+                self.refresh_timer.stop()
+            except Exception:
+                pass
+
+    def accept(self):
+        self.stop_timer()
+        if hasattr(super(), "accept"):
+            super().accept()
+
+    def reject(self):
+        self.stop_timer()
+        if hasattr(super(), "reject"):
+            super().reject()
+
+    def close(self):
+        self.stop_timer()
+        if hasattr(super(), "close"):
+            return super().close()
+        return True
+
+    def closeEvent(self, event=None):
+        self.stop_timer()
+        if hasattr(super(), "closeEvent") and event is not None:
+            super().closeEvent(event)
 
 
 try:
