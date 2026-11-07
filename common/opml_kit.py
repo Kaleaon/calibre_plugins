@@ -9,7 +9,7 @@ import json
 import os
 import re
 import xml.etree.ElementTree as ET
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 STRATEGY_MERGE = "merge"
@@ -91,7 +91,9 @@ def export_list_to_opml(
     title_elem.text = title
 
     date_created = ET.SubElement(head, "dateCreated")
-    date_created.text = datetime.now(UTC).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    date_created.text = datetime.now(timezone.utc).strftime(  # noqa: UP017
+        "%a, %d %b %Y %H:%M:%S GMT"
+    )
 
     body = ET.SubElement(root, "body")
 

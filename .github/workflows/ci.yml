@@ -87,6 +87,7 @@ jobs:
           base = os.environ.get('BASE_REF')
           files = []
           if base:
+              subprocess.run(['git', 'fetch', 'origin', f'+refs/heads/{base}:refs/remotes/origin/{base}'], capture_output=True)
               subprocess.run(['git', 'fetch', 'origin', base], capture_output=True)
               for ref in [f'origin/{base}', base, 'FETCH_HEAD']:
                   try:
@@ -100,10 +101,17 @@ jobs:
                   except Exception:
                       continue
 
-          targets = files if files else ['.']
-          print(f'Checking {len(targets)} target(s) with ruff: {targets}')
-          subprocess.run(['ruff', 'check'] + targets, check=True)
-          subprocess.run(['ruff', 'format', '--check'] + targets, check=True)
+          if base:
+              targets = files
+          else:
+              targets = files if files else ['.']
+
+          if targets:
+              print(f'Checking {len(targets)} target(s) with ruff: {targets}')
+              subprocess.run(['ruff', 'check'] + targets, check=True)
+              subprocess.run(['ruff', 'format', '--check'] + targets, check=True)
+          else:
+              print('No modified python files in PR to lint.')
           "
         env:
           BASE_REF: ${{ github.base_ref }}
@@ -153,6 +161,7 @@ jobs:
           base = os.environ.get('BASE_REF')
           test_targets = []
           if base:
+              subprocess.run(['git', 'fetch', 'origin', f'+refs/heads/{base}:refs/remotes/origin/{base}'], capture_output=True)
               subprocess.run(['git', 'fetch', 'origin', base], capture_output=True)
               for ref in [f'origin/{base}', base, 'FETCH_HEAD']:
                   try:
@@ -177,10 +186,17 @@ jobs:
                       continue
               test_targets = sorted(list(set(test_targets)))
 
-          targets = test_targets if test_targets else ['tests/']
-          print(f'Running unit tests on targets: {targets}')
-          cmd = [sys.executable, '-m', 'pytest'] + targets
-          subprocess.run(cmd, check=True)
+          if base:
+              targets = test_targets
+          else:
+              targets = test_targets if test_targets else ['tests/']
+
+          if targets:
+              print(f'Running unit tests on targets: {targets}')
+              cmd = [sys.executable, '-m', 'pytest'] + targets
+              subprocess.run(cmd, check=True)
+          else:
+              print('No relevant unit tests detected for modified files.')
           "
         env:
           BASE_REF: ${{ github.base_ref }}
