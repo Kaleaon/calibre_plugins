@@ -80,6 +80,13 @@ class EpubMergeDialogTests(unittest.TestCase):
         self.epub3_bytes = build_epub([self.story3])
         self.corrupted_bytes = b"PK\x03\x04 corrupted invalid zip data"
 
+    def tearDown(self):
+        if HAVE_QT and QtWidgets:
+            for widget in QtWidgets.QApplication.topLevelWidgets():
+                if isinstance(widget, QtWidgets.QDialog):
+                    widget.close()
+                    widget.deleteLater()
+
     def test_scan_epub_files_for_merge_valid_and_corrupted(self):
         scan_results = scan_epub_files_for_merge(
             [self.epub1_bytes, self.corrupted_bytes, self.epub2_bytes]

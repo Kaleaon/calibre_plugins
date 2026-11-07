@@ -30,7 +30,7 @@ try:
 except ImportError:
     from datetime import timezone
 
-    UTC = timezone.utc
+    UTC = timezone.utc  # noqa: UP017
 
 SUPPORTED_FIELDS = (
     "title",

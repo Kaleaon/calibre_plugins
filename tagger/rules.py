@@ -5,12 +5,13 @@ Everything here is additive: the plan only ever adds tags, never removes or rena
 
 import functools
 import re
+
 try:
     from datetime import UTC
 except ImportError:
     from datetime import timezone
 
-    UTC = timezone.utc
+    UTC = timezone.utc  # noqa: UP017
 
 try:
     from .fff_sites import FFF_SITES

@@ -689,6 +689,15 @@ class LibraryScannerTests(unittest.TestCase):
 
 
 class LibraryScannerDialogTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            from PyQt6 import QtWidgets
+
+            cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        except ImportError:
+            cls.app = None
+
     def test_dialog_instantiation_and_filtering(self):
         try:
             from scrubber_plugin.ui import LibraryScannerDialog

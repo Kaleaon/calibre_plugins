@@ -15,7 +15,7 @@ for name in ("calibre", "calibre.customize", "calibre.gui2", "calibre.utils"):
         sys.modules[name] = MagicMock()
 sys.modules["calibre.customize"].InterfaceActionBase = object
 
-from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets  # noqa: E402
 
 # Register qt.core shim for tests
 qtcore = types.ModuleType("qt.core")

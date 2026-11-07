@@ -46,20 +46,23 @@ def load():
     if _ns is not None:
         return _ns
     try:
-        try:
-            from .fanficfare import adapters, exceptions, writers
-            from .fanficfare.configurable import Configuration
+        from .fanficfare import adapters, exceptions, writers
+        from .fanficfare.configurable import Configuration
 
-            package = __package__ + ".fanficfare"
-        except ImportError:
+        package = __package__ + ".fanficfare"
+    except ImportError as bundled_exc:
+        try:
             from fanficfare import adapters, exceptions, writers
             from fanficfare.configurable import Configuration
 
             package = "fanficfare"
-    except ImportError as exc:
-        raise EngineError(
-            f"The bundled FanFicFare library could not be loaded: {exc}"
-        ) from exc
+        except ImportError as exc:
+            # Report the bundled failure first: it is the real error inside Calibre, while the fallback
+            # (a site-packages FanFicFare) is normally absent there and its error would mask the cause.
+            raise EngineError(
+                f"The bundled FanFicFare library could not be loaded: {bundled_exc} "
+                f"(site-packages fallback also failed: {exc})"
+            ) from bundled_exc
     logging.getLogger(package).setLevel(
         logging.WARNING
     )  # FanFicFare logs every request at DEBUG

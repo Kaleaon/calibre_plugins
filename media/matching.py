@@ -6,17 +6,17 @@ Every suggestion carries a score from 0 to 1 built from how closely the title, a
 shows it, and weak matches are not offered at all.
 """
 
-from datetime import datetime
 import difflib
 import re
 import unicodedata
+from datetime import datetime
 
 try:
     from datetime import UTC
 except ImportError:
     from datetime import timezone
 
-    UTC = timezone.utc
+    UTC = timezone.utc  # noqa: UP017
 
 from . import sources
 from . import tags as audio

@@ -111,6 +111,11 @@ class QtCase(unittest.TestCase):
         cls.tmp.cleanup()
 
     def setUp(self):
+        if HAVE_QT and QtWidgets:
+            for widget in QtWidgets.QApplication.topLevelWidgets():
+                if isinstance(widget, QtWidgets.QDialog):
+                    widget.close()
+                    widget.deleteLater()
         self.saved = {
             k: v
             for k, v in sys.modules.items()
@@ -229,8 +234,10 @@ class TaskAndTagSearchTests(QtCase):
 
             def accept_options_dialog():
                 for widget in QtWidgets.QApplication.topLevelWidgets():
-                    if isinstance(widget, QtWidgets.QDialog) and not isinstance(
-                        widget, QtWidgets.QProgressDialog
+                    if (
+                        isinstance(widget, QtWidgets.QDialog)
+                        and not isinstance(widget, QtWidgets.QProgressDialog)
+                        and widget.isVisible()
                     ):
                         widget.accept()
                         return
@@ -947,9 +954,7 @@ class RedditPluginTests(QtCase):
             def ping():
                 for _ in range(50):
                     try:
-                        urllib.request.urlopen(
-                            f"{cb}?code=abc&state={state}"
-                        ).read()
+                        urllib.request.urlopen(f"{cb}?code=abc&state={state}").read()
                         break
                     except Exception:
                         time.sleep(0.02)
@@ -2108,9 +2113,7 @@ class GeminiDialogTests(QtCase):
         )
         self.assertIn("ISBN 9999999999999 → 9780306406157", seen["log"])
         written = {
-            (n, (bid,)): val
-            for n, m in seen["after_apply"]
-            for bid, val in m.items()
+            (n, (bid,)): val for n, m in seen["after_apply"] for bid, val in m.items()
         }
         self.assertEqual(
             written[("identifiers", (1,))],
