@@ -7,6 +7,11 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
+for name in ("calibre", "calibre.customize", "calibre.gui2", "calibre.utils"):
+    if name not in sys.modules:
+        sys.modules[name] = MagicMock()
+sys.modules["calibre.customize"].InterfaceActionBase = object
+
 spec = importlib.util.spec_from_file_location(
     "scrub_core", Path(__file__).resolve().parents[1] / "scrubber_plugin/core.py"
 )

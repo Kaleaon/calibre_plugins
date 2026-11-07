@@ -10,6 +10,11 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
+for name in ("calibre", "calibre.customize", "calibre.gui2", "calibre.utils"):
+    if name not in sys.modules:
+        sys.modules[name] = MagicMock()
+sys.modules["calibre.customize"].InterfaceActionBase = object
+
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 # Register qt.core shim for tests

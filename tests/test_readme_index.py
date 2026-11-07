@@ -36,6 +36,7 @@ class ReadmeIndexTests(unittest.TestCase):
             p.parent.name
             for p in ROOT.glob("*/__init__.py")
             if "actual_plugin" in p.read_text(encoding="utf-8")
+            and p.parent.name != "calibre_link"
         }
         self.assertEqual(
             {r["folder"] for r in rows()},

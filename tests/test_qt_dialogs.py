@@ -128,7 +128,7 @@ class QtCase(unittest.TestCase):
         actions.InterfaceAction = type(
             "InterfaceAction",
             (object,),
-            {"__init__": lambda self, gui, name: setattr(self, "gui", gui)},
+            {"__init__": lambda self, gui=None, name=None: setattr(self, "gui", gui)},
         )
         sys.modules["calibre.gui2.actions"] = actions
         for name in (
@@ -142,6 +142,7 @@ class QtCase(unittest.TestCase):
         sys.modules["calibre.ebooks.metadata.book.base"] = base
         config = types.ModuleType("calibre.utils.config")
         config.JSONConfig = lambda name: StubPrefs()
+        config.config_dir = self.tmp.name
         sys.modules["calibre.utils.config"] = config
         sys.modules["calibre_plugins"] = types.ModuleType("calibre_plugins")
         sys.modules["calibre_plugins"].__path__ = []
@@ -939,12 +940,21 @@ class RedditPluginTests(QtCase):
         dialog.login_endpoints["redirect_uri"] = login.REDIRECT_URI
 
         def browser(url):
-            state = parse_qs(urlparse(url).query)["state"][0]
-            threading.Thread(
-                target=lambda: urllib.request.urlopen(
-                    f"{login.REDIRECT_URI}?code=abc&state={state}"
-                ).read()
-            ).start()
+            query = parse_qs(urlparse(url).query)
+            state = query["state"][0]
+            cb = query.get("redirect_uri", [login.REDIRECT_URI])[0]
+
+            def ping():
+                for _ in range(50):
+                    try:
+                        urllib.request.urlopen(
+                            f"{cb}?code=abc&state={state}"
+                        ).read()
+                        break
+                    except Exception:
+                        time.sleep(0.02)
+
+            threading.Thread(target=ping).start()
 
         dialog.open_browser = browser
         dialog.log_in()
@@ -1936,6 +1946,7 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs["min_interval"] = 0
         action_mod.prefs["fields"] = list(engine.FIELDS)
         action_mod.prefs["batch_dir"] = self.tmp_batch_dir.name
+        action_mod.prefs["provider_metadata"] = False
 
         def run(drive):
             with patch.object(QtWidgets.QDialog, "exec", drive):
@@ -2096,7 +2107,11 @@ class GeminiDialogTests(QtCase):
             seen["log"],
         )
         self.assertIn("ISBN 9999999999999 → 9780306406157", seen["log"])
-        written = {(n, tuple(m)): list(m.values())[0] for n, m in seen["after_apply"]}
+        written = {
+            (n, (bid,)): val
+            for n, m in seen["after_apply"]
+            for bid, val in m.items()
+        }
         self.assertEqual(
             written[("identifiers", (1,))],
             {"isbn": "9780306406157", "goodreads": "5"},
@@ -2104,9 +2119,10 @@ class GeminiDialogTests(QtCase):
         )
         self.assertEqual(written[("identifiers", (2,))], {"isbn": "0306406152"})
         restored = [
-            list(m.values())[0]
+            val
             for n, m in db.writes[len(seen["after_apply"]) :]
             if n == "identifiers"
+            for val in m.values()
         ]
         self.assertIn({"isbn": "9999999999999", "goodreads": "5"}, restored)
         self.assertIn({}, restored, "a book that had no ISBN gets none again")
@@ -2396,7 +2412,7 @@ class FanficDialogTests(QtCase):
         )
 
 
-class GuikitHelpersTests(unittest.TestCase):
+class GuikitHelpersTests(QtCase):
     """Unit tests for shared common.guikit helpers."""
 
     def test_parse_lines(self):

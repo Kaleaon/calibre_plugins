@@ -2419,7 +2419,10 @@ def ensure_qt():
         try:
             from PyQt6 import QtCore, QtGui, QtWidgets
 
-            QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+            _GLOBAL_QT_APP = (
+                QtWidgets.QApplication.instance()
+                or QtWidgets.QApplication([])
+            )
             qtcore = types.ModuleType("qt.core")
             for module in (QtWidgets, QtGui, QtCore):
                 for name in dir(module):

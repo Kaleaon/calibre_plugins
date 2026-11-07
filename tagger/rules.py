@@ -5,7 +5,12 @@ Everything here is additive: the plan only ever adds tags, never removes or rena
 
 import functools
 import re
-from datetime import UTC
+try:
+    from datetime import UTC
+except ImportError:
+    from datetime import timezone
+
+    UTC = timezone.utc
 
 try:
     from .fff_sites import FFF_SITES

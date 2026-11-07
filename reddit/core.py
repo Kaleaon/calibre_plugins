@@ -15,7 +15,14 @@ import re
 import time
 import uuid
 import xml.etree.ElementTree as ET
-from datetime import UTC, datetime
+from datetime import datetime
+
+try:
+    from datetime import UTC
+except ImportError:
+    from datetime import timezone
+
+    UTC = timezone.utc
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package

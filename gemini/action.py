@@ -2325,6 +2325,7 @@ class GeminiFixerAction(DialogAction):
             done, errors, undo = self.write_changes(items)
             if undo:
                 undo_state[0] = undo
+                prefs["undo"] = dict(undo)
                 save_undo(undo)
                 undo_btn.setEnabled(True)
             self.refresh(done)
@@ -2365,6 +2366,7 @@ class GeminiFixerAction(DialogAction):
             self.refresh(done)
             if not errors:
                 undo_state[0] = {}
+                prefs["undo"] = {}
                 save_undo({})
                 undo_btn.setEnabled(False)
             text = _("Restored {count} book(s).").format(count=len(done)) + (

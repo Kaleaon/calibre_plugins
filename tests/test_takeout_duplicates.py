@@ -189,7 +189,7 @@ class TakeoutDuplicatePolicyTests(unittest.TestCase):
         except ImportError:
             self.skipTest("PyQt6 not available for Qt widget test")
 
-        QApplication.instance() or QApplication([])
+        self._app = QApplication.instance() or QApplication([])
 
         conflicts = [
             {
