@@ -940,10 +940,12 @@ class RedditPluginTests(QtCase):
         dialog.login_endpoints["redirect_uri"] = login.REDIRECT_URI
 
         def browser(url):
-            state = parse_qs(urlparse(url).query)["state"][0]
+            query = parse_qs(urlparse(url).query)
+            state = query["state"][0]
+            cb_url = query.get("redirect_uri", [login.REDIRECT_URI])[0]
             threading.Thread(
                 target=lambda: urllib.request.urlopen(
-                    f"{login.REDIRECT_URI}?code=abc&state={state}"
+                    f"{cb_url}?code=abc&state={state}"
                 ).read()
             ).start()
 

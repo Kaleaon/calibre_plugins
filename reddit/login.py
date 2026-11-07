@@ -11,6 +11,7 @@ import base64
 import http.server
 import json
 import secrets
+import sys
 import time
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -121,7 +122,7 @@ class CallbackServer:
         server = http.server.HTTPServer(
             ("127.0.0.1", port), self._handler, bind_and_activate=False
         )
-        server.allow_reuse_address = False
+        server.allow_reuse_address = sys.platform != "win32"
         try:
             server.server_bind()
             server.server_activate()
