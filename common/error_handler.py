@@ -1,4 +1,5 @@
 """Central exception formatter and friendly recovery dialog helper."""
+
 import json
 import socket
 import traceback
@@ -12,6 +13,7 @@ except ImportError:
 
 try:
     import mutagen
+
     _MutagenError = mutagen.MutagenError
 except ImportError:
     try:
@@ -23,7 +25,9 @@ except ImportError:
 class FriendlyError(Exception):
     """Structured exception containing category, explanation, recovery steps, and technical details."""
 
-    def __init__(self, category, explanation, recovery, details=None, original_exc=None):
+    def __init__(
+        self, category, explanation, recovery, details=None, original_exc=None
+    ):
         self.category = category
         self.explanation = explanation
         self.recovery = recovery
@@ -57,7 +61,9 @@ def format_exception(exc_or_msg, det_msg=None):
     if original_exc is not None:
         raw_msg = str(original_exc)
         if hasattr(original_exc, "__traceback__") and original_exc.__traceback__:
-            tb_lines = traceback.format_exception(type(original_exc), original_exc, original_exc.__traceback__)
+            tb_lines = traceback.format_exception(
+                type(original_exc), original_exc, original_exc.__traceback__
+            )
             details = "".join(tb_lines)
         else:
             tb_str = traceback.format_exc()
@@ -75,69 +81,104 @@ def format_exception(exc_or_msg, det_msg=None):
     msg_lower = raw_msg.lower()
 
     # 1. Permission / File Access Errors
-    if isinstance(original_exc, PermissionError) or "errno 13" in msg_lower or "permission denied" in msg_lower or "access is denied" in msg_lower:
+    if (
+        isinstance(original_exc, PermissionError)
+        or "errno 13" in msg_lower
+        or "permission denied" in msg_lower
+        or "access is denied" in msg_lower
+    ):
         category = "File Access Error"
-        explanation = "A file or folder needed by this action is locked or access was denied."
+        explanation = (
+            "A file or folder needed by this action is locked or access was denied."
+        )
         recovery = [
             "Close any programs that might have the file open (e.g., e-book readers or text editors).",
             "Check folder permissions to ensure Calibre has write access.",
-            "Try running Calibre as an administrator if permissions persist."
+            "Try running Calibre as an administrator if permissions persist.",
         ]
 
     # 2. File Not Found
-    elif isinstance(original_exc, FileNotFoundError) or "errno 2" in msg_lower or "no such file or directory" in msg_lower:
+    elif (
+        isinstance(original_exc, FileNotFoundError)
+        or "errno 2" in msg_lower
+        or "no such file or directory" in msg_lower
+    ):
         category = "File Not Found"
         explanation = "A required file or directory could not be found."
         recovery = [
             "Verify that the file or directory exists at the specified path.",
-            "Ensure the source files have not been moved, renamed, or deleted."
+            "Ensure the source files have not been moved, renamed, or deleted.",
         ]
 
     # 3. Disk Space Error
     elif "no space left on device" in msg_lower or "errno 28" in msg_lower:
         category = "Storage Error"
-        explanation = "There is not enough free disk space available to complete the operation."
+        explanation = (
+            "There is not enough free disk space available to complete the operation."
+        )
         recovery = [
             "Free up disk space on the destination drive.",
-            "Empty the temporary folder or trash bin and try again."
+            "Empty the temporary folder or trash bin and try again.",
         ]
 
     # 4. HTTP 429 Rate Limit
-    elif "429" in msg_lower or "too many requests" in msg_lower or "rate limit" in msg_lower:
+    elif (
+        "429" in msg_lower
+        or "too many requests" in msg_lower
+        or "rate limit" in msg_lower
+    ):
         category = "Rate Limit Exceeded"
         explanation = "The remote server rate-limited requests because too many requests were made in a short period."
         recovery = [
             "Wait a few minutes before attempting the operation again.",
-            "Increase the polling interval in the plugin settings to reduce request frequency."
+            "Increase the polling interval in the plugin settings to reduce request frequency.",
         ]
 
     # 5. HTTP 401 / 403 Access Denied
-    elif "401" in msg_lower or "403" in msg_lower or "unauthorized" in msg_lower or "forbidden" in msg_lower:
+    elif (
+        "401" in msg_lower
+        or "403" in msg_lower
+        or "unauthorized" in msg_lower
+        or "forbidden" in msg_lower
+    ):
         category = "Access Denied"
         explanation = "The remote server denied access or the authorization credentials were rejected."
         recovery = [
             "Check your account credentials or API keys in the plugin settings.",
-            "Verify that your account has permission to access the requested resource."
+            "Verify that your account has permission to access the requested resource.",
         ]
 
     # 6. General Network / Timeout / Connection Errors
-    elif (isinstance(original_exc, (URLError, ConnectionError, TimeoutError, socket.error))
-          or "connection" in msg_lower or "timed out" in msg_lower or "network" in msg_lower or "http error" in msg_lower):
+    elif (
+        isinstance(
+            original_exc, (URLError, ConnectionError, TimeoutError, socket.error)
+        )
+        or "connection" in msg_lower
+        or "timed out" in msg_lower
+        or "network" in msg_lower
+        or "http error" in msg_lower
+    ):
         category = "Network Error"
         explanation = "A network error occurred while connecting to the remote service."
         recovery = [
             "Check your internet connection and network stability.",
             "Verify firewall or proxy settings if you are behind a restricted network.",
-            "Try again in a few minutes."
+            "Try again in a few minutes.",
         ]
 
     # 7. Bad ZIP / Corrupted Archive / EPUB
-    elif isinstance(original_exc, (zipfile.BadZipFile, zipfile.LargeZipFile)) or "not a zip file" in msg_lower or "bad zip" in msg_lower:
+    elif (
+        isinstance(original_exc, (zipfile.BadZipFile, zipfile.LargeZipFile))
+        or "not a zip file" in msg_lower
+        or "bad zip" in msg_lower
+    ):
         category = "Invalid Archive"
-        explanation = "The file is not a valid ZIP or EPUB archive, or the file is corrupted."
+        explanation = (
+            "The file is not a valid ZIP or EPUB archive, or the file is corrupted."
+        )
         recovery = [
             "Verify that the file is an intact EPUB or ZIP archive.",
-            "Try re-downloading or recovering a fresh copy of the file."
+            "Try re-downloading or recovering a fresh copy of the file.",
         ]
 
     # 8. Audio Tag / Metadata Corruption
@@ -145,25 +186,53 @@ def format_exception(exc_or_msg, det_msg=None):
         (_MutagenError and isinstance(original_exc, _MutagenError))
         or "mutagen" in type(original_exc).__name__.lower()
         or "mutagen" in getattr(type(original_exc), "__module__", "").lower()
-        or ("tag" in msg_lower and ("corrupt" in msg_lower or "malformed" in msg_lower or "header" in msg_lower or "unsupported" in msg_lower))
-        or ("audio" in msg_lower and ("tag" in msg_lower or "header" in msg_lower or "corrupt" in msg_lower or "malformed" in msg_lower))
-        or ("id3" in msg_lower and ("corrupt" in msg_lower or "malformed" in msg_lower or "header" in msg_lower or "unsupported" in msg_lower))
+        or (
+            "tag" in msg_lower
+            and (
+                "corrupt" in msg_lower
+                or "malformed" in msg_lower
+                or "header" in msg_lower
+                or "unsupported" in msg_lower
+            )
+        )
+        or (
+            "audio" in msg_lower
+            and (
+                "tag" in msg_lower
+                or "header" in msg_lower
+                or "corrupt" in msg_lower
+                or "malformed" in msg_lower
+            )
+        )
+        or (
+            "id3" in msg_lower
+            and (
+                "corrupt" in msg_lower
+                or "malformed" in msg_lower
+                or "header" in msg_lower
+                or "unsupported" in msg_lower
+            )
+        )
     ):
         category = "Audio Tagging Error"
         explanation = "The audio file tags could not be read or written because the audio headers or tags are malformed or damaged."
         recovery = [
             "Check that the audio file is intact and plays in a media player.",
             "Repair or re-encode the file's tags with an audio tagging utility.",
-            "Verify that Calibre has write access to the audio file on disk."
+            "Verify that Calibre has write access to the audio file on disk.",
         ]
 
     # 9. JSON or Data Parsing Error
-    elif isinstance(original_exc, (json.JSONDecodeError, ValueError)) or "xml" in msg_lower or "parse" in msg_lower:
+    elif (
+        isinstance(original_exc, (json.JSONDecodeError, ValueError))
+        or "xml" in msg_lower
+        or "parse" in msg_lower
+    ):
         category = "Data Parsing Error"
         explanation = "The input file or server response contained invalid or unexpected formatting."
         recovery = [
             "Check that the input file is not corrupted.",
-            "Verify that settings or input syntax match expected formats."
+            "Verify that settings or input syntax match expected formats.",
         ]
 
     # 9. Dependency Missing
@@ -172,7 +241,7 @@ def format_exception(exc_or_msg, det_msg=None):
         explanation = "A required Python component or dependency was not found."
         recovery = [
             "Ensure all plugin files and dependencies are properly installed in Calibre.",
-            "Try re-installing the plugin zip."
+            "Try re-installing the plugin zip.",
         ]
 
     # Fallback for general errors
@@ -181,10 +250,12 @@ def format_exception(exc_or_msg, det_msg=None):
         explanation = raw_msg or "An unexpected error occurred during processing."
         recovery = [
             "Check the detailed error report below for technical details.",
-            "If the problem persists, report the issue with the detailed error trace."
+            "If the problem persists, report the issue with the detailed error trace.",
         ]
 
-    return FriendlyError(category, explanation, recovery, details=details, original_exc=original_exc)
+    return FriendlyError(
+        category, explanation, recovery, details=details, original_exc=original_exc
+    )
 
 
 def show_friendly_error_dialog(parent, title, exc_or_msg, det_msg=None, show=True):
