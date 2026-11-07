@@ -2670,7 +2670,9 @@ class ApiKeyValidationTests(unittest.TestCase):
                 check_handler()
             val_mock.assert_called_once_with('valid-key')
         finally:
-            sys.modules.clear()
+            for k in list(sys.modules):
+                if k not in saved_modules:
+                    del sys.modules[k]
             sys.modules.update(saved_modules)
 
 

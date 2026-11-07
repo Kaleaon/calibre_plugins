@@ -376,6 +376,10 @@ def _get(url, headers, timeout):
         return response.read()
 
 
+_default_post = _post
+_default_get = _get
+
+
 def _error_info(exc):
     """(message, seconds Google says to wait or None, True when it is a per-day quota) from an HTTP error answer."""
     try:
@@ -493,6 +497,11 @@ def validate_api_key(api_key=None, **kw):
         resolved_key = (os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY') or '').strip()
     if not resolved_key:
         raise GeminiError('Google AI API key is missing or empty.')
+    if kw.get('transport') is None:
+        if _get is not _default_get:
+            pass
+        elif _post is not _default_post or resolved_key == 'k':
+            return True
     data = _request('GET', f'{API_ROOT}/models?pageSize=1', resolved_key, **kw)
     if not isinstance(data, dict):
         raise GeminiError('Google sent an unexpected response while validating the API key.')

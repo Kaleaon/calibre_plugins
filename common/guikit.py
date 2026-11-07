@@ -4,32 +4,62 @@ import re
 import threading
 import time
 from pathlib import Path
-from qt.core import (
-    QAbstractItemView,
-    QApplication,
-    QCheckBox,
-    QDialog,
-    QDialogButtonBox,
-    QEvent,
-    QFormLayout,
-    QFrame,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QObject,
-    QPalette,
-    QPlainTextEdit,
-    QPushButton,
-    QProgressDialog,
-    QSplitter,
-    Qt,
-    QTableWidget,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+try:
+    from qt.core import (
+        QAbstractItemView,
+        QApplication,
+        QCheckBox,
+        QDialog,
+        QDialogButtonBox,
+        QEvent,
+        QFormLayout,
+        QFrame,
+        QHBoxLayout,
+        QHeaderView,
+        QLabel,
+        QLineEdit,
+        QObject,
+        QPalette,
+        QPlainTextEdit,
+        QPushButton,
+        QProgressDialog,
+        QSplitter,
+        Qt,
+        QTableWidget,
+        QTreeWidget,
+        QTreeWidgetItem,
+        QVBoxLayout,
+        QWidget,
+    )
+except ImportError:
+    try:
+        from PyQt6 import QtCore, QtGui, QtWidgets  # noqa: F401
+        from PyQt6.QtCore import QEvent, QObject, Qt
+        from PyQt6.QtGui import QPalette
+        from PyQt6.QtWidgets import (
+            QAbstractItemView,
+            QApplication,
+            QCheckBox,
+            QDialog,
+            QDialogButtonBox,
+            QFormLayout,
+            QFrame,
+            QHBoxLayout,
+            QHeaderView,
+            QLabel,
+            QLineEdit,
+            QPlainTextEdit,
+            QPushButton,
+            QProgressDialog,
+            QSplitter,
+            QTableWidget,
+            QTreeWidget,
+            QTreeWidgetItem,
+            QVBoxLayout,
+            QWidget,
+        )
+    except ImportError:
+        pass
 
 try:
     from .storykit import Cancelled, extract_epub_story, sort_by_posting_order
@@ -64,6 +94,16 @@ except ImportError:
 
 class DialogAction(InterfaceAction):
     """Shared base class for actions that open a single dialog when clicked."""
+
+    def __init__(self, gui=None, name=None):
+        try:
+            super().__init__(gui, name)
+        except TypeError:
+            super().__init__()
+        if gui is not None:
+            self.gui = gui
+        if name is not None:
+            self.name = name
 
     def genesis(self):
         self.qaction.triggered.connect(self.show_dialog)
@@ -1123,26 +1163,6 @@ def parse_lines(text_or_widget):
     else:
         raw = str(text_or_widget)
     return [line.strip() for line in raw.splitlines() if line.strip()]
-
-
-def collect_tree_changes(tree):
-    """Collect checked child items from a QTreeWidget into a list of (top_item_id, {field: new_val})."""
-    items = []
-    for i in range(tree.topLevelItemCount()):
-        top = tree.topLevelItem(i)
-        changes = {}
-        for j in range(top.childCount()):
-            child = top.child(j)
-            if child.checkState(0) == Qt.CheckState.Checked:
-                changes[child.data(0, Qt.ItemDataRole.UserRole)] = child.data(0, Qt.ItemDataRole.UserRole + 1)
-        if changes:
-            items.append((top.data(0, Qt.ItemDataRole.UserRole), changes))
-    return items
-
-
-def append_log(widget, text):
-    """Append a timestamped line ("%H:%M:%S  <text>") to a QPlainTextEdit or similar widget."""
-    widget.appendPlainText(f'{time.strftime("%H:%M:%S")}  {text}')
 
 
 def collect_checked_fields(boxes, labels=None):

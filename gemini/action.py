@@ -362,11 +362,6 @@ def load_undo():
     except Exception:
         legacy = {}
     if legacy:
-        save_undo(legacy)
-        try:
-            prefs['undo'] = {}
-        except Exception:
-            pass
         return dict(legacy)
     try:
         with open(path, 'r', encoding='utf-8') as f:
@@ -377,6 +372,10 @@ def load_undo():
 
 
 def save_undo(undo):
+    try:
+        prefs['undo'] = dict(undo) if undo else {}
+    except Exception:
+        pass
     path = _undo_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -679,14 +678,11 @@ class GeminiFixerAction(DialogAction):
             mapping = {bid: v for bid, v in fields[name].items() if bid not in failed}
             if not mapping:
                 continue
-            try:
-                db.set_field(name, mapping)
-            except Exception:
-                for bid, v in mapping.items():
-                    try:
-                        db.set_field(name, {bid: v})
-                    except Exception as exc:
-                        failed[bid] = f'{name}: {exc}'
+            for bid, v in mapping.items():
+                try:
+                    db.set_field(name, {bid: v})
+                except Exception as exc:
+                    failed[bid] = f'{name}: {exc}'
         return failed
 
     def write_changes(self, items):
