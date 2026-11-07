@@ -20,6 +20,8 @@ import urllib.error
 from email.message import Message
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 FIXTURES = ROOT / 'tests' / 'media_fixtures'
 pkg = types.ModuleType('media_pure')  # the plugin's modules use relative imports, so give them a package without running __init__
 pkg.__path__ = [str(ROOT / 'media')]
@@ -27,6 +29,53 @@ sys.modules['media_pure'] = pkg
 tags = importlib.import_module('media_pure.tags')
 sources = importlib.import_module('media_pure.sources')
 matching = importlib.import_module('media_pure.matching')
+
+
+_APP = None
+
+
+def _load_match_inspector():
+    global _APP
+    try:
+        from PyQt6 import QtCore, QtGui, QtWidgets
+    except ImportError:
+        return None
+    if _APP is None:
+        _APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    qtcore = types.ModuleType('qt.core')
+    for module in (QtWidgets, QtGui, QtCore):
+        for name in dir(module):
+            setattr(qtcore, name, getattr(module, name))
+    sys.modules.setdefault('qt', types.ModuleType('qt'))
+    sys.modules.setdefault('qt.core', qtcore)
+
+    for name in ('calibre', 'calibre.customize', 'calibre.gui2', 'calibre.utils'):
+        if name not in sys.modules:
+            sys.modules[name] = types.SimpleNamespace(
+                error_dialog=lambda *a, **k: None,
+                info_dialog=lambda *a, **k: None,
+                question_dialog=lambda *a, **k: None,
+            )
+    if 'calibre.gui2.actions' not in sys.modules:
+        actions = types.ModuleType('calibre.gui2.actions')
+        actions.InterfaceAction = type('InterfaceAction', (object,), {'__init__': lambda self, gui, name: setattr(self, 'gui', gui)})
+        sys.modules['calibre.gui2.actions'] = actions
+
+    if 'calibre_plugins' not in sys.modules:
+        sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+        sys.modules['calibre_plugins'].__path__ = []
+    if 'calibre_plugins.media_matcher' not in sys.modules:
+        sys.modules['calibre_plugins.media_matcher'] = pkg
+    sys.modules.setdefault('calibre_plugins.media_matcher.matching', matching)
+    sys.modules.setdefault('calibre_plugins.media_matcher.sources', sources)
+    sys.modules.setdefault('calibre_plugins.media_matcher.tags', tags)
+    if 'calibre_plugins.media_matcher.config' not in sys.modules:
+        cfg = types.ModuleType('calibre_plugins.media_matcher.config')
+        cfg.prefs = {'fields': []}
+        sys.modules['calibre_plugins.media_matcher.config'] = cfg
+
+    action = importlib.import_module('media_pure.action')
+    return action.MatchInspectorDialog
 
 JPEG = b'\xff\xd8\xff\xe0' + b'\x00' * 20
 PNG = b'\x89PNG\r\n\x1a\n' + b'\x00' * 20
@@ -993,6 +1042,137 @@ class MatchInspectorAndSingleBookTests(unittest.TestCase):
         )
         self.assertGreater(len(cands), 0)
         self.assertEqual(cands[0]['title'], 'Dune')
+
+    def test_update_diffs_unchanged_tags_and_identifiers_display_candidate_metadata(self):
+        MatchInspectorDialog = _load_match_inspector()
+        if MatchInspectorDialog is None:
+            self.skipTest('PyQt6 is not available')
+        book = library_book(id=1, title='Yesterday', tags=['BookTag', 'Music'], identifiers={'isbn': '123'})
+        cand = {
+            'title': 'Yesterday',
+            'score': 0.95,
+            'source': 'musicbrainz',
+            'tags': ['CandidateTag'],
+            'identifiers': {'isbn': '456'},
+        }
+        dlg = MatchInspectorDialog(
+            None,
+            book=book,
+            suggestion={'candidate': cand},
+            http=types.SimpleNamespace(),
+            options={'kind': 'music'},
+            chosen_fields=['tags', 'identifiers'],
+        )
+        rows = {
+            dlg.diff_tree.topLevelItem(i).text(0): (
+                dlg.diff_tree.topLevelItem(i).text(1),
+                dlg.diff_tree.topLevelItem(i).text(2),
+                dlg.diff_tree.topLevelItem(i).text(3),
+            )
+            for i in range(dlg.diff_tree.topLevelItemCount())
+        }
+        self.assertEqual(rows['Tags'], ('BookTag, Music', 'CandidateTag', 'Unchanged'))
+        self.assertEqual(rows['Ids'], ('isbn:123', 'isbn:456', 'Unchanged'))
+
+    def test_update_diffs_unchanged_subjects_and_keys_extraction(self):
+        MatchInspectorDialog = _load_match_inspector()
+        if MatchInspectorDialog is None:
+            self.skipTest('PyQt6 is not available')
+        book = library_book(id=2, title='Dune', tags=['Sci-Fi'], identifiers={'olid': 'OL123M'})
+        cand = {
+            'title': 'Dune',
+            'score': 0.95,
+            'source': 'openlibrary',
+            'subjects': ['Space Opera', 'Arrakis'],
+            'olid': 'OL123M',
+            'recording_id': 'rec-99',
+            'release_id': 'rel-88',
+        }
+        dlg = MatchInspectorDialog(
+            None,
+            book=book,
+            suggestion={'candidate': cand},
+            http=types.SimpleNamespace(),
+            options={'kind': 'book'},
+            chosen_fields=['tags', 'identifiers'],
+        )
+        rows = {
+            dlg.diff_tree.topLevelItem(i).text(0): (
+                dlg.diff_tree.topLevelItem(i).text(1),
+                dlg.diff_tree.topLevelItem(i).text(2),
+                dlg.diff_tree.topLevelItem(i).text(3),
+            )
+            for i in range(dlg.diff_tree.topLevelItemCount())
+        }
+        self.assertEqual(rows['Tags'], ('Sci-Fi', 'Space Opera, Arrakis', 'Unchanged'))
+        self.assertEqual(rows['Ids'], ('olid:OL123M', 'olid:OL123M, recording_id:rec-99, release_id:rel-88', 'Unchanged'))
+
+    def test_update_diffs_explicit_identifiers_dict_takes_precedence(self):
+        MatchInspectorDialog = _load_match_inspector()
+        if MatchInspectorDialog is None:
+            self.skipTest('PyQt6 is not available')
+        book = library_book(id=3, title='Song', tags=['Pop'], identifiers={'isbn': '111', 'mb_recording': 'rec-1', 'mb_release': 'rel-1'})
+        cand = {
+            'title': 'Song',
+            'score': 0.9,
+            'source': 'musicbrainz',
+            'identifiers': {'isbn': '222'},
+            'recording_id': 'rec-1',
+            'release_id': 'rel-1',
+            'olid': 'ignored-ol',
+        }
+        dlg = MatchInspectorDialog(
+            None,
+            book=book,
+            suggestion={'candidate': cand},
+            http=types.SimpleNamespace(),
+            options={'kind': 'music'},
+            chosen_fields=['identifiers'],
+        )
+        rows = {
+            dlg.diff_tree.topLevelItem(i).text(0): (
+                dlg.diff_tree.topLevelItem(i).text(1),
+                dlg.diff_tree.topLevelItem(i).text(2),
+                dlg.diff_tree.topLevelItem(i).text(3),
+            )
+            for i in range(dlg.diff_tree.topLevelItemCount())
+        }
+        self.assertEqual(rows['Ids'], ('isbn:111, mb_recording:rec-1, mb_release:rel-1', 'isbn:222', 'Unchanged'))
+
+    def test_update_diffs_empty_and_missing_keys_graceful_fallback(self):
+        MatchInspectorDialog = _load_match_inspector()
+        if MatchInspectorDialog is None:
+            self.skipTest('PyQt6 is not available')
+        book = library_book(id=4, title='Song', tags=['Pop', 'Music'], identifiers={'isbn': '111'})
+        cand = {
+            'title': 'Song',
+            'score': 0.8,
+            'source': 'musicbrainz',
+            'tags': None,
+            'subjects': None,
+            'identifiers': None,
+            'recording_id': '',
+            'release_id': None,
+            'olid': '',
+        }
+        dlg = MatchInspectorDialog(
+            None,
+            book=book,
+            suggestion={'candidate': cand},
+            http=types.SimpleNamespace(),
+            options={'kind': 'music'},
+            chosen_fields=['tags', 'identifiers'],
+        )
+        rows = {
+            dlg.diff_tree.topLevelItem(i).text(0): (
+                dlg.diff_tree.topLevelItem(i).text(1),
+                dlg.diff_tree.topLevelItem(i).text(2),
+                dlg.diff_tree.topLevelItem(i).text(3),
+            )
+            for i in range(dlg.diff_tree.topLevelItemCount())
+        }
+        self.assertEqual(rows['Tags'], ('Pop, Music', '(none)', 'Unchanged'))
+        self.assertEqual(rows['Ids'], ('isbn:111', '(none)', 'Unchanged'))
 
 
 class ManualSearchTests(unittest.TestCase):

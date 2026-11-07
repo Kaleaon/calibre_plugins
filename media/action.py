@@ -199,8 +199,15 @@ class MatchInspectorDialog(QDialog):
                 elif field == 'authors': old = list(self.book.get('authors') or []); new = list(cand.get('authors') or [])
                 elif field == 'album': old = [self.book.get('series') or '', self.book.get('series_index')]; new = [cand.get('album', ''), cand.get('track')]
                 elif field == 'date': old = self.book.get('pubdate'); new = cand.get('date')
-                elif field == 'tags': old = list(self.book.get('tags') or []); new = list(self.book.get('tags') or [])
-                elif field == 'identifiers': old = dict(self.book.get('identifiers') or {}); new = dict(self.book.get('identifiers') or {})
+                elif field == 'tags':
+                    old = list(self.book.get('tags') or [])
+                    new = list(cand.get('tags') or cand.get('subjects') or [])
+                elif field == 'identifiers':
+                    old = dict(self.book.get('identifiers') or {})
+                    if isinstance(cand.get('identifiers'), dict):
+                        new = dict(cand['identifiers'])
+                    else:
+                        new = {k: cand[k] for k in ('recording_id', 'release_id', 'olid') if cand.get(k)}
                 elif field == 'cover': old = None; new = cand.get('cover_urls')
                 else: old = ''; new = ''
                 status = "Unchanged"
