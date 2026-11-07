@@ -4,32 +4,59 @@ import re
 import threading
 import time
 from pathlib import Path
-from qt.core import (
-    QAbstractItemView,
-    QApplication,
-    QCheckBox,
-    QDialog,
-    QDialogButtonBox,
-    QEvent,
-    QFormLayout,
-    QFrame,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QObject,
-    QPalette,
-    QPlainTextEdit,
-    QPushButton,
-    QProgressDialog,
-    QSplitter,
-    Qt,
-    QTableWidget,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QVBoxLayout,
-    QWidget,
-)
+
+try:
+    from qt.core import (
+        QAbstractItemView,
+        QApplication,
+        QCheckBox,
+        QDialog,
+        QDialogButtonBox,
+        QEvent,
+        QFormLayout,
+        QFrame,
+        QHBoxLayout,
+        QHeaderView,
+        QLabel,
+        QLineEdit,
+        QObject,
+        QPalette,
+        QPlainTextEdit,
+        QProgressDialog,
+        QPushButton,
+        QSplitter,
+        Qt,
+        QTableWidget,
+        QTreeWidget,
+        QTreeWidgetItem,
+        QVBoxLayout,
+        QWidget,
+    )
+except ImportError:
+    from PyQt6.QtCore import QEvent, QObject, Qt
+    from PyQt6.QtGui import QPalette
+    from PyQt6.QtWidgets import (
+        QAbstractItemView,
+        QApplication,
+        QCheckBox,
+        QDialog,
+        QDialogButtonBox,
+        QFormLayout,
+        QFrame,
+        QHBoxLayout,
+        QHeaderView,
+        QLabel,
+        QLineEdit,
+        QPlainTextEdit,
+        QProgressDialog,
+        QPushButton,
+        QSplitter,
+        QTableWidget,
+        QTreeWidget,
+        QTreeWidgetItem,
+        QVBoxLayout,
+        QWidget,
+    )
 
 try:
     from .storykit import Cancelled, extract_epub_story, sort_by_posting_order
@@ -494,7 +521,102 @@ def scan_epub_files_for_merge(file_paths):
     return results
 
 
-class MergePreviewDialog(QDialog):
+class TreeCheckStateMixin:
+    """Mixin for QDialog or QWidget preview classes managing hierarchical QTreeWidget check states.
+
+    Provides recursive check-state propagation to children, dynamic tri-state parent updates
+    (Unchecked, PartiallyChecked, Checked), and signal suppression during batch operations.
+    Automatically calls `self.update_summary()` after state changes if implemented by host dialog.
+    """
+
+    @staticmethod
+    def _to_check_state(state):
+        """Coerce an int or Qt.CheckState into the appropriate Qt CheckState value."""
+        val = getattr(state, 'value', state)
+        check_state_cls = getattr(Qt, 'CheckState', None)
+        if check_state_cls is not None:
+            if val == 2 and hasattr(check_state_cls, 'Checked'):
+                return check_state_cls.Checked
+            if val == 0 and hasattr(check_state_cls, 'Unchecked'):
+                return check_state_cls.Unchecked
+            if val == 1 and hasattr(check_state_cls, 'PartiallyChecked'):
+                return check_state_cls.PartiallyChecked
+        if val == 2 and hasattr(Qt, 'Checked'):
+            return Qt.Checked
+        if val == 0 and hasattr(Qt, 'Unchecked'):
+            return Qt.Unchecked
+        if val == 1 and hasattr(Qt, 'PartiallyChecked'):
+            return Qt.PartiallyChecked
+        return state
+
+    def _set_children_check_state(self, item, state):
+        """Recursively set check state on all child items of item."""
+        target_state = self._to_check_state(state)
+        for i in range(item.childCount()):
+            child = item.child(i)
+            child.setCheckState(0, target_state)
+            self._set_children_check_state(child, target_state)
+
+    def _update_parent_check_state(self, item):
+        """Recursively update parent item check state based on children check states."""
+        parent = item.parent()
+        if parent is None:
+            return
+        total = parent.childCount()
+        if total == 0:
+            return
+
+        checked_val = getattr(getattr(Qt, 'CheckState', Qt), 'Checked', 2)
+        unchecked_val = getattr(getattr(Qt, 'CheckState', Qt), 'Unchecked', 0)
+        partially_val = getattr(getattr(Qt, 'CheckState', Qt), 'PartiallyChecked', 1)
+
+        checked_count = 0
+        unchecked_count = 0
+        for i in range(total):
+            st = parent.child(i).checkState(0)
+            val = getattr(st, 'value', st)
+            if val == 2 or st == checked_val:
+                checked_count += 1
+            elif val == 0 or st == unchecked_val:
+                unchecked_count += 1
+
+        if checked_count == total:
+            parent.setCheckState(0, self._to_check_state(checked_val))
+        elif unchecked_count == total:
+            parent.setCheckState(0, self._to_check_state(unchecked_val))
+        else:
+            parent.setCheckState(0, self._to_check_state(partially_val))
+
+        self._update_parent_check_state(parent)
+
+    def on_item_changed(self, item, column=0):
+        """Handle tree item check state changes with signal blocking and summary refresh."""
+        tree = getattr(self, 'tree', None)
+        if tree is not None:
+            tree.blockSignals(True)
+        try:
+            state = item.checkState(0)
+            val = getattr(state, 'value', state)
+            partially_val = getattr(getattr(Qt, 'CheckState', Qt), 'PartiallyChecked', 1)
+            if item.childCount() > 0 and val != 1 and state != partially_val:
+                self._set_children_check_state(item, state)
+            self._update_parent_check_state(item)
+        finally:
+            if tree is not None:
+                tree.blockSignals(False)
+        if callable(getattr(self, 'update_summary', None)):
+            self.update_summary()
+
+
+if isinstance(QDialog, type):
+    _MergeDialogBase = QDialog
+else:
+    class _MergeDialogBase:
+        def __init__(self, *args, **kwargs):
+            pass
+
+
+class MergePreviewDialog(TreeCheckStateMixin, _MergeDialogBase):
     """Modal dialog presenting pre-scanned EPUB stories, interactive reordering, metadata editing, and corrupted file triage."""
 
     def __init__(self, parent, scan_results):
@@ -747,38 +869,6 @@ class MergePreviewDialog(QDialog):
         for err_item, _ in error_items:
             self.tree.addTopLevelItem(err_item)
 
-        self.tree.blockSignals(False)
-        self.update_summary()
-
-    def _set_children_check_state(self, item, state):
-        for i in range(item.childCount()):
-            child = item.child(i)
-            child.setCheckState(0, state)
-            self._set_children_check_state(child, state)
-
-    def _update_parent_check_state(self, item):
-        parent = item.parent()
-        if parent is None:
-            return
-        checked_count = sum(1 for i in range(parent.childCount()) if parent.child(i).checkState(0) == Qt.CheckState.Checked)
-        unchecked_count = sum(1 for i in range(parent.childCount()) if parent.child(i).checkState(0) == Qt.CheckState.Unchecked)
-        total = parent.childCount()
-
-        if checked_count == total:
-            parent.setCheckState(0, Qt.CheckState.Checked)
-        elif unchecked_count == total:
-            parent.setCheckState(0, Qt.CheckState.Unchecked)
-        else:
-            parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
-
-        self._update_parent_check_state(parent)
-
-    def on_item_changed(self, item, column):
-        self.tree.blockSignals(True)
-        state = item.checkState(0)
-        if item.childCount() > 0 and state != Qt.CheckState.PartiallyChecked:
-            self._set_children_check_state(item, state)
-        self._update_parent_check_state(item)
         self.tree.blockSignals(False)
         self.update_summary()
 
@@ -1123,26 +1213,6 @@ def parse_lines(text_or_widget):
     else:
         raw = str(text_or_widget)
     return [line.strip() for line in raw.splitlines() if line.strip()]
-
-
-def collect_tree_changes(tree):
-    """Collect checked child items from a QTreeWidget into a list of (top_item_id, {field: new_val})."""
-    items = []
-    for i in range(tree.topLevelItemCount()):
-        top = tree.topLevelItem(i)
-        changes = {}
-        for j in range(top.childCount()):
-            child = top.child(j)
-            if child.checkState(0) == Qt.CheckState.Checked:
-                changes[child.data(0, Qt.ItemDataRole.UserRole)] = child.data(0, Qt.ItemDataRole.UserRole + 1)
-        if changes:
-            items.append((top.data(0, Qt.ItemDataRole.UserRole), changes))
-    return items
-
-
-def append_log(widget, text):
-    """Append a timestamped line ("%H:%M:%S  <text>") to a QPlainTextEdit or similar widget."""
-    widget.appendPlainText(f'{time.strftime("%H:%M:%S")}  {text}')
 
 
 def collect_checked_fields(boxes, labels=None):

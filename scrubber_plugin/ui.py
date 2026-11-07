@@ -73,6 +73,39 @@ except ImportError:
     )
 
 try:
+    from calibre_plugins.epub_promo_scrubber.guikit import TreeCheckStateMixin
+    if not isinstance(TreeCheckStateMixin, type):
+        raise ImportError
+except (ImportError, AttributeError):
+    try:
+        from .guikit import TreeCheckStateMixin
+        if not isinstance(TreeCheckStateMixin, type):
+            raise ImportError
+    except (ImportError, AttributeError):
+        try:
+            from guikit import TreeCheckStateMixin
+            if not isinstance(TreeCheckStateMixin, type):
+                raise ImportError
+        except (ImportError, AttributeError):
+            try:
+                from common.guikit import TreeCheckStateMixin
+                if not isinstance(TreeCheckStateMixin, type):
+                    raise ImportError
+            except (ImportError, AttributeError):
+                import importlib.util
+                from pathlib import Path
+
+                _gk_path = Path(__file__).resolve().parents[1] / 'common' / 'guikit.py'
+                if _gk_path.exists():
+                    _spec = importlib.util.spec_from_file_location('guikit', _gk_path)
+                    _gk_mod = importlib.util.module_from_spec(_spec)
+                    _spec.loader.exec_module(_gk_mod)
+                    TreeCheckStateMixin = _gk_mod.TreeCheckStateMixin
+                else:
+                    class TreeCheckStateMixin:
+                        pass
+
+try:
     from calibre_plugins.epub_promo_scrubber.scanner import LibraryScanner
 except ImportError:
     try:
@@ -85,10 +118,14 @@ except ImportError:
                 from scrubber_plugin.scanner import LibraryScanner
             except ImportError:
                 import importlib.util
+                import sys
                 from pathlib import Path
 
                 sc_path = Path(__file__).parent / 'scanner.py'
                 if sc_path.exists():
+                    parent_dir = str(sc_path.parent)
+                    if parent_dir not in sys.path:
+                        sys.path.insert(0, parent_dir)
                     spec = importlib.util.spec_from_file_location('scanner', sc_path)
                     sc_mod = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(sc_mod)
@@ -423,7 +460,15 @@ def open_side_by_side_diff(parent, book_title, file_name, original_html, scrubbe
     )
 
 
-class ScrubPreviewDialog(QDialog):
+if isinstance(QDialog, type):
+    _ScrubDialogBase = QDialog
+else:
+    class _ScrubDialogBase:
+        def __init__(self, *args, **kwargs):
+            pass
+
+
+class ScrubPreviewDialog(TreeCheckStateMixin, _ScrubDialogBase):
     """Modal dialog allowing users to review and selectively filter promo changes before applying."""
 
     def __init__(self, parent, scan_results, is_folder=False):
@@ -544,44 +589,6 @@ class ScrubPreviewDialog(QDialog):
             book_item.setExpanded(True)
 
         self.tree.blockSignals(False)
-
-    def _set_children_check_state(self, item, state):
-        for i in range(item.childCount()):
-            child = item.child(i)
-            child.setCheckState(0, state)
-            self._set_children_check_state(child, state)
-
-    def _update_parent_check_state(self, item):
-        parent = item.parent()
-        if parent is None:
-            return
-        checked_count = 0
-        unchecked_count = 0
-        total = parent.childCount()
-        for i in range(total):
-            st = parent.child(i).checkState(0)
-            if st == Qt.CheckState.Checked:
-                checked_count += 1
-            elif st == Qt.CheckState.Unchecked:
-                unchecked_count += 1
-
-        if checked_count == total:
-            parent.setCheckState(0, Qt.CheckState.Checked)
-        elif unchecked_count == total:
-            parent.setCheckState(0, Qt.CheckState.Unchecked)
-        else:
-            parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
-
-        self._update_parent_check_state(parent)
-
-    def on_item_changed(self, item, column):
-        self.tree.blockSignals(True)
-        state = item.checkState(0)
-        if item.childCount() > 0 and state != Qt.CheckState.PartiallyChecked:
-            self._set_children_check_state(item, state)
-        self._update_parent_check_state(item)
-        self.tree.blockSignals(False)
-        self.update_summary()
 
     def on_selection_changed(self):
         items = self.tree.selectedItems()
@@ -1154,7 +1161,7 @@ class LibraryCleanWorker(QThread):
             self.clean_error.emit(str(exc))
 
 
-class LibraryScannerDialog(QDialog):
+class LibraryScannerDialog(TreeCheckStateMixin, _ScrubDialogBase):
     """Full-library and selective promo scanner dialog with image previews and batch scrubbing."""
 
     def __init__(self, parent, db, prefs, selected_book_ids=None):
@@ -1593,44 +1600,6 @@ class LibraryScannerDialog(QDialog):
         scrub_str = target_buf.get('scrubbed', '')
         diff_dialog = SideBySideDiffDialog(self, orig_str, scrub_str, target_file)
         diff_dialog.exec()
-
-    def _set_children_check_state(self, item, state):
-        for i in range(item.childCount()):
-            child = item.child(i)
-            child.setCheckState(0, state)
-            self._set_children_check_state(child, state)
-
-    def _update_parent_check_state(self, item):
-        parent = item.parent()
-        if parent is None:
-            return
-        checked_count = 0
-        unchecked_count = 0
-        total = parent.childCount()
-        for i in range(total):
-            st = parent.child(i).checkState(0)
-            if st == Qt.CheckState.Checked:
-                checked_count += 1
-            elif st == Qt.CheckState.Unchecked:
-                unchecked_count += 1
-
-        if checked_count == total:
-            parent.setCheckState(0, Qt.CheckState.Checked)
-        elif unchecked_count == total:
-            parent.setCheckState(0, Qt.CheckState.Unchecked)
-        else:
-            parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
-
-        self._update_parent_check_state(parent)
-
-    def on_item_changed(self, item, column):
-        self.tree.blockSignals(True)
-        state = item.checkState(0)
-        if item.childCount() > 0 and state != Qt.CheckState.PartiallyChecked:
-            self._set_children_check_state(item, state)
-        self._update_parent_check_state(item)
-        self.tree.blockSignals(False)
-        self.update_summary()
 
     def select_all(self):
         self.tree.blockSignals(True)

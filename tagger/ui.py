@@ -31,8 +31,49 @@ PARTIALLY_CHECKED = getattr(Qt.CheckState, 'PartiallyChecked', getattr(Qt, 'Part
 ITEM_IS_USER_CHECKABLE = getattr(Qt.ItemFlag, 'ItemIsUserCheckable', getattr(Qt, 'ItemIsUserCheckable', 16))
 USER_ROLE = getattr(Qt.ItemDataRole, 'UserRole', getattr(Qt, 'UserRole', 256))
 
+try:
+    from calibre_plugins.story_collection_tagger.guikit import TreeCheckStateMixin
+    if not isinstance(TreeCheckStateMixin, type):
+        raise ImportError
+except (ImportError, AttributeError):
+    try:
+        from .guikit import TreeCheckStateMixin
+        if not isinstance(TreeCheckStateMixin, type):
+            raise ImportError
+    except (ImportError, AttributeError):
+        try:
+            from guikit import TreeCheckStateMixin
+            if not isinstance(TreeCheckStateMixin, type):
+                raise ImportError
+        except (ImportError, AttributeError):
+            try:
+                from common.guikit import TreeCheckStateMixin
+                if not isinstance(TreeCheckStateMixin, type):
+                    raise ImportError
+            except (ImportError, AttributeError):
+                import importlib.util
+                from pathlib import Path
 
-class TaggerPreviewDialog(QDialog):
+                _gk_path = Path(__file__).resolve().parents[1] / 'common' / 'guikit.py'
+                if _gk_path.exists():
+                    _spec = importlib.util.spec_from_file_location('guikit', _gk_path)
+                    _gk_mod = importlib.util.module_from_spec(_spec)
+                    _spec.loader.exec_module(_gk_mod)
+                    TreeCheckStateMixin = _gk_mod.TreeCheckStateMixin
+                else:
+                    class TreeCheckStateMixin:
+                        pass
+
+
+if isinstance(QDialog, type):
+    _TaggerDialogBase = QDialog
+else:
+    class _TaggerDialogBase:
+        def __init__(self, *args, **kwargs):
+            pass
+
+
+class TaggerPreviewDialog(TreeCheckStateMixin, _TaggerDialogBase):
     """Modal dialog allowing users to review and selectively check/uncheck proposed tags before applying."""
 
     def __init__(self, parent, plan):
@@ -111,44 +152,6 @@ class TaggerPreviewDialog(QDialog):
             book_item.setExpanded(True)
 
         self.tree.blockSignals(False)
-
-    def _set_children_check_state(self, item, state):
-        for i in range(item.childCount()):
-            child = item.child(i)
-            child.setCheckState(0, state)
-            self._set_children_check_state(child, state)
-
-    def _update_parent_check_state(self, item):
-        parent = item.parent()
-        if parent is None:
-            return
-        checked_count = 0
-        unchecked_count = 0
-        total = parent.childCount()
-        for i in range(total):
-            st = parent.child(i).checkState(0)
-            if st == CHECKED:
-                checked_count += 1
-            elif st == UNCHECKED:
-                unchecked_count += 1
-
-        if checked_count == total:
-            parent.setCheckState(0, CHECKED)
-        elif unchecked_count == total:
-            parent.setCheckState(0, UNCHECKED)
-        else:
-            parent.setCheckState(0, PARTIALLY_CHECKED)
-
-        self._update_parent_check_state(parent)
-
-    def on_item_changed(self, item, column):
-        self.tree.blockSignals(True)
-        state = item.checkState(0)
-        if item.childCount() > 0 and state != PARTIALLY_CHECKED:
-            self._set_children_check_state(item, state)
-        self._update_parent_check_state(item)
-        self.tree.blockSignals(False)
-        self.update_summary()
 
     def select_all(self):
         self.tree.blockSignals(True)
