@@ -9,6 +9,7 @@
 
 Nothing here touches a Calibre library. The caller passes a `fetch` function in tests; the default uses urllib.
 """
+
 import http.client
 import json
 import os
@@ -21,18 +22,23 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-VERSION = '1.0.0'
-PROJECT_URL = 'https://github.com/Kaleaon/calibre_plugins'
-MB_ROOT = 'https://musicbrainz.org/ws/2'
-CAA_ROOT = 'https://coverartarchive.org'
-ACOUSTID_URL = 'https://api.acoustid.org/v2/lookup'
-OL_ROOT = 'https://openlibrary.org'
-OL_COVERS = 'https://covers.openlibrary.org'
+VERSION = "1.0.0"
+PROJECT_URL = "https://github.com/Kaleaon/calibre_plugins"
+MB_ROOT = "https://musicbrainz.org/ws/2"
+CAA_ROOT = "https://coverartarchive.org"
+ACOUSTID_URL = "https://api.acoustid.org/v2/lookup"
+OL_ROOT = "https://openlibrary.org"
+OL_COVERS = "https://covers.openlibrary.org"
 RETRY_STATUS = {429, 502, 503, 504}
 # Minimum seconds between requests to the same host. MusicBrainz's rule is one a second; the others ask only for politeness
 # (AcoustID allows 3 a second).
-MIN_INTERVAL = {'musicbrainz.org': 1.1, 'api.acoustid.org': 0.4, 'openlibrary.org': 0.5, 'covers.openlibrary.org': 0.3,
-                'coverartarchive.org': 0.3}
+MIN_INTERVAL = {
+    "musicbrainz.org": 1.1,
+    "api.acoustid.org": 0.4,
+    "openlibrary.org": 0.5,
+    "covers.openlibrary.org": 0.3,
+    "coverartarchive.org": 0.3,
+}
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 
 
@@ -48,10 +54,10 @@ class Cancelled(Exception):
     pass
 
 
-def user_agent(contact=''):
+def user_agent(contact=""):
     """MusicBrainz and Open Library ask for a User-Agent that says who is calling and how to reach them."""
     contact = contact.strip()
-    return f'CalibreMediaMatcher/{VERSION} ( {contact or PROJECT_URL} )'
+    return f"CalibreMediaMatcher/{VERSION} ( {contact or PROJECT_URL} )"
 
 
 def urllib_fetch(url, headers, data, timeout):
@@ -63,10 +69,29 @@ def urllib_fetch(url, headers, data, timeout):
 class Http:
     """Polite HTTP: one request at a time per host spaced by MIN_INTERVAL, retry on busy/rate-limit answers, cancellable."""
 
-    def __init__(self, fetch=None, contact='', sleep=time.sleep, clock=time.monotonic, cancelled=lambda: False,
-                 on_wait=lambda seconds, why: None, retries=4, timeout=30):
-        self.fetch, self.contact, self.sleep, self.clock = fetch or urllib_fetch, contact, sleep, clock
-        self.cancelled, self.on_wait, self.retries, self.timeout = cancelled, on_wait, retries, timeout
+    def __init__(
+        self,
+        fetch=None,
+        contact="",
+        sleep=time.sleep,
+        clock=time.monotonic,
+        cancelled=lambda: False,
+        on_wait=lambda seconds, why: None,
+        retries=4,
+        timeout=30,
+    ):
+        self.fetch, self.contact, self.sleep, self.clock = (
+            fetch or urllib_fetch,
+            contact,
+            sleep,
+            clock,
+        )
+        self.cancelled, self.on_wait, self.retries, self.timeout = (
+            cancelled,
+            on_wait,
+            retries,
+            timeout,
+        )
         self.last = {}
 
     def _wait(self, seconds, why):
@@ -82,17 +107,19 @@ class Http:
                 return
             self.sleep(min(0.2, left))
 
-    def request(self, url, data=None, accept='application/json'):
-        host = urllib.parse.urlsplit(url).hostname or ''
-        headers = {'User-Agent': user_agent(self.contact), 'Accept': accept}
+    def request(self, url, data=None, accept="application/json"):
+        host = urllib.parse.urlsplit(url).hostname or ""
+        headers = {"User-Agent": user_agent(self.contact), "Accept": accept}
         if data is not None:
-            headers['Content-Type'] = 'application/x-www-form-urlencoded'
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
         for attempt in range(self.retries + 1):
             if self.cancelled():
                 raise Cancelled()
             gap = MIN_INTERVAL.get(host, 0)
             if host in self.last:
-                self._wait(self.last[host] + gap - self.clock(), f'pacing requests to {host}')
+                self._wait(
+                    self.last[host] + gap - self.clock(), f"pacing requests to {host}"
+                )
             self.last[host] = self.clock()
             try:
                 return self.fetch(url, headers, data, self.timeout)
@@ -100,40 +127,59 @@ class Http:
                 self.last[host] = self.clock()
                 if exc.code in RETRY_STATUS and attempt < self.retries:
                     try:
-                        delay = float(exc.headers.get('Retry-After', '')) if exc.headers else 0
+                        delay = (
+                            float(exc.headers.get("Retry-After", ""))
+                            if exc.headers
+                            else 0
+                        )
                     except ValueError:
                         delay = 0
-                    self._wait(max(delay, 2 ** (attempt + 1)), f'{host} is busy (HTTP {exc.code})')
+                    self._wait(
+                        max(delay, 2 ** (attempt + 1)),
+                        f"{host} is busy (HTTP {exc.code})",
+                    )
                     continue
                 raise HttpStatus(exc.code, host) from None
-            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError, http.client.HTTPException) as exc:
+            except (
+                urllib.error.URLError,
+                TimeoutError,
+                ConnectionError,
+                OSError,
+                http.client.HTTPException,
+            ) as exc:
                 if attempt < self.retries:
-                    self._wait(2 ** (attempt + 1), f'could not reach {host}')
+                    self._wait(2 ** (attempt + 1), f"could not reach {host}")
                     continue
-                reason = getattr(exc, 'reason', exc)
-                raise ServiceError(f'Could not reach {host}: {reason}') from None
-        raise ServiceError(f'{host} did not answer')
+                reason = getattr(exc, "reason", exc)
+                raise ServiceError(f"Could not reach {host}: {reason}") from None
+        raise ServiceError(f"{host} did not answer")
 
     def json(self, url, params=None, data=None):
         if params:
-            url = url + ('&' if '?' in url else '?') + urllib.parse.urlencode(params)
-        raw = self.request(url, data=urllib.parse.urlencode(data).encode() if data else None)
+            url = url + ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
+        raw = self.request(
+            url, data=urllib.parse.urlencode(data).encode() if data else None
+        )
         try:
-            return json.loads(raw.decode('utf-8'))
+            return json.loads(raw.decode("utf-8"))
         except ValueError:
-            raise ServiceError(f'{urllib.parse.urlsplit(url).hostname} sent an answer that is not JSON') from None
+            raise ServiceError(
+                f"{urllib.parse.urlsplit(url).hostname} sent an answer that is not JSON"
+            ) from None
 
 
 class HttpStatus(ServiceError):
     def __init__(self, code, host):
-        super().__init__(f'{host} answered HTTP {code}')
+        super().__init__(f"{host} answered HTTP {code}")
         self.code, self.host = code, host
 
 
 # -- MusicBrainz ---------------------------------------------------------------------------------------------------------
-UUID_REGEX = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
-OLID_REGEX = re.compile(r'^OL\d+[A-Z]$', re.IGNORECASE)
-ISBN_CLEAN_REGEX = re.compile(r'[^0-9X]', re.IGNORECASE)
+UUID_REGEX = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+OLID_REGEX = re.compile(r"^OL\d+[A-Z]$", re.IGNORECASE)
+ISBN_CLEAN_REGEX = re.compile(r"[^0-9X]", re.IGNORECASE)
 
 
 def sanitize_identifier(raw_id):
@@ -141,63 +187,84 @@ def sanitize_identifier(raw_id):
     Returns (id_type, cleaned_value) where id_type is 'mb_recording', 'mb_release', 'olid', 'isbn', 'barcode', or 'invalid'.
     """
     if not raw_id:
-        return 'invalid', ''
+        return "invalid", ""
     text = str(raw_id).strip()
 
     low = text.lower()
-    if low.startswith('mb_recording:') or low.startswith('recording:'):
-        val = text.split(':', 1)[1].strip()
+    if low.startswith("mb_recording:") or low.startswith("recording:"):
+        val = text.split(":", 1)[1].strip()
         if UUID_REGEX.match(val):
-            return 'mb_recording', val.lower()
-    elif low.startswith('mb_release:') or low.startswith('release:'):
-        val = text.split(':', 1)[1].strip()
+            return "mb_recording", val.lower()
+    elif low.startswith("mb_release:") or low.startswith("release:"):
+        val = text.split(":", 1)[1].strip()
         if UUID_REGEX.match(val):
-            return 'mb_release', val.lower()
-    elif low.startswith('olid:') or low.startswith('openlibrary:'):
-        val = text.split(':', 1)[1].strip()
+            return "mb_release", val.lower()
+    elif low.startswith("olid:") or low.startswith("openlibrary:"):
+        val = text.split(":", 1)[1].strip()
         if OLID_REGEX.match(val):
-            return 'olid', val.upper()
-    elif low.startswith('isbn:') or low.startswith('isbn10:') or low.startswith('isbn13:'):
-        val = text.split(':', 1)[1].strip()
-        cleaned = ISBN_CLEAN_REGEX.sub('', val)
+            return "olid", val.upper()
+    elif (
+        low.startswith("isbn:")
+        or low.startswith("isbn10:")
+        or low.startswith("isbn13:")
+    ):
+        val = text.split(":", 1)[1].strip()
+        cleaned = ISBN_CLEAN_REGEX.sub("", val)
         if len(cleaned) in (10, 13):
-            return 'isbn', cleaned.upper()
-    elif low.startswith('barcode:') or low.startswith('upc:') or low.startswith('ean:'):
-        val = text.split(':', 1)[1].strip()
-        cleaned = re.sub(r'\D', '', val)
+            return "isbn", cleaned.upper()
+    elif low.startswith("barcode:") or low.startswith("upc:") or low.startswith("ean:"):
+        val = text.split(":", 1)[1].strip()
+        cleaned = re.sub(r"\D", "", val)
         if cleaned:
-            return 'barcode', cleaned
+            return "barcode", cleaned
 
     if UUID_REGEX.match(text):
-        return 'mb_recording', text.lower()
+        return "mb_recording", text.lower()
 
     if OLID_REGEX.match(text):
-        return 'olid', text.upper()
+        return "olid", text.upper()
 
-    cleaned_isbn = ISBN_CLEAN_REGEX.sub('', text)
-    if len(cleaned_isbn) in (10, 13) and (cleaned_isbn[:-1].isdigit() and (cleaned_isbn[-1].isdigit() or cleaned_isbn[-1].upper() == 'X')):
-        if len(cleaned_isbn) == 13 and not cleaned_isbn.startswith(('978', '979')) and cleaned_isbn.isdigit():
-            return 'barcode', cleaned_isbn
-        return 'isbn', cleaned_isbn.upper()
+    cleaned_isbn = ISBN_CLEAN_REGEX.sub("", text)
+    if len(cleaned_isbn) in (10, 13) and (
+        cleaned_isbn[:-1].isdigit()
+        and (cleaned_isbn[-1].isdigit() or cleaned_isbn[-1].upper() == "X")
+    ):
+        if (
+            len(cleaned_isbn) == 13
+            and not cleaned_isbn.startswith(("978", "979"))
+            and cleaned_isbn.isdigit()
+        ):
+            return "barcode", cleaned_isbn
+        return "isbn", cleaned_isbn.upper()
 
     if len(cleaned_isbn) == 12 and cleaned_isbn.isdigit():
-        return 'barcode', cleaned_isbn
+        return "barcode", cleaned_isbn
 
-    return 'invalid', ''
+    return "invalid", ""
 
 
 def lucene_phrase(text):
     """A quoted Lucene phrase safe to embed in a MusicBrainz search query."""
-    return '"' + re.sub(r'(["\\])', r'\\\1', text.replace('\n', ' ')).strip() + '"'
+    return '"' + re.sub(r'(["\\])', r"\\\1", text.replace("\n", " ")).strip() + '"'
 
 
-def mb_search_recordings(http, title='', artist='', album='', recording_id='', release_id='', limit=25, recording_ids=None, barcode=''):
+def mb_search_recordings(
+    http,
+    title="",
+    artist="",
+    album="",
+    recording_id="",
+    release_id="",
+    limit=25,
+    recording_ids=None,
+    barcode="",
+):
     """Recording search results (each with its releases and the track's place on them). Searches the more specific
     title+artist+album first; the caller decides whether to broaden."""
     if barcode:
-        query = f'barcode:{str(barcode).strip()}'
+        query = f"barcode:{str(barcode).strip()}"
     elif release_id:
-        query = f'reid:{release_id}'
+        query = f"reid:{release_id}"
     else:
         raw_ids = recording_ids if recording_ids is not None else recording_id
         if raw_ids:
@@ -209,45 +276,56 @@ def mb_search_recordings(http, title='', artist='', album='', recording_id='', r
                 ids = []
             ids = ids[:4]
             if ids:
-                query = ' OR '.join(f'rid:{r}' for r in ids)
+                query = " OR ".join(f"rid:{r}" for r in ids)
             else:
-                query = ''
+                query = ""
         else:
-            query = ''
+            query = ""
 
     if not query:
         parts = []
         if title:
-            parts.append(f'recording:{lucene_phrase(title)}')
+            parts.append(f"recording:{lucene_phrase(title)}")
         if artist:
-            parts.append(f'artist:{lucene_phrase(artist)}')
+            parts.append(f"artist:{lucene_phrase(artist)}")
         if album:
-            parts.append(f'release:{lucene_phrase(album)}')
+            parts.append(f"release:{lucene_phrase(album)}")
         if not parts:
             return []
-        query = ' AND '.join(parts)
+        query = " AND ".join(parts)
     try:
-        data = http.json(MB_ROOT + '/recording/', {'query': query, 'fmt': 'json', 'limit': limit})
+        data = http.json(
+            MB_ROOT + "/recording/", {"query": query, "fmt": "json", "limit": limit}
+        )
     except HttpStatus as exc:
-        if exc.code == 400:  # a query MusicBrainz cannot parse is a "no result", not a failure of the whole run
+        if (
+            exc.code == 400
+        ):  # a query MusicBrainz cannot parse is a "no result", not a failure of the whole run
             return []
         raise
-    return data.get('recordings', [])
+    return data.get("recordings", [])
 
 
-def cover_art_url(release_id, group_id=''):
-    return [f'{CAA_ROOT}/release/{release_id}/front-500'] + ([f'{CAA_ROOT}/release-group/{group_id}/front-500'] if group_id else [])
+def cover_art_url(release_id, group_id=""):
+    return [f"{CAA_ROOT}/release/{release_id}/front-500"] + (
+        [f"{CAA_ROOT}/release-group/{group_id}/front-500"] if group_id else []
+    )
 
 
 def is_image(data):
-    return data[:3] == b'\xff\xd8\xff' or data[:8] == b'\x89PNG\r\n\x1a\n' or data[:4] == b'GIF8' or (data[:4] == b'RIFF' and data[8:12] == b'WEBP')
+    return (
+        data[:3] == b"\xff\xd8\xff"
+        or data[:8] == b"\x89PNG\r\n\x1a\n"
+        or data[:4] == b"GIF8"
+        or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")
+    )
 
 
 def fetch_image(http, urls):
     """First of the URLs that gives an image, or None if none does (a 404 just means "no cover")."""
     for url in urls:
         try:
-            data = http.request(url, accept='image/*')
+            data = http.request(url, accept="image/*")
         except HttpStatus as exc:
             if exc.code in (400, 403, 404):
                 continue
@@ -258,11 +336,11 @@ def fetch_image(http, urls):
 
 
 # -- AcoustID / Chromaprint ----------------------------------------------------------------------------------------------
-def find_fpcalc(configured=''):
+def find_fpcalc(configured=""):
     """Path of Chromaprint's fpcalc: the configured path (a file, or a folder holding it), else the system PATH, else
     next to the Calibre or plugin folder. None if not found."""
-    names = ['fpcalc.exe', 'fpcalc'] if sys.platform == 'win32' else ['fpcalc']
-    configured = (configured or '').strip().strip('"')
+    names = ["fpcalc.exe", "fpcalc"] if sys.platform == "win32" else ["fpcalc"]
+    configured = (configured or "").strip().strip('"')
     if configured:
         if os.path.isfile(configured):
             return configured
@@ -280,62 +358,89 @@ def find_fpcalc(configured=''):
 
 def fingerprint(path, fpcalc, runner=subprocess.run):
     """-> (duration seconds int, fingerprint str) using `fpcalc -json`. Raises ServiceError if it fails."""
-    kwargs = {'capture_output': True, 'timeout': 120}
-    if sys.platform == 'win32':
-        kwargs['creationflags'] = 0x08000000  # CREATE_NO_WINDOW: no console flash from the GUI
+    kwargs = {"capture_output": True, "timeout": 120}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = (
+            0x08000000  # CREATE_NO_WINDOW: no console flash from the GUI
+        )
     try:
-        done = runner([fpcalc, '-json', path], **kwargs)
+        done = runner([fpcalc, "-json", path], **kwargs)
     except (OSError, subprocess.SubprocessError) as exc:
-        raise FingerprintError(f'fpcalc could not be run: {exc}') from None
+        raise FingerprintError(f"fpcalc could not be run: {exc}") from None
     if done.returncode != 0:
-        message = (done.stderr or b'').decode('utf-8', 'replace').strip().splitlines()
-        raise FingerprintError('fpcalc could not read this file' + (f': {message[-1]}' if message else ''))
+        message = (done.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        raise FingerprintError(
+            "fpcalc could not read this file" + (f": {message[-1]}" if message else "")
+        )
     try:
-        data = json.loads(done.stdout.decode('utf-8'))
-        return int(float(data['duration'])), data['fingerprint']
+        data = json.loads(done.stdout.decode("utf-8"))
+        return int(float(data["duration"])), data["fingerprint"]
     except (ValueError, KeyError, TypeError):
-        raise FingerprintError('fpcalc gave an answer that could not be understood (is it Chromaprint 1.4 or newer?)') from None
+        raise FingerprintError(
+            "fpcalc gave an answer that could not be understood (is it Chromaprint 1.4 or newer?)"
+        ) from None
 
 
 def acoustid_lookup(http, api_key, duration, fp):
     """-> [(acoustid score 0..1, [recording ids])], best first."""
     try:
-        data = http.json(ACOUSTID_URL, data={'client': api_key, 'meta': 'recordings', 'duration': duration, 'fingerprint': fp,
-                                             'format': 'json'})
+        data = http.json(
+            ACOUSTID_URL,
+            data={
+                "client": api_key,
+                "meta": "recordings",
+                "duration": duration,
+                "fingerprint": fp,
+                "format": "json",
+            },
+        )
     except HttpStatus as exc:
         if exc.code in (400, 401, 403):
-            raise ServiceError('AcoustID refused the request; check the application API key in the settings') from None
+            raise ServiceError(
+                "AcoustID refused the request; check the application API key in the settings"
+            ) from None
         raise
-    if data.get('status') != 'ok':
-        message = (data.get('error') or {}).get('message', 'unknown error')
-        raise ServiceError(f'AcoustID: {message}')
+    if data.get("status") != "ok":
+        message = (data.get("error") or {}).get("message", "unknown error")
+        raise ServiceError(f"AcoustID: {message}")
     out = []
-    for result in data.get('results', []):
-        ids = [r['id'] for r in result.get('recordings', []) if r.get('id')]
+    for result in data.get("results", []):
+        ids = [r["id"] for r in result.get("recordings", []) if r.get("id")]
         if ids:
-            out.append((float(result.get('score', 0)), ids))
+            out.append((float(result.get("score", 0)), ids))
     return sorted(out, key=lambda x: -x[0])
 
 
 # -- Open Library ----------------------------------------------------------------------------------------------------------
-OL_FIELDS = 'key,title,author_name,first_publish_year,isbn,publisher,cover_i,cover_edition_key,subject,language'
+OL_FIELDS = "key,title,author_name,first_publish_year,isbn,publisher,cover_i,cover_edition_key,subject,language"
 
 
-def ol_search(http, title, author='', limit=6):
-    params = {'title': title, 'limit': limit, 'fields': OL_FIELDS}
+def ol_search(http, title, author="", limit=6):
+    params = {"title": title, "limit": limit, "fields": OL_FIELDS}
     if author:
-        params['author'] = author
-    docs = http.json(OL_ROOT + '/search.json', params).get('docs', [])
-    if not docs and author:  # an author spelled differently from Open Library's would otherwise hide the book
-        docs = http.json(OL_ROOT + '/search.json', {'title': title, 'limit': limit, 'fields': OL_FIELDS}).get('docs', [])
+        params["author"] = author
+    docs = http.json(OL_ROOT + "/search.json", params).get("docs", [])
+    if (
+        not docs and author
+    ):  # an author spelled differently from Open Library's would otherwise hide the book
+        docs = http.json(
+            OL_ROOT + "/search.json",
+            {"title": title, "limit": limit, "fields": OL_FIELDS},
+        ).get("docs", [])
     return docs
 
 
 def ol_search_by_isbn(http, isbn, limit=6):
     try:
-        docs = http.json(OL_ROOT + '/search.json', {'isbn': isbn, 'limit': limit, 'fields': OL_FIELDS}).get('docs', [])
+        docs = http.json(
+            OL_ROOT + "/search.json",
+            {"isbn": isbn, "limit": limit, "fields": OL_FIELDS},
+        ).get("docs", [])
         if not docs:
-            docs = http.json(OL_ROOT + '/search.json', {'q': f'isbn:{isbn}', 'limit': limit, 'fields': OL_FIELDS}).get('docs', [])
+            docs = http.json(
+                OL_ROOT + "/search.json",
+                {"q": f"isbn:{isbn}", "limit": limit, "fields": OL_FIELDS},
+            ).get("docs", [])
         return docs
     except HttpStatus as exc:
         if exc.code == 400:
@@ -345,9 +450,14 @@ def ol_search_by_isbn(http, isbn, limit=6):
 
 def ol_search_by_olid(http, olid, limit=6):
     try:
-        docs = http.json(OL_ROOT + '/search.json', {'q': olid, 'limit': limit, 'fields': OL_FIELDS}).get('docs', [])
+        docs = http.json(
+            OL_ROOT + "/search.json", {"q": olid, "limit": limit, "fields": OL_FIELDS}
+        ).get("docs", [])
         if not docs:
-            docs = http.json(OL_ROOT + '/search.json', {'q': f'key:/books/{olid}', 'limit': limit, 'fields': OL_FIELDS}).get('docs', [])
+            docs = http.json(
+                OL_ROOT + "/search.json",
+                {"q": f"key:/books/{olid}", "limit": limit, "fields": OL_FIELDS},
+            ).get("docs", [])
         return docs
     except HttpStatus as exc:
         if exc.code == 400:
@@ -356,4 +466,4 @@ def ol_search_by_olid(http, olid, limit=6):
 
 
 def ol_cover_urls(cover_id):
-    return [f'{OL_COVERS}/b/id/{cover_id}-L.jpg?default=false'] if cover_id else []
+    return [f"{OL_COVERS}/b/id/{cover_id}-L.jpg?default=false"] if cover_id else []
