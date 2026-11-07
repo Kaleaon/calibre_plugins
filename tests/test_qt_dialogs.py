@@ -194,7 +194,7 @@ class TaskAndTagSearchTests(QtCase):
 
             def accept_options_dialog():
                 for widget in QtWidgets.QApplication.topLevelWidgets():
-                    if isinstance(widget, QtWidgets.QDialog) and not isinstance(widget, QtWidgets.QProgressDialog):
+                    if isinstance(widget, QtWidgets.QDialog) and not isinstance(widget, QtWidgets.QProgressDialog) and widget.isVisible():
                         widget.accept()
                         return
                 QtCore.QTimer.singleShot(10, accept_options_dialog)
@@ -690,8 +690,17 @@ class RedditPluginTests(QtCase):
         dialog.login_endpoints['redirect_uri'] = login.REDIRECT_URI
 
         def browser(url):
-            state = parse_qs(urlparse(url).query)['state'][0]
-            threading.Thread(target=lambda: urllib.request.urlopen(f'{login.REDIRECT_URI}?code=abc&state={state}').read()).start()
+            query = parse_qs(urlparse(url).query)
+            state = query['state'][0]
+            redirect_uri = query.get('redirect_uri', [login.REDIRECT_URI])[0]
+            def visit():
+                for _ in range(50):
+                    try:
+                        urllib.request.urlopen(f'{redirect_uri}?code=abc&state={state}').read()
+                        break
+                    except OSError:
+                        time.sleep(0.02)
+            threading.Thread(target=visit).start()
         dialog.open_browser = browser
         dialog.log_in()
         self.assertEqual(RecordingBox.warnings, [])
@@ -1304,12 +1313,8 @@ class GeminiDialogTests(QtCase):
 
             dialog.reject()
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, 'exec', drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
 
         self.assertEqual(seen['initial_mode_index'], 1, 'Started in override mode index 1')
         self.assertEqual(seen['initial_text'], 'Custom test instruction prompt')
