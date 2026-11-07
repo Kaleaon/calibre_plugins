@@ -4,9 +4,18 @@ import os
 import sys
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from PyQt6 import QtCore, QtGui, QtWidgets
+
+ROOT = Path(__file__).resolve().parents[1]
+
+_ORIGINAL_MODULES = {
+    k: v
+    for k, v in sys.modules.items()
+    if k.startswith(("calibre", "qt", "calibre_plugins"))
+}
 
 
 def _setup_shims():
@@ -33,19 +42,32 @@ def _setup_shims():
             m.__path__ = []
             sys.modules[name] = m
 
+    gui2 = sys.modules["calibre.gui2"]
+    for fn in ("error_dialog", "info_dialog", "question_dialog", "warning_dialog"):
+        if not hasattr(gui2, fn):
+            setattr(gui2, fn, MagicMock())
+
     class StubPrefs(dict):
         def __init__(self):
             super().__init__()
             self.defaults = {}
 
+        def __getitem__(self, k):
+            try:
+                return super().__getitem__(k)
+            except KeyError:
+                return self.defaults[k]
+
         def get(self, k, default=None):
             return super().get(k, self.defaults.get(k, default))
 
     class StubAction:
-        def __init__(self, gui, name):
+        def __init__(self, gui=None, name=None):
             self.gui = gui
             self.name = name
             self.qaction = MagicMock()
+            self.actual_plugin = MagicMock()
+            self.interface_action_base_plugin = None
 
     sys.modules["calibre.gui2.actions"].InterfaceAction = StubAction
     sys.modules["calibre.customize"].InterfaceActionBase = object
@@ -56,7 +78,8 @@ def _setup_shims():
 
     if "calibre_plugins" not in sys.modules:
         sys.modules["calibre_plugins"] = types.ModuleType("calibre_plugins")
-        sys.modules["calibre_plugins"].__path__ = []
+    if not getattr(sys.modules["calibre_plugins"], "__path__", None):
+        sys.modules["calibre_plugins"].__path__ = [str(ROOT)]
     if "calibre_plugins.calibre_link" not in sys.modules:
         import calibre_link
 
@@ -72,6 +95,15 @@ class CalibreLinkUITests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    @classmethod
+    def tearDownClass(cls):
+        for k in list(sys.modules):
+            if k.startswith(("calibre", "qt", "calibre_plugins")):
+                if k in _ORIGINAL_MODULES:
+                    sys.modules[k] = _ORIGINAL_MODULES[k]
+                else:
+                    sys.modules.pop(k, None)
 
     def setUp(self):
         self.action = CalibreLinkAction(None, "Calibre Link")
