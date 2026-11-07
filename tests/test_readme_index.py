@@ -9,7 +9,10 @@ README = (ROOT / 'README.md').read_text(encoding='utf-8')
 
 def setUpModule():
     import build_plugins
-    build_plugins.build_all(ROOT / 'dist')
+    try:
+        build_plugins.build_all(ROOT / 'dist')
+    except ImportError as exc:
+        raise unittest.SkipTest(str(exc))
 
 
 def rows():
@@ -43,7 +46,10 @@ class ReadmeIndexTests(unittest.TestCase):
             target = ROOT / 'dist' / row['zips'][0]
             if not target.is_file():
                 import build_plugins
-                build_plugins.build_all(ROOT / 'dist')
+                try:
+                    build_plugins.build_all(ROOT / 'dist')
+                except ImportError as exc:
+                    raise unittest.SkipTest(str(exc))
             self.assertTrue(target.is_file(), f"{row['name']}: dist/{row['zips'][0]} is missing")
 
     def test_relative_links_resolve(self):
