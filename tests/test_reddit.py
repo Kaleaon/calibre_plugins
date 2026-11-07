@@ -1330,10 +1330,11 @@ def ensure_qt():
     global _GLOBAL_QT_APP
     try:
         from qt.core import QApplication
-        if not QApplication.instance():
-            _GLOBAL_QT_APP = QApplication([])
-        else:
-            _GLOBAL_QT_APP = QApplication.instance()
+        if hasattr(QApplication, 'instance') and callable(QApplication.instance):
+            if not QApplication.instance():
+                _GLOBAL_QT_APP = QApplication([])
+            else:
+                _GLOBAL_QT_APP = QApplication.instance()
     except Exception:
         pass
 
@@ -1344,6 +1345,7 @@ def ensure_qt():
         try:
             from PyQt6 import QtCore, QtGui, QtWidgets
             app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+            _GLOBAL_QT_APP = app
             qtcore = types.ModuleType('qt.core')
             for module in (QtWidgets, QtGui, QtCore):
                 for name in dir(module):
@@ -1366,6 +1368,8 @@ def ensure_qt():
                 def __init__(self, *args, **kwargs):
                     self._visible = True
                     self._text = args[0] if args and isinstance(args[0], str) else ''
+                    self._children = []
+                    self._row_count = 0
                     self.textChanged = MockSignal()
                     self.accepted = MockSignal()
                     self.rejected = MockSignal()
@@ -1374,9 +1378,22 @@ def ensure_qt():
                 def setWordWrap(self, b): pass
                 def setToolTip(self, t): pass
                 def setPlaceholderText(self, t): pass
-                def addWidget(self, w, *a): pass
-                def addLayout(self, l, *a): pass
-                def addRow(self, *a): pass
+                def addWidget(self, w, *a):
+                    self._children.append(w)
+                def addLayout(self, layout_item, *a):
+                    self._children.append(layout_item)
+                def addRow(self, *a):
+                    for item in a:
+                        if isinstance(item, (MockWidget, str)):
+                            self._children.append(item)
+                def findChildren(self, typ, *a, **k):
+                    res = []
+                    for c in self._children:
+                        if isinstance(c, typ):
+                            res.append(c)
+                        if hasattr(c, 'findChildren'):
+                            res.extend(c.findChildren(typ))
+                    return res
                 def setVisible(self, v): self._visible = bool(v)
                 def isVisible(self): return self._visible
                 def show(self): self._visible = True
@@ -1392,7 +1409,8 @@ def ensure_qt():
                 def setEditTriggers(self, *a): pass
                 def horizontalHeader(self): return self
                 def setStretchLastSection(self, *a): pass
-                def setRowCount(self, *a): pass
+                def setRowCount(self, count, *a): self._row_count = count
+                def rowCount(self): return self._row_count
                 def setItem(self, *a): pass
 
             class MockCheckBox(MockWidget):
@@ -1412,7 +1430,7 @@ def ensure_qt():
                 currentIndexChanged = MockSignal()
 
             qtcore = types.ModuleType('qt.core')
-            for name in ['QAbstractItemView', 'QDialog', 'QDialogButtonBox', 'QDoubleSpinBox', 'QFormLayout', 'QHBoxLayout', 'QLineEdit', 'QMessageBox', 'QPushButton', 'QRadioButton', 'QSpinBox', 'QTableWidget', 'QTableWidgetItem', 'QVBoxLayout']:
+            for name in ['QAbstractItemView', 'QApplication', 'QDialog', 'QDialogButtonBox', 'QDoubleSpinBox', 'QEvent', 'QFormLayout', 'QFrame', 'QHBoxLayout', 'QHeaderView', 'QLineEdit', 'QMessageBox', 'QObject', 'QPalette', 'QPlainTextEdit', 'QPushButton', 'QProgressDialog', 'QRadioButton', 'QSpinBox', 'QSplitter', 'QTableWidget', 'QTableWidgetItem', 'QTreeWidget', 'QTreeWidgetItem', 'QVBoxLayout', 'QWidget']:
                 setattr(qtcore, name, MockWidget)
             qtcore.QCheckBox = MockCheckBox
             qtcore.QLabel = MockWidget
@@ -1507,6 +1525,42 @@ class FollowDialogWarningTests(unittest.TestCase):
         dialog3.show()
         dialog3.author_note.setChecked(True)
         self.assertFalse(dialog3.author_note_warning.isVisible())
+
+    def test_single_sources_table_and_buttons(self):
+        self.rui.prefs['mode'] = 'rss'
+        self.rui.prefs['client_id'] = ''
+        dialog = self.rui.FollowDialog(None)
+        dialog.show()
+
+        # FollowDialog must contain exactly one QTableWidget (sources_table)
+        tables = dialog.findChildren(self.rui.QTableWidget)
+        self.assertEqual(len(tables), 1)
+        self.assertIs(dialog.sources_table, tables[0])
+
+        # Exactly one pair of Add/Remove feed source buttons
+        buttons = dialog.findChildren(self.rui.QPushButton)
+        add_source_buttons = [b for b in buttons if 'Add feed source' in b.text()]
+        rem_source_buttons = [b for b in buttons if 'Remove feed source' in b.text()]
+        self.assertEqual(len(add_source_buttons), 1)
+        self.assertEqual(len(rem_source_buttons), 1)
+
+        # Editing an existing follow with multiple sources must populate the single table correctly
+        sample_follow = {
+            'id': 'series_multi_source',
+            'name': 'Sample Series',
+            'source': {'kind': 'subreddit', 'subreddit': 'HFY'},
+            'sources': [
+                {'kind': 'subreddit', 'subreddit': 'HFY', 'title_filter': 'Part 1', 'author_filter': '', 'flair_filter': ''},
+                {'kind': 'user', 'user': 'AuthorA', 'title_filter': '', 'author_filter': '', 'flair_filter': ''},
+            ],
+            'title_from_body': False,
+            'author_note': False,
+        }
+        edit_dialog = self.rui.FollowDialog(None, follow=sample_follow)
+        edit_tables = edit_dialog.findChildren(self.rui.QTableWidget)
+        self.assertEqual(len(edit_tables), 1)
+        self.assertIs(edit_dialog.sources_table, edit_tables[0])
+        self.assertEqual(edit_dialog.sources_table.rowCount(), 2)
 
 
 if __name__ == '__main__':
