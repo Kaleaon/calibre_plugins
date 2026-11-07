@@ -733,11 +733,19 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             m.setChecked.side_effect = lambda c: setattr(m, '_checked', bool(c))
             return m
 
+        def make_radio_button(text=''):
+            m = MagicMock()
+            m._checked = False
+            m.isChecked.side_effect = lambda: m._checked
+            m.setChecked.side_effect = lambda c: setattr(m, '_checked', bool(c))
+            return m
+
         qt_mod = MagicMock()
         qt_mod.core.QDialog = StubDialog
         qt_mod.core.QPlainTextEdit.side_effect = lambda *args: make_plain_text_edit(args[0] if args else '')
         qt_mod.core.QLineEdit.side_effect = lambda *args: make_line_edit(args[0] if args else '')
         qt_mod.core.QCheckBox.side_effect = lambda *args: make_check_box(args[0] if args else '')
+        qt_mod.core.QRadioButton.side_effect = lambda *args: make_radio_button(args[0] if args else '')
         sys.modules['qt'] = qt_mod
         sys.modules['qt.core'] = qt_mod.core
 
@@ -833,6 +841,134 @@ class RuleSetManagerDialogTests(unittest.TestCase):
 
         dlg._on_accept()
         dlg.accept.assert_not_called()
+
+    def test_manager_dialog_commit_modes(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        dlg = action_mod.RuleSetManagerDialog(None, current_rules="litrpg => LitRPG", current_sites="sol.net => Stories Online")
+        self.assertEqual(dlg.get_commit_mode(), 'merge')
+        self.assertEqual(dlg.commit_mode, 'merge')
+
+        dlg.set_commit_mode('replace')
+        self.assertEqual(dlg.get_commit_mode(), 'replace')
+        self.assertEqual(dlg.commit_mode, 'replace')
+
+        dlg.commit_mode = 'merge'
+        self.assertEqual(dlg.get_commit_mode(), 'merge')
+
+    def test_manager_dialog_load_json_error_handling(self):
+        import json
+        import tempfile
+
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        dlg = action_mod.RuleSetManagerDialog(None, current_rules="litrpg => LitRPG", current_sites="sol.net => Stories Online")
+
+        # 1. Invalid JSON syntax
+        with tempfile.NamedTemporaryFile(suffix='.json', mode='w', encoding='utf-8', delete=False) as tf:
+            tf.write("INVALID JSON CONTENT")
+            invalid_path = tf.name
+
+        dlg._load_json(invalid_path)
+        self.assertEqual(len(dlg.local_rules), 1)
+
+        # 2. Unsupported schema version
+        with tempfile.NamedTemporaryFile(suffix='.json', mode='w', encoding='utf-8', delete=False) as tf:
+            json.dump({'version': 99, 'rules': []}, tf)
+            bad_ver_path = tf.name
+
+        dlg._load_json(bad_ver_path)
+        self.assertEqual(len(dlg.local_rules), 1)
+
+        # 3. Invalid rule regex syntax
+        with tempfile.NamedTemporaryFile(suffix='.json', mode='w', encoding='utf-8', delete=False) as tf:
+            json.dump({'version': 1, 'rules': ['re:(( => BadRegex']}, tf)
+            bad_regex_path = tf.name
+
+        dlg._load_json(bad_regex_path)
+        self.assertEqual(len(dlg.local_rules), 1)
+
+        # 4. Missing file
+        dlg._load_json('/nonexistent/file/path.json')
+        self.assertEqual(len(dlg.local_rules), 1)
+
+    def test_manager_dialog_load_and_save_json(self):
+        import json
+        import tempfile
+
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        dlg = action_mod.RuleSetManagerDialog(None, current_rules="litrpg => LitRPG", current_sites="sol.net => Stories Online")
+
+        valid_data = {
+            'version': 1,
+            'metadata': {
+                'title': 'Community Pack',
+                'description': 'Shared story tags',
+                'exported_at': '2026-11-07T00:00:00Z',
+            },
+            'rules': [
+                {'field': '', 'pattern': 'litrpg', 'tags': ['LitRPG']},
+                {'field': '', 'pattern': 'litrpg', 'tags': ['GameLit']},
+                {'field': '', 'pattern': 'cultivation', 'tags': ['Xianxia']},
+            ],
+            'sites': [
+                {'name': 'Stories Online', 'hosts': ['sol.net']},
+                {'name': 'Royal Road', 'hosts': ['royalroad.com']},
+            ],
+        }
+
+        with tempfile.NamedTemporaryFile(suffix='.json', mode='w', encoding='utf-8', delete=False) as tf:
+            json.dump(valid_data, tf)
+            import_path = tf.name
+
+        dlg._load_json(import_path)
+
+        with tempfile.NamedTemporaryFile(suffix='.json', mode='w', encoding='utf-8', delete=False) as tf:
+            export_path = tf.name
+
+        dlg._save_json(export_path)
+
+        with open(export_path, encoding='utf-8') as f:
+            exported = json.load(f)
+
+        self.assertEqual(exported['version'], 1)
+        self.assertIn('metadata', exported)
+        self.assertIn('rules', exported)
+        self.assertIn('sites', exported)
+
+    def test_manager_dialog_select_all_deselect_all(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'tagger/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        dlg = action_mod.RuleSetManagerDialog(None, current_rules="rule1 => Tag1\nrule2 => Tag2", current_sites="")
+
+        items = []
+        for _ in range(2):
+            item = MagicMock()
+            item._state = action_mod.Qt.CheckState.Checked
+            item.checkState.side_effect = lambda it=item: it._state
+            item.setCheckState.side_effect = lambda s, it=item: setattr(it, '_state', s)
+            items.append(item)
+
+        dlg.rules_table.rowCount = MagicMock(return_value=2)
+        dlg.rules_table.isRowHidden = MagicMock(return_value=False)
+        dlg.rules_table.item = MagicMock(side_effect=lambda r, c: items[r] if c == 0 else MagicMock())
+
+        dlg._set_all_checked(dlg.rules_table, False)
+        self.assertEqual(items[0]._state, action_mod.Qt.CheckState.Unchecked)
+        self.assertEqual(items[1]._state, action_mod.Qt.CheckState.Unchecked)
+
+        dlg._set_all_checked(dlg.rules_table, True)
+        self.assertEqual(items[0]._state, action_mod.Qt.CheckState.Checked)
+        self.assertEqual(items[1]._state, action_mod.Qt.CheckState.Checked)
 
     def test_export_rule_set_writes_json_file(self):
         import tempfile
