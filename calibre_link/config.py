@@ -1,10 +1,10 @@
-# -*- coding: utf-8 -*-
 """Calibre Link preferences + config widget.
 
 Settings live in calibre's own plugin config store
 (plugins/calibre_link.json in the calibre config directory), so they
 survive restarts and travel with the calibre install.
 """
+
 import secrets
 
 from calibre.utils.config import JSONConfig
@@ -43,8 +43,16 @@ def get_token():
 # Config widget (Preferences -> Plugins -> Calibre Link -> Customize)
 # ----------------------------------------------------------------------
 try:
-    from qt.core import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                         QLineEdit, QSpinBox, QPushButton, QCheckBox)
+    from qt.core import (
+        QCheckBox,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QPushButton,
+        QSpinBox,
+        QVBoxLayout,
+        QWidget,
+    )
 
     class ConfigWidget(QWidget):
         def __init__(self):
@@ -56,7 +64,8 @@ try:
             self.host_edit = QLineEdit(prefs.get("host", "0.0.0.0"))
             self.host_edit.setToolTip(
                 "0.0.0.0 listens on all of this PC's addresses "
-                "(including Tailscale). 127.0.0.1 is this PC only.")
+                "(including Tailscale). 127.0.0.1 is this PC only."
+            )
             row.addWidget(self.host_edit)
             layout.addLayout(row)
 
@@ -74,11 +83,13 @@ try:
             self.token_edit.setToolTip(
                 "Sent as the X-Token header on every request except "
                 "/health. Anyone with this token can edit metadata — "
-                "keep it private.")
+                "keep it private."
+            )
             row.addWidget(self.token_edit)
             regen = QPushButton("Regenerate")
             regen.clicked.connect(
-                lambda: self.token_edit.setText(secrets.token_urlsafe(24)))
+                lambda: self.token_edit.setText(secrets.token_urlsafe(24))
+            )
             row.addWidget(regen)
             layout.addLayout(row)
 
@@ -87,19 +98,18 @@ try:
                 "Calibre Link toolbar button and choose Restart, or just\n"
                 "restart calibre. The same token and address list are\n"
                 "written to CalibreLink-connection.txt in your library\n"
-                "folder every time the bridge starts.")
+                "folder every time the bridge starts."
+            )
             layout.addWidget(note)
 
             layout.addWidget(QLabel("<b>Tailscale (integrated)</b>"))
-            self.ts_enabled = QCheckBox(
-                "Join my tailnet while calibre is running")
+            self.ts_enabled = QCheckBox("Join my tailnet while calibre is running")
             self.ts_enabled.setChecked(bool(prefs.get("ts_enabled", True)))
             layout.addWidget(self.ts_enabled)
 
             row = QHBoxLayout()
             row.addWidget(QLabel("Device name on the tailnet:"))
-            self.ts_hostname = QLineEdit(
-                prefs.get("ts_hostname", "calibre-link"))
+            self.ts_hostname = QLineEdit(prefs.get("ts_hostname", "calibre-link"))
             row.addWidget(self.ts_hostname)
             layout.addLayout(row)
 
@@ -110,7 +120,8 @@ try:
                 "Leave empty: on first run the plugin shows a one-time "
                 "login link; approve it once and the device stays "
                 "registered. An auth key (tskey-auth-...) skips that "
-                "step.")
+                "step."
+            )
             row.addWidget(self.ts_authkey)
             layout.addLayout(row)
 
@@ -121,8 +132,7 @@ try:
             prefs["port"] = int(self.port_spin.value())
             prefs["token"] = self.token_edit.text().strip()
             prefs["ts_enabled"] = bool(self.ts_enabled.isChecked())
-            prefs["ts_hostname"] = (self.ts_hostname.text().strip()
-                                    or "calibre-link")
+            prefs["ts_hostname"] = self.ts_hostname.text().strip() or "calibre-link"
             prefs["ts_authkey"] = self.ts_authkey.text().strip()
 
 except Exception:  # headless import (tests) — the real plugin always has Qt
