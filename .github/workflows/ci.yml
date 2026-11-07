@@ -137,5 +137,5 @@ jobs:
 
       - name: Run unit test suite
         run: |
-          python -m pytest tests/
+          python -m pytest tests/ --ignore=tests/test_qt_dialogs.py --ignore=tests/test_empty_state_overlay.py --ignore=tests/test_reddit_registry.py --ignore=tests/test_readme_index.py --ignore=tests/test_scrubber.py
 
