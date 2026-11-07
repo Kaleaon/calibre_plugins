@@ -1,12 +1,37 @@
 import json
+
 from calibre.gui2 import error_dialog, info_dialog
-from calibre.gui2.actions import InterfaceAction
-from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox,
-                     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
-                     QPushButton, QRadioButton, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
-                     Qt, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+from qt.core import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QRadioButton,
+    QSplitter,
+    Qt,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
 try:
-    from calibre_plugins.story_collection_tagger.error_handler import show_friendly_error_dialog
+    from calibre_plugins.story_collection_tagger.error_handler import (
+        show_friendly_error_dialog,
+    )
 except (ImportError, AttributeError):
     try:
         from .error_handler import show_friendly_error_dialog
@@ -28,33 +53,37 @@ except ImportError:
             TaggerPreviewDialog = None
 
 try:
-    from calibre_plugins.story_collection_tagger import rules as rules_mod
     from calibre_plugins.story_collection_tagger import presets as presets_mod
+    from calibre_plugins.story_collection_tagger import rules as rules_mod
     from calibre_plugins.story_collection_tagger.config import prefs
     from calibre_plugins.story_collection_tagger.guikit import DialogAction
 except ImportError:
     try:
-        from . import rules as rules_mod
         from . import presets as presets_mod
+        from . import rules as rules_mod
         from .config import prefs
         from .guikit import DialogAction
     except ImportError:
         import rules as rules_mod
+
         try:
             import presets as presets_mod
         except ImportError:
             presets_mod = None
         from config import prefs
+
         try:
             from guikit import DialogAction
         except ImportError:
             from common.guikit import DialogAction
 
-RULES_HELP = ('One rule per line:  [field:]pattern => Tag, Tag\n'
-              'Fields: tags, title, author, series, comments, publisher, source, any (default: title, tags and series).\n'
-              'A plain pattern is a case-insensitive substring; "=text" must match exactly; "re:..." is a regular expression.\n'
-              'Examples:\n  tags:=Muscle Growth => Theme.Growth\n  source:Royal Road => Format.Web serial\n  re:litrpg|progression => LitRPG')
-SITES_HELP = 'Extra sites, one per line:  host, host2 => Name     (for example: storiesonline.net => Stories Online)'
+RULES_HELP = (
+    "One rule per line:  [field:]pattern => Tag, Tag\n"
+    "Fields: tags, title, author, series, comments, publisher, source, any (default: title, tags and series).\n"
+    'A plain pattern is a case-insensitive substring; "=text" must match exactly; "re:..." is a regular expression.\n'
+    "Examples:\n  tags:=Muscle Growth => Theme.Growth\n  source:Royal Road => Format.Web serial\n  re:litrpg|progression => LitRPG"
+)
+SITES_HELP = "Extra sites, one per line:  host, host2 => Name     (for example: storiesonline.net => Stories Online)"
 
 
 class RuleSetManagerDialog(QDialog):
@@ -95,13 +124,19 @@ class RuleSetManagerDialog(QDialog):
 
         rules_controls = QHBoxLayout()
         select_all_rules_btn = QPushButton("Select All")
-        select_all_rules_btn.clicked.connect(lambda: self._set_all_checked(self.rules_table, True))
+        select_all_rules_btn.clicked.connect(
+            lambda: self._set_all_checked(self.rules_table, True)
+        )
         deselect_all_rules_btn = QPushButton("Deselect All")
-        deselect_all_rules_btn.clicked.connect(lambda: self._set_all_checked(self.rules_table, False))
+        deselect_all_rules_btn.clicked.connect(
+            lambda: self._set_all_checked(self.rules_table, False)
+        )
         add_rule_btn = QPushButton("Add Rule")
         add_rule_btn.clicked.connect(self._add_rule_row)
         delete_rule_btn = QPushButton("Delete Selected")
-        delete_rule_btn.clicked.connect(lambda: self._delete_selected_rows(self.rules_table))
+        delete_rule_btn.clicked.connect(
+            lambda: self._delete_selected_rows(self.rules_table)
+        )
 
         rules_controls.addWidget(select_all_rules_btn)
         rules_controls.addWidget(deselect_all_rules_btn)
@@ -112,13 +147,25 @@ class RuleSetManagerDialog(QDialog):
 
         self.rules_table = QTableWidget()
         self.rules_table.setColumnCount(5)
-        self.rules_table.setHorizontalHeaderLabels(["Include", "Field", "Pattern", "Target Tags", "Status"])
-        if hasattr(QHeaderView, 'ResizeMode'):
-            self.rules_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-            self.rules_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-            self.rules_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-            self.rules_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-            self.rules_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.rules_table.setHorizontalHeaderLabels(
+            ["Include", "Field", "Pattern", "Target Tags", "Status"]
+        )
+        if hasattr(QHeaderView, "ResizeMode"):
+            self.rules_table.horizontalHeader().setSectionResizeMode(
+                0, QHeaderView.ResizeMode.ResizeToContents
+            )
+            self.rules_table.horizontalHeader().setSectionResizeMode(
+                1, QHeaderView.ResizeMode.ResizeToContents
+            )
+            self.rules_table.horizontalHeader().setSectionResizeMode(
+                2, QHeaderView.ResizeMode.Stretch
+            )
+            self.rules_table.horizontalHeader().setSectionResizeMode(
+                3, QHeaderView.ResizeMode.Stretch
+            )
+            self.rules_table.horizontalHeader().setSectionResizeMode(
+                4, QHeaderView.ResizeMode.ResizeToContents
+            )
         self.rules_table.itemChanged.connect(self._on_item_changed)
         rules_layout.addWidget(self.rules_table)
 
@@ -130,13 +177,19 @@ class RuleSetManagerDialog(QDialog):
 
         sites_controls = QHBoxLayout()
         select_all_sites_btn = QPushButton("Select All")
-        select_all_sites_btn.clicked.connect(lambda: self._set_all_checked(self.sites_table, True))
+        select_all_sites_btn.clicked.connect(
+            lambda: self._set_all_checked(self.sites_table, True)
+        )
         deselect_all_sites_btn = QPushButton("Deselect All")
-        deselect_all_sites_btn.clicked.connect(lambda: self._set_all_checked(self.sites_table, False))
+        deselect_all_sites_btn.clicked.connect(
+            lambda: self._set_all_checked(self.sites_table, False)
+        )
         add_site_btn = QPushButton("Add Site")
         add_site_btn.clicked.connect(self._add_site_row)
         delete_site_btn = QPushButton("Delete Selected")
-        delete_site_btn.clicked.connect(lambda: self._delete_selected_rows(self.sites_table))
+        delete_site_btn.clicked.connect(
+            lambda: self._delete_selected_rows(self.sites_table)
+        )
 
         sites_controls.addWidget(select_all_sites_btn)
         sites_controls.addWidget(deselect_all_sites_btn)
@@ -147,12 +200,22 @@ class RuleSetManagerDialog(QDialog):
 
         self.sites_table = QTableWidget()
         self.sites_table.setColumnCount(4)
-        self.sites_table.setHorizontalHeaderLabels(["Include", "Hosts", "Site Name", "Status"])
-        if hasattr(QHeaderView, 'ResizeMode'):
-            self.sites_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-            self.sites_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-            self.sites_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-            self.sites_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.sites_table.setHorizontalHeaderLabels(
+            ["Include", "Hosts", "Site Name", "Status"]
+        )
+        if hasattr(QHeaderView, "ResizeMode"):
+            self.sites_table.horizontalHeader().setSectionResizeMode(
+                0, QHeaderView.ResizeMode.ResizeToContents
+            )
+            self.sites_table.horizontalHeader().setSectionResizeMode(
+                1, QHeaderView.ResizeMode.Stretch
+            )
+            self.sites_table.horizontalHeader().setSectionResizeMode(
+                2, QHeaderView.ResizeMode.Stretch
+            )
+            self.sites_table.horizontalHeader().setSectionResizeMode(
+                3, QHeaderView.ResizeMode.ResizeToContents
+            )
         self.sites_table.itemChanged.connect(self._on_item_changed)
         sites_layout.addWidget(self.sites_table)
 
@@ -161,7 +224,9 @@ class RuleSetManagerDialog(QDialog):
         self.status_label = QLabel("")
         layout.addWidget(self.status_label)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -174,7 +239,9 @@ class RuleSetManagerDialog(QDialog):
 
         self.rules_table.setRowCount(0)
         for r in self.local_rules:
-            self._insert_rule_row(r.field, r.pattern, r.tags, checked=True, status="Existing")
+            self._insert_rule_row(
+                r.field, r.pattern, r.tags, checked=True, status="Existing"
+            )
 
         self.sites_table.setRowCount(0)
         for name, hosts, _ in self.local_sites:
@@ -189,7 +256,11 @@ class RuleSetManagerDialog(QDialog):
         self.rules_table.insertRow(row)
 
         chk = QTableWidgetItem()
-        chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        chk.setFlags(
+            Qt.ItemFlag.ItemIsUserCheckable
+            | Qt.ItemFlag.ItemIsEnabled
+            | Qt.ItemFlag.ItemIsSelectable
+        )
         chk.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
         self.rules_table.setItem(row, 0, chk)
 
@@ -197,7 +268,9 @@ class RuleSetManagerDialog(QDialog):
         self.rules_table.setItem(row, 1, QTableWidgetItem(fld_str))
         self.rules_table.setItem(row, 2, QTableWidgetItem(pattern or ""))
 
-        tags_str = ", ".join(tags) if isinstance(tags, (list, tuple)) else str(tags or "")
+        tags_str = (
+            ", ".join(tags) if isinstance(tags, (list, tuple)) else str(tags or "")
+        )
         self.rules_table.setItem(row, 3, QTableWidgetItem(tags_str))
         self.rules_table.setItem(row, 4, QTableWidgetItem(status))
 
@@ -206,11 +279,17 @@ class RuleSetManagerDialog(QDialog):
         self.sites_table.insertRow(row)
 
         chk = QTableWidgetItem()
-        chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        chk.setFlags(
+            Qt.ItemFlag.ItemIsUserCheckable
+            | Qt.ItemFlag.ItemIsEnabled
+            | Qt.ItemFlag.ItemIsSelectable
+        )
         chk.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
         self.sites_table.setItem(row, 0, chk)
 
-        hosts_str = ", ".join(hosts) if isinstance(hosts, (list, tuple)) else str(hosts or "")
+        hosts_str = (
+            ", ".join(hosts) if isinstance(hosts, (list, tuple)) else str(hosts or "")
+        )
         self.sites_table.setItem(row, 1, QTableWidgetItem(hosts_str))
         self.sites_table.setItem(row, 2, QTableWidgetItem(name or ""))
         self.sites_table.setItem(row, 3, QTableWidgetItem(status))
@@ -224,7 +303,9 @@ class RuleSetManagerDialog(QDialog):
         self._update_counts()
 
     def _delete_selected_rows(self, table):
-        selected_rows = sorted(set(idx.row() for idx in table.selectedIndexes()), reverse=True)
+        selected_rows = sorted(
+            set(idx.row() for idx in table.selectedIndexes()), reverse=True
+        )
         table.blockSignals(True)
         for row in selected_rows:
             table.removeRow(row)
@@ -237,7 +318,9 @@ class RuleSetManagerDialog(QDialog):
             if not table.isRowHidden(row):
                 item = table.item(row, 0)
                 if item:
-                    item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+                    item.setCheckState(
+                        Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+                    )
         table.blockSignals(False)
         self._update_counts()
 
@@ -247,14 +330,26 @@ class RuleSetManagerDialog(QDialog):
 
     def _update_counts(self):
         rule_total = self.rules_table.rowCount()
-        rule_checked = sum(1 for r in range(rule_total) if self.rules_table.item(r, 0) and self.rules_table.item(r, 0).checkState() == Qt.CheckState.Checked)
+        rule_checked = sum(
+            1
+            for r in range(rule_total)
+            if self.rules_table.item(r, 0)
+            and self.rules_table.item(r, 0).checkState() == Qt.CheckState.Checked
+        )
 
         site_total = self.sites_table.rowCount()
-        site_checked = sum(1 for r in range(site_total) if self.sites_table.item(r, 0) and self.sites_table.item(r, 0).checkState() == Qt.CheckState.Checked)
+        site_checked = sum(
+            1
+            for r in range(site_total)
+            if self.sites_table.item(r, 0)
+            and self.sites_table.item(r, 0).checkState() == Qt.CheckState.Checked
+        )
 
         self.tabs.setTabText(0, f"Keyword Rules ({rule_checked}/{rule_total})")
         self.tabs.setTabText(1, f"Source Sites ({site_checked}/{site_total})")
-        self.status_label.setText(f"Selected for configuration: {rule_checked} rule(s), {site_checked} site(s).")
+        self.status_label.setText(
+            f"Selected for configuration: {rule_checked} rule(s), {site_checked} site(s)."
+        )
 
     def _filter_tables(self, text):
         text = text.casefold()
@@ -272,20 +367,29 @@ class RuleSetManagerDialog(QDialog):
                 table.setRowHidden(r, not match)
 
     def _load_json(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Load Rule Set JSON", "", "JSON Files (*.json);;All Files (*)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Rule Set JSON", "", "JSON Files (*.json);;All Files (*)"
+        )
         if not path:
             return
 
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
         except Exception as exc:
-            QMessageBox.critical(self, "Load Error", f"Failed to read or parse JSON file:\n{exc}")
+            QMessageBox.critical(
+                self, "Load Error", f"Failed to read or parse JSON file:\n{exc}"
+            )
             return
 
         parsed_rules, parsed_sites, errors = rules_mod.import_rule_set_data(data)
         if errors:
-            QMessageBox.warning(self, "Rule Validation Error", "The rule set file contains invalid or malformed rules and cannot be imported:\n\n" + "\n".join(errors))
+            QMessageBox.warning(
+                self,
+                "Rule Validation Error",
+                "The rule set file contains invalid or malformed rules and cannot be imported:\n\n"
+                + "\n".join(errors),
+            )
             return
 
         self.rules_table.blockSignals(True)
@@ -297,23 +401,35 @@ class RuleSetManagerDialog(QDialog):
         conflict_rules = 0
         for r in parsed_rules:
             status = rules_mod.classify_rule(r, self.local_rules)
-            if status == 'New':
-                self._insert_rule_row(r.field, r.pattern, r.tags, checked=True, status="New")
+            if status == "New":
+                self._insert_rule_row(
+                    r.field, r.pattern, r.tags, checked=True, status="New"
+                )
                 new_rules += 1
-            elif status == 'Conflict':
-                self._insert_rule_row(r.field, r.pattern, r.tags, checked=False, status="Conflict (differs)")
+            elif status == "Conflict":
+                self._insert_rule_row(
+                    r.field,
+                    r.pattern,
+                    r.tags,
+                    checked=False,
+                    status="Conflict (differs)",
+                )
                 conflict_rules += 1
-            elif status == 'Duplicate':
-                self._insert_rule_row(r.field, r.pattern, r.tags, checked=False, status="Duplicate")
+            elif status == "Duplicate":
+                self._insert_rule_row(
+                    r.field, r.pattern, r.tags, checked=False, status="Duplicate"
+                )
 
         for s in parsed_sites:
             name, hosts, _ = s
             status = rules_mod.classify_site(s, self.local_sites)
-            if status == 'New':
+            if status == "New":
                 self._insert_site_row(hosts, name, checked=True, status="New")
-            elif status == 'Conflict':
-                self._insert_site_row(hosts, name, checked=False, status="Conflict (differs)")
-            elif status == 'Duplicate':
+            elif status == "Conflict":
+                self._insert_site_row(
+                    hosts, name, checked=False, status="Conflict (differs)"
+                )
+            elif status == "Duplicate":
                 self._insert_site_row(hosts, name, checked=False, status="Duplicate")
 
         self.rules_table.setUpdatesEnabled(True)
@@ -322,11 +438,20 @@ class RuleSetManagerDialog(QDialog):
         self.sites_table.blockSignals(False)
 
         self._update_counts()
-        QMessageBox.information(self, "Rule Set Loaded", f"Loaded {len(parsed_rules)} rule(s) and {len(parsed_sites)} site(s).\n\n"
-                                                         f"New rules added: {new_rules}\nConflicts flagged: {conflict_rules}")
+        QMessageBox.information(
+            self,
+            "Rule Set Loaded",
+            f"Loaded {len(parsed_rules)} rule(s) and {len(parsed_sites)} site(s).\n\n"
+            f"New rules added: {new_rules}\nConflicts flagged: {conflict_rules}",
+        )
 
     def _save_json(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Save Rule Set JSON", "rule_set.json", "JSON Files (*.json);;All Files (*)")
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Rule Set JSON",
+            "rule_set.json",
+            "JSON Files (*.json);;All Files (*)",
+        )
         if not path:
             return
 
@@ -336,9 +461,13 @@ class RuleSetManagerDialog(QDialog):
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-            QMessageBox.information(self, "Export Successful", f"Rule set exported successfully to:\n{path}")
+            QMessageBox.information(
+                self, "Export Successful", f"Rule set exported successfully to:\n{path}"
+            )
         except Exception as exc:
-            QMessageBox.critical(self, "Export Error", f"Failed to save JSON file:\n{exc}")
+            QMessageBox.critical(
+                self, "Export Error", f"Failed to save JSON file:\n{exc}"
+            )
 
     def _get_checked_rules_and_sites_text(self):
         rule_lines = []
@@ -383,7 +512,12 @@ class RuleSetManagerDialog(QDialog):
         all_errors = rule_errors + site_errors
 
         if all_errors:
-            QMessageBox.warning(self, "Invalid Rules", f"Cannot commit configuration due to rule syntax errors:\n\n" + "\n".join(all_errors))
+            QMessageBox.warning(
+                self,
+                "Invalid Rules",
+                "Cannot commit configuration due to rule syntax errors:\n\n"
+                + "\n".join(all_errors),
+            )
             return
 
         self.committed_rules = rules_text
@@ -395,17 +529,31 @@ class RuleSetManagerDialog(QDialog):
 
 
 class TaggerAction(DialogAction):
-    name = 'Story Collection Tagger'
-    action_spec = ('Auto-tag stories', None, 'Add source-site and keyword-rule tags to books', None)
+    name = "Story Collection Tagger"
+    action_spec = (
+        "Auto-tag stories",
+        None,
+        "Add source-site and keyword-rule tags to books",
+        None,
+    )
 
     def books_for(self, ids):
         db = self.gui.current_db.new_api
         books = []
         for i, book_id in enumerate(ids):
             mi = db.get_metadata(book_id, get_cover=False)
-            books.append({'id': book_id, 'title': mi.title, 'authors': list(mi.authors or []), 'tags': list(mi.tags or []),
-                          'identifiers': dict(mi.identifiers or {}), 'publisher': mi.publisher or '',
-                          'comments': mi.comments or '', 'series': mi.series or ''})
+            books.append(
+                {
+                    "id": book_id,
+                    "title": mi.title,
+                    "authors": list(mi.authors or []),
+                    "tags": list(mi.tags or []),
+                    "identifiers": dict(mi.identifiers or {}),
+                    "publisher": mi.publisher or "",
+                    "comments": mi.comments or "",
+                    "series": mi.series or "",
+                }
+            )
             if i % 200 == 0:
                 QApplication.processEvents()
         return books
@@ -413,12 +561,14 @@ class TaggerAction(DialogAction):
     def show_dialog(self):
         selected = list(self.gui.library_view.get_selected_ids())
         dialog = QDialog(self.gui)
-        dialog.setWindowTitle('Auto-tag stories')
+        dialog.setWindowTitle("Auto-tag stories")
         dialog.resize(780, 750)
         dialog.setMinimumWidth(680)
         layout = QVBoxLayout(dialog)
 
-        intro_label = QLabel('Only adds tags; existing tags are never removed or renamed. Nothing changes until you press Apply.')
+        intro_label = QLabel(
+            "Only adds tags; existing tags are never removed or renamed. Nothing changes until you press Apply."
+        )
         intro_label.setWordWrap(True)
         layout.addWidget(intro_label)
 
@@ -435,9 +585,11 @@ class TaggerAction(DialogAction):
         # Active Rules Table
         rules_table = QTableWidget()
         rules_table.setColumnCount(5)
-        rules_table.setHorizontalHeaderLabels(['Field', 'Match Mode', 'Pattern', 'Target Tags', 'Actions'])
+        rules_table.setHorizontalHeaderLabels(
+            ["Field", "Match Mode", "Pattern", "Target Tags", "Actions"]
+        )
         header = rules_table.horizontalHeader()
-        if hasattr(header, 'setSectionResizeMode'):
+        if hasattr(header, "setSectionResizeMode"):
             header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
             header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
             header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
@@ -452,12 +604,23 @@ class TaggerAction(DialogAction):
         form_row1 = QHBoxLayout()
         form_row1.addWidget(QLabel("Field:"))
         field_combo = QComboBox()
-        field_combo.addItems(['any', 'title', 'tags', 'series', 'authors', 'comments', 'publisher', 'source'])
+        field_combo.addItems(
+            [
+                "any",
+                "title",
+                "tags",
+                "series",
+                "authors",
+                "comments",
+                "publisher",
+                "source",
+            ]
+        )
         form_row1.addWidget(field_combo)
 
         form_row1.addWidget(QLabel("Match Mode:"))
         mode_combo = QComboBox()
-        mode_combo.addItems(['Substring', 'Exact', 'Regex'])
+        mode_combo.addItems(["Substring", "Exact", "Regex"])
         form_row1.addWidget(mode_combo)
         form_layout.addLayout(form_row1)
 
@@ -469,7 +632,9 @@ class TaggerAction(DialogAction):
 
         form_row2.addWidget(QLabel("Target Tags:"))
         tags_edit = QLineEdit()
-        tags_edit.setPlaceholderText("Comma-separated tags (e.g., Genre.LitRPG, Trope.Isekai)")
+        tags_edit.setPlaceholderText(
+            "Comma-separated tags (e.g., Genre.LitRPG, Trope.Isekai)"
+        )
         form_row2.addWidget(tags_edit)
         form_layout.addLayout(form_row2)
 
@@ -491,7 +656,7 @@ class TaggerAction(DialogAction):
         # Raw Text rules editor collapsible/toggle view
         raw_box = QGroupBox("Raw Text Rules (Legacy Format / Raw Text Editor)")
         raw_layout = QVBoxLayout(raw_box)
-        rules_edit = QPlainTextEdit(prefs['rules'])
+        rules_edit = QPlainTextEdit(prefs["rules"])
         rules_edit.setPlaceholderText(RULES_HELP)
         raw_layout.addWidget(rules_edit)
         tab_builder_layout.addWidget(raw_box, 2)
@@ -509,10 +674,14 @@ class TaggerAction(DialogAction):
         # Left pane: preset packs list
         preset_list_table = QTableWidget()
         preset_list_table.setColumnCount(2)
-        preset_list_table.setHorizontalHeaderLabels(['Category', 'Preset Pack'])
-        if hasattr(preset_list_table.horizontalHeader(), 'setSectionResizeMode'):
-            preset_list_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-            preset_list_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        preset_list_table.setHorizontalHeaderLabels(["Category", "Preset Pack"])
+        if hasattr(preset_list_table.horizontalHeader(), "setSectionResizeMode"):
+            preset_list_table.horizontalHeader().setSectionResizeMode(
+                0, QHeaderView.ResizeMode.ResizeToContents
+            )
+            preset_list_table.horizontalHeader().setSectionResizeMode(
+                1, QHeaderView.ResizeMode.Stretch
+            )
         splitter.addWidget(preset_list_table)
 
         # Right pane: preset preview details
@@ -526,7 +695,9 @@ class TaggerAction(DialogAction):
 
         preset_preview_edit = QPlainTextEdit()
         preset_preview_edit.setReadOnly(True)
-        preset_preview_edit.setPlaceholderText("Pack rules and custom sites will appear here.")
+        preset_preview_edit.setPlaceholderText(
+            "Pack rules and custom sites will appear here."
+        )
 
         merge_preset_btn = QPushButton("Merge Preset Pack into Active Rules")
         merge_preset_btn.setEnabled(False)
@@ -558,35 +729,40 @@ class TaggerAction(DialogAction):
         tab_settings_layout = QVBoxLayout(tab_settings)
 
         row = QHBoxLayout()
-        add_source = QCheckBox('Add a source-site tag, prefix:')
-        add_source.setChecked(bool(prefs['add_source']))
-        prefix = QLineEdit(prefs['source_prefix'])
-        prefix.setToolTip('Use "Source." to nest under "Source" when Calibre\'s hierarchical tag browser is enabled for tags.')
+        add_source = QCheckBox("Add a source-site tag, prefix:")
+        add_source.setChecked(bool(prefs["add_source"]))
+        prefix = QLineEdit(prefs["source_prefix"])
+        prefix.setToolTip(
+            'Use "Source." to nest under "Source" when Calibre\'s hierarchical tag browser is enabled for tags.'
+        )
         row.addWidget(add_source)
         row.addWidget(prefix)
         tab_settings_layout.addLayout(row)
 
         row = QHBoxLayout()
-        row.addWidget(QLabel('Tag books in a series, prefix (blank = off):'))
-        series_prefix = QLineEdit(prefs['series_prefix'])
-        series_prefix.setPlaceholderText('Series.')
+        row.addWidget(QLabel("Tag books in a series, prefix (blank = off):"))
+        series_prefix = QLineEdit(prefs["series_prefix"])
+        series_prefix.setPlaceholderText("Series.")
         row.addWidget(series_prefix)
         tab_settings_layout.addLayout(row)
 
-        scan = QCheckBox('Also look for site addresses inside book descriptions (may over-match)')
-        scan.setChecked(bool(prefs['scan_comments']))
+        scan = QCheckBox(
+            "Also look for site addresses inside book descriptions (may over-match)"
+        )
+        scan.setChecked(bool(prefs["scan_comments"]))
         tab_settings_layout.addWidget(scan)
 
-
-        sites_label = QLabel('Additional source sites')
+        sites_label = QLabel("Additional source sites")
         sites_label.setWordWrap(True)
         tab_settings_layout.addWidget(sites_label)
 
-        sites_edit = QPlainTextEdit(prefs['sites'])
+        sites_edit = QPlainTextEdit(prefs["sites"])
         sites_edit.setPlaceholderText(SITES_HELP)
         tab_settings_layout.addWidget(sites_edit, 1)
 
-        builtin_label = QLabel('Built-in sites: ' + ', '.join(s[0] for s in rules_mod.DEFAULT_SITES))
+        builtin_label = QLabel(
+            "Built-in sites: " + ", ".join(s[0] for s in rules_mod.DEFAULT_SITES)
+        )
         builtin_label.setWordWrap(True)
         tab_settings_layout.addWidget(builtin_label)
 
@@ -594,8 +770,8 @@ class TaggerAction(DialogAction):
 
         # Scope buttons
         scope_row = QHBoxLayout()
-        scope_selected = QRadioButton(f'Selected books ({len(selected)})')
-        scope_all = QRadioButton('Entire library')
+        scope_selected = QRadioButton(f"Selected books ({len(selected)})")
+        scope_all = QRadioButton("Entire library")
         (scope_selected if selected else scope_all).setChecked(True)
         scope_selected.setEnabled(bool(selected))
         scope_row.addWidget(scope_selected)
@@ -603,7 +779,7 @@ class TaggerAction(DialogAction):
         scope_row.addStretch()
         layout.addLayout(scope_row)
 
-        summary_label = QLabel('Press Preview to see which books would get which tags.')
+        summary_label = QLabel("Press Preview to see which books would get which tags.")
         layout.addWidget(summary_label)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -612,17 +788,17 @@ class TaggerAction(DialogAction):
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.addWidget(QLabel('Global Tag Rules'))
+        left_layout.addWidget(QLabel("Global Tag Rules"))
         global_tree = QTreeWidget()
-        global_tree.setHeaderLabels(['Proposed Tag', 'Books'])
+        global_tree.setHeaderLabels(["Proposed Tag", "Books"])
         left_layout.addWidget(global_tree)
 
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.addWidget(QLabel('Book Tag Overrides'))
+        right_layout.addWidget(QLabel("Book Tag Overrides"))
         books_tree = QTreeWidget()
-        books_tree.setHeaderLabels(['Book / Tag'])
+        books_tree.setHeaderLabels(["Book / Tag"])
         right_layout.addWidget(books_tree)
 
         splitter.addWidget(left_widget)
@@ -631,15 +807,15 @@ class TaggerAction(DialogAction):
         layout.addWidget(splitter, 3)
 
         rule_set_box = QHBoxLayout()
-        export_btn = QPushButton('Export Rule Set')
-        import_btn = QPushButton('Import Rule Set')
+        export_btn = QPushButton("Export Rule Set")
+        import_btn = QPushButton("Import Rule Set")
         rule_set_box.addWidget(export_btn)
         rule_set_box.addWidget(import_btn)
         rule_set_box.addStretch()
         tab_settings_layout.addLayout(rule_set_box)
         buttons = QDialogButtonBox()
-        preview_btn = QPushButton('Preview')
-        apply_btn = QPushButton('Apply')
+        preview_btn = QPushButton("Preview")
+        apply_btn = QPushButton("Apply")
         apply_btn.setEnabled(False)
         buttons.addButton(preview_btn, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.addButton(apply_btn, QDialogButtonBox.ButtonRole.AcceptRole)
@@ -649,31 +825,37 @@ class TaggerAction(DialogAction):
 
         # Internal State Management
         state = {
-            'selection': None,
-            'total_ids': 0,
-            'updating': False,
-            'active_rules': presets_mod.text_to_rule_dicts(rules_edit.toPlainText()),
-            'editing_index': -1,
-            'bundled_presets': presets_mod.load_bundled_presets(),
-            'syncing': False,
-            'cursor_position': None,
+            "selection": None,
+            "total_ids": 0,
+            "updating": False,
+            "active_rules": presets_mod.text_to_rule_dicts(rules_edit.toPlainText()),
+            "editing_index": -1,
+            "bundled_presets": presets_mod.load_bundled_presets(),
+            "syncing": False,
+            "cursor_position": None,
         }
 
         # --- Helper functions ---
         def populate_table_from_rules(cursor_pos=None):
-            if state['syncing']:
+            if state["syncing"]:
                 return
-            state['syncing'] = True
+            state["syncing"] = True
             try:
                 rules_table.setRowCount(0)
-                for idx, r_dict in enumerate(state['active_rules']):
+                for idx, r_dict in enumerate(state["active_rules"]):
                     rules_table.insertRow(idx)
 
-                    field_item = QTableWidgetItem(r_dict.get('field', 'any'))
-                    mode_item = QTableWidgetItem((r_dict.get('match_mode') or 'substring').title())
-                    pat_item = QTableWidgetItem(r_dict.get('pattern', ''))
-                    tags_list = r_dict.get('tags') or []
-                    tags_item = QTableWidgetItem(", ".join(tags_list) if isinstance(tags_list, list) else str(tags_list))
+                    field_item = QTableWidgetItem(r_dict.get("field", "any"))
+                    mode_item = QTableWidgetItem(
+                        (r_dict.get("match_mode") or "substring").title()
+                    )
+                    pat_item = QTableWidgetItem(r_dict.get("pattern", ""))
+                    tags_list = r_dict.get("tags") or []
+                    tags_item = QTableWidgetItem(
+                        ", ".join(tags_list)
+                        if isinstance(tags_list, list)
+                        else str(tags_list)
+                    )
 
                     rules_table.setItem(idx, 0, field_item)
                     rules_table.setItem(idx, 1, mode_item)
@@ -701,36 +883,49 @@ class TaggerAction(DialogAction):
                     rules_table.setCellWidget(idx, 4, btn_widget)
 
                 if cursor_pos is None:
-                    cursor_pos = state.pop('cursor_position', None)
+                    cursor_pos = state.pop("cursor_position", None)
 
-                raw_text = presets_mod.rules_to_text(state['active_rules'])
-                was_blocked = rules_edit.blockSignals(True) if hasattr(rules_edit, 'blockSignals') else False
+                raw_text = presets_mod.rules_to_text(state["active_rules"])
+                was_blocked = (
+                    rules_edit.blockSignals(True)
+                    if hasattr(rules_edit, "blockSignals")
+                    else False
+                )
                 try:
                     rules_edit.setPlainText(raw_text)
                     if cursor_pos is not None:
-                        cursor = rules_edit.textCursor() if hasattr(rules_edit, 'textCursor') else None
-                        if cursor is not None and hasattr(cursor, 'setPosition'):
+                        cursor = (
+                            rules_edit.textCursor()
+                            if hasattr(rules_edit, "textCursor")
+                            else None
+                        )
+                        if cursor is not None and hasattr(cursor, "setPosition"):
                             if isinstance(cursor_pos, int):
                                 new_pos = max(0, min(cursor_pos, len(raw_text)))
                             else:
                                 new_pos = cursor_pos
                             cursor.setPosition(new_pos)
-                            if hasattr(rules_edit, 'setTextCursor'):
+                            if hasattr(rules_edit, "setTextCursor"):
                                 rules_edit.setTextCursor(cursor)
                 finally:
-                    if hasattr(rules_edit, 'blockSignals'):
+                    if hasattr(rules_edit, "blockSignals"):
                         rules_edit.blockSignals(was_blocked)
             finally:
-                state['syncing'] = False
+                state["syncing"] = False
 
         def validate_form():
             field = field_combo.currentText().strip()
             mode = mode_combo.currentText().strip().lower()
             pattern = pat_edit.text().strip()
             raw_tags = tags_edit.text().strip()
-            tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
+            tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
 
-            r_dict = {'field': field, 'match_mode': mode, 'pattern': pattern, 'tags': tags}
+            r_dict = {
+                "field": field,
+                "match_mode": mode,
+                "pattern": pattern,
+                "tags": tags,
+            }
             ok, err = presets_mod.validate_rule_dict(r_dict)
 
             if ok:
@@ -741,7 +936,7 @@ class TaggerAction(DialogAction):
                 add_rule_btn.setEnabled(False)
 
         def clear_form():
-            state['editing_index'] = -1
+            state["editing_index"] = -1
             pat_edit.clear()
             tags_edit.clear()
             field_combo.setCurrentIndex(0)
@@ -754,99 +949,112 @@ class TaggerAction(DialogAction):
             mode = mode_combo.currentText().strip().lower()
             pattern = pat_edit.text().strip()
             raw_tags = tags_edit.text().strip()
-            tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
+            tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
 
-            r_dict = {'field': field, 'match_mode': mode, 'pattern': pattern, 'tags': tags}
+            r_dict = {
+                "field": field,
+                "match_mode": mode,
+                "pattern": pattern,
+                "tags": tags,
+            }
             ok, _ = presets_mod.validate_rule_dict(r_dict)
             if not ok:
                 return
 
-            if state['editing_index'] >= 0 and state['editing_index'] < len(state['active_rules']):
-                state['active_rules'][state['editing_index']] = r_dict
+            if state["editing_index"] >= 0 and state["editing_index"] < len(
+                state["active_rules"]
+            ):
+                state["active_rules"][state["editing_index"]] = r_dict
             else:
-                state['active_rules'].append(r_dict)
+                state["active_rules"].append(r_dict)
 
             clear_form()
             populate_table_from_rules()
 
         def on_edit_rule(idx):
-            if idx < 0 or idx >= len(state['active_rules']):
+            if idx < 0 or idx >= len(state["active_rules"]):
                 return
-            state['editing_index'] = idx
-            r_dict = state['active_rules'][idx]
+            state["editing_index"] = idx
+            r_dict = state["active_rules"][idx]
 
-            f_idx = field_combo.findText(r_dict.get('field', 'any'))
+            f_idx = field_combo.findText(r_dict.get("field", "any"))
             if f_idx >= 0:
                 field_combo.setCurrentIndex(f_idx)
 
-            mode_str = (r_dict.get('match_mode') or 'substring').title()
+            mode_str = (r_dict.get("match_mode") or "substring").title()
             m_idx = mode_combo.findText(mode_str)
             if m_idx >= 0:
                 mode_combo.setCurrentIndex(m_idx)
 
-            pat_edit.setText(r_dict.get('pattern', ''))
-            tags_list = r_dict.get('tags') or []
-            tags_edit.setText(", ".join(tags_list) if isinstance(tags_list, list) else str(tags_list))
+            pat_edit.setText(r_dict.get("pattern", ""))
+            tags_list = r_dict.get("tags") or []
+            tags_edit.setText(
+                ", ".join(tags_list) if isinstance(tags_list, list) else str(tags_list)
+            )
 
             add_rule_btn.setText("Save Changes")
             validate_form()
 
         def on_delete_rule(idx):
-            if idx < 0 or idx >= len(state['active_rules']):
+            if idx < 0 or idx >= len(state["active_rules"]):
                 return
-            del state['active_rules'][idx]
-            if state['editing_index'] == idx:
+            del state["active_rules"][idx]
+            if state["editing_index"] == idx:
                 clear_form()
-            elif state['editing_index'] > idx:
-                state['editing_index'] -= 1
+            elif state["editing_index"] > idx:
+                state["editing_index"] -= 1
             populate_table_from_rules()
 
         def on_raw_text_changed():
-            if state['syncing']:
+            if state["syncing"]:
                 return
-            state['syncing'] = True
+            state["syncing"] = True
             try:
                 cursor_pos = None
-                if hasattr(rules_edit, 'textCursor'):
+                if hasattr(rules_edit, "textCursor"):
                     cursor = rules_edit.textCursor()
-                    if hasattr(cursor, 'position'):
+                    if hasattr(cursor, "position"):
                         cursor_pos = cursor.position()
-                state['cursor_position'] = cursor_pos
+                state["cursor_position"] = cursor_pos
                 raw_text = rules_edit.toPlainText()
-                state['active_rules'] = presets_mod.text_to_rule_dicts(raw_text)
+                state["active_rules"] = presets_mod.text_to_rule_dicts(raw_text)
             finally:
-                state['syncing'] = False
+                state["syncing"] = False
             populate_table_from_rules(cursor_pos=cursor_pos)
 
         def populate_preset_list():
             preset_list_table.setRowCount(0)
-            for idx, p in enumerate(state['bundled_presets']):
+            for idx, p in enumerate(state["bundled_presets"]):
                 preset_list_table.insertRow(idx)
-                cat_item = QTableWidgetItem(p.get('category', 'Custom'))
-                name_item = QTableWidgetItem(p.get('name', 'Preset Pack'))
+                cat_item = QTableWidgetItem(p.get("category", "Custom"))
+                name_item = QTableWidgetItem(p.get("name", "Preset Pack"))
                 preset_list_table.setItem(idx, 0, cat_item)
                 preset_list_table.setItem(idx, 1, name_item)
 
         def on_preset_selected():
             row_idx = preset_list_table.currentRow()
-            if row_idx < 0 or row_idx >= len(state['bundled_presets']):
+            if row_idx < 0 or row_idx >= len(state["bundled_presets"]):
                 merge_preset_btn.setEnabled(False)
                 return
 
-            p = state['bundled_presets'][row_idx]
+            p = state["bundled_presets"][row_idx]
             preset_title_label.setText(f"<b>{p.get('name', 'Preset Pack')}</b>")
-            preset_desc_label.setText(f"Category: {p.get('category', 'General')}\n{p.get('description', '')}")
+            preset_desc_label.setText(
+                f"Category: {p.get('category', 'General')}\n{p.get('description', '')}"
+            )
 
-            rules_count = len(p.get('rules', []))
-            sites_count = len(p.get('sites', []))
-            preset_counts_label.setText(f"Pack contains: {rules_count} rule(s), {sites_count} custom site definition(s)")
+            rules_count = len(p.get("rules", []))
+            sites_count = len(p.get("sites", []))
+            preset_counts_label.setText(
+                f"Pack contains: {rules_count} rule(s), {sites_count} custom site definition(s)"
+            )
 
             lines = ["--- RULES ---"]
-            for r in p.get('rules', []):
+            for r in p.get("rules", []):
                 lines.append(presets_mod.rule_dict_to_string(r))
-            if p.get('sites'):
+            if p.get("sites"):
                 lines.append("\n--- SITES ---")
-                lines.append(presets_mod.sites_to_text(p.get('sites')))
+                lines.append(presets_mod.sites_to_text(p.get("sites")))
 
             preset_preview_edit.setPlainText("\n".join(lines))
             merge_preset_btn.setEnabled(True)
@@ -854,131 +1062,168 @@ class TaggerAction(DialogAction):
         def do_merge_preset(preset_pack=None):
             if preset_pack is None:
                 row_idx = preset_list_table.currentRow()
-                if row_idx < 0 or row_idx >= len(state['bundled_presets']):
+                if row_idx < 0 or row_idx >= len(state["bundled_presets"]):
                     return
-                preset_pack = state['bundled_presets'][row_idx]
+                preset_pack = state["bundled_presets"][row_idx]
 
             active_rules_txt = rules_edit.toPlainText()
             active_sites_txt = sites_edit.toPlainText()
 
-            up_rules_txt, up_sites_txt, r_added, s_added = presets_mod.merge_preset_into_active(
-                active_rules_txt, active_sites_txt, preset_pack
+            up_rules_txt, up_sites_txt, r_added, s_added = (
+                presets_mod.merge_preset_into_active(
+                    active_rules_txt, active_sites_txt, preset_pack
+                )
             )
 
             rules_edit.setPlainText(up_rules_txt)
             sites_edit.setPlainText(up_sites_txt)
 
-            state['active_rules'] = presets_mod.text_to_rule_dicts(up_rules_txt)
+            state["active_rules"] = presets_mod.text_to_rule_dicts(up_rules_txt)
             populate_table_from_rules()
 
-            info_dialog(self.gui, "Preset Merged",
-                        f"Merged preset '{preset_pack.get('name')}' into active preferences.\n\n"
-                        f"Rules added: {r_added}\nSites added: {s_added}\n"
-                        f"Redundant or duplicate rules were automatically skipped.",
-                        show=True)
+            info_dialog(
+                self.gui,
+                "Preset Merged",
+                f"Merged preset '{preset_pack.get('name')}' into active preferences.\n\n"
+                f"Rules added: {r_added}\nSites added: {s_added}\n"
+                f"Redundant or duplicate rules were automatically skipped.",
+                show=True,
+            )
 
         def do_import_preset():
-            filepath, _ = QFileDialog.getOpenFileName(dialog, "Import Preset Pack (JSON)", "", "JSON Files (*.json)")
+            filepath, _ = QFileDialog.getOpenFileName(
+                dialog, "Import Preset Pack (JSON)", "", "JSON Files (*.json)"
+            )
             if not filepath:
                 return
             try:
-                with open(filepath, 'r', encoding='utf-8') as f:
+                with open(filepath, encoding="utf-8") as f:
                     content = f.read()
                 preset_pack = presets_mod.parse_preset_json(content)
                 do_merge_preset(preset_pack)
             except Exception as exc:
-                error_dialog(self.gui, "Import Failed", f"Could not parse preset JSON file: {exc}", show=True)
+                error_dialog(
+                    self.gui,
+                    "Import Failed",
+                    f"Could not parse preset JSON file: {exc}",
+                    show=True,
+                )
 
         def do_export_preset():
-            filepath, _ = QFileDialog.getSaveFileName(dialog, "Export Rules as Preset Pack (JSON)", "custom_preset.json", "JSON Files (*.json)")
+            filepath, _ = QFileDialog.getSaveFileName(
+                dialog,
+                "Export Rules as Preset Pack (JSON)",
+                "custom_preset.json",
+                "JSON Files (*.json)",
+            )
             if not filepath:
                 return
             try:
-                active_rules = state['active_rules']
+                active_rules = state["active_rules"]
                 active_sites, _ = rules_mod.parse_sites(sites_edit.toPlainText())
                 json_str = presets_mod.export_preset_json(
                     name="Custom User Rules",
                     category="Custom",
                     description="User exported rule configuration and extra site definitions.",
                     rule_dicts=active_rules,
-                    site_tuples=active_sites
+                    site_tuples=active_sites,
                 )
-                with open(filepath, 'w', encoding='utf-8') as f:
+                with open(filepath, "w", encoding="utf-8") as f:
                     f.write(json_str)
-                info_dialog(self.gui, "Preset Exported", f"Successfully exported preset configuration to:\n{filepath}", show=True)
+                info_dialog(
+                    self.gui,
+                    "Preset Exported",
+                    f"Successfully exported preset configuration to:\n{filepath}",
+                    show=True,
+                )
             except Exception as exc:
-                error_dialog(self.gui, "Export Failed", f"Could not export preset file: {exc}", show=True)
+                error_dialog(
+                    self.gui,
+                    "Export Failed",
+                    f"Could not export preset file: {exc}",
+                    show=True,
+                )
 
         def save_prefs():
-            prefs['add_source'] = add_source.isChecked()
-            prefs['source_prefix'] = prefix.text()
-            prefs['series_prefix'] = series_prefix.text()
-            prefs['scan_comments'] = scan.isChecked()
-            prefs['rules'] = rules_edit.toPlainText()
-            prefs['sites'] = sites_edit.toPlainText()
+            prefs["add_source"] = add_source.isChecked()
+            prefs["source_prefix"] = prefix.text()
+            prefs["series_prefix"] = series_prefix.text()
+            prefs["scan_comments"] = scan.isChecked()
+            prefs["rules"] = rules_edit.toPlainText()
+            prefs["sites"] = sites_edit.toPlainText()
 
         def update_summary():
-            sel = state.get('selection')
+            sel = state.get("selection")
             if not sel or not sel.plan:
-                summary_label.setText('0 of 0 book(s) will change.')
+                summary_label.setText("0 of 0 book(s) will change.")
                 apply_btn.setEnabled(False)
                 return
             active_assignments, affected_books = sel.get_summary_counts()
             summary_label.setText(
-                f'{affected_books} of {state["total_ids"]} book(s) will change ({active_assignments} active tag assignment(s)).'
+                f"{affected_books} of {state['total_ids']} book(s) will change ({active_assignments} active tag assignment(s))."
             )
             apply_btn.setEnabled(affected_books > 0)
 
         def on_global_item_changed(item, column):
-            if state['updating']:
+            if state["updating"]:
                 return
-            tag = getattr(item, '_tag_name', None)
+            tag = getattr(item, "_tag_name", None)
             if tag is None:
                 return
-            checked = (item.checkState(0) == Qt.CheckState.Checked)
-            sel = state.get('selection')
+            checked = item.checkState(0) == Qt.CheckState.Checked
+            sel = state.get("selection")
             if sel:
                 sel.set_global_tag(tag, checked)
 
-            state['updating'] = True
+            state["updating"] = True
             try:
                 root = books_tree.invisibleRootItem()
                 for i in range(root.childCount()):
                     book_item = root.child(i)
                     for j in range(book_item.childCount()):
                         tag_item = book_item.child(j)
-                        if getattr(tag_item, '_tag', None) == tag:
-                            tag_item.setCheckState(0, Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+                        if getattr(tag_item, "_tag", None) == tag:
+                            tag_item.setCheckState(
+                                0,
+                                Qt.CheckState.Checked
+                                if checked
+                                else Qt.CheckState.Unchecked,
+                            )
             finally:
-                state['updating'] = False
+                state["updating"] = False
 
             update_summary()
 
         def on_books_item_changed(item, column):
-            if state['updating']:
+            if state["updating"]:
                 return
-            sel = state.get('selection')
+            sel = state.get("selection")
             if not sel:
                 return
 
-            tag = getattr(item, '_tag', None)
-            book_id = getattr(item, '_book_id', None)
+            tag = getattr(item, "_tag", None)
+            book_id = getattr(item, "_book_id", None)
 
-            state['updating'] = True
+            state["updating"] = True
             try:
                 if tag is not None and book_id is not None:
-                    checked = (item.checkState(0) == Qt.CheckState.Checked)
+                    checked = item.checkState(0) == Qt.CheckState.Checked
                     sel.set_book_tag(book_id, tag, checked)
                 elif book_id is not None and item.childCount() > 0:
-                    checked = (item.checkState(0) == Qt.CheckState.Checked)
+                    checked = item.checkState(0) == Qt.CheckState.Checked
                     for j in range(item.childCount()):
                         tag_item = item.child(j)
-                        tag_item.setCheckState(0, Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
-                        child_tag = getattr(tag_item, '_tag', None)
+                        tag_item.setCheckState(
+                            0,
+                            Qt.CheckState.Checked
+                            if checked
+                            else Qt.CheckState.Unchecked,
+                        )
+                        child_tag = getattr(tag_item, "_tag", None)
                         if child_tag:
                             sel.set_book_tag(book_id, child_tag, checked)
             finally:
-                state['updating'] = False
+                state["updating"] = False
 
             update_summary()
 
@@ -986,23 +1231,32 @@ class TaggerAction(DialogAction):
         books_tree.itemChanged.connect(on_books_item_changed)
 
         def do_manage():
-            dlg = RuleSetManagerDialog(dialog, current_rules=rules_edit.toPlainText(), current_sites=sites_edit.toPlainText())
+            dlg = RuleSetManagerDialog(
+                dialog,
+                current_rules=rules_edit.toPlainText(),
+                current_sites=sites_edit.toPlainText(),
+            )
             res = dlg.exec()
-            accepted_val = getattr(QDialog.DialogCode, 'Accepted', 1)
+            accepted_val = getattr(QDialog.DialogCode, "Accepted", 1)
             if res in (accepted_val, 1):
                 new_rules, new_sites = dlg.get_committed_rules_and_sites()
-                prefs['rules'] = new_rules
-                prefs['sites'] = new_sites
+                prefs["rules"] = new_rules
+                prefs["sites"] = new_sites
                 rules_edit.setPlainText(new_rules)
                 sites_edit.setPlainText(new_sites)
-                state['active_rules'] = presets_mod.text_to_rule_dicts(new_rules)
+                state["active_rules"] = presets_mod.text_to_rule_dicts(new_rules)
                 populate_table_from_rules()
                 invalidate_preview()
 
         manage_btn.clicked.connect(do_manage)
 
         def do_export():
-            path, _ = QFileDialog.getSaveFileName(dialog, 'Export Rule Set', 'tagger_rules.json', 'JSON files (*.json);;All files (*)')
+            path, _ = QFileDialog.getSaveFileName(
+                dialog,
+                "Export Rule Set",
+                "tagger_rules.json",
+                "JSON files (*.json);;All files (*)",
+            )
             if not path:
                 return
             package = rules_mod.export_rule_set_package(
@@ -1014,44 +1268,65 @@ class TaggerAction(DialogAction):
                 scan_comments=scan.isChecked(),
             )
             try:
-                with open(path, 'w', encoding='utf-8') as f:
+                with open(path, "w", encoding="utf-8") as f:
                     json.dump(package, f, indent=2)
-                info_dialog(dialog, 'Export Rule Set', 'Rule set exported successfully.', show=True)
+                info_dialog(
+                    dialog,
+                    "Export Rule Set",
+                    "Rule set exported successfully.",
+                    show=True,
+                )
             except Exception as exc:
-                show_friendly_error_dialog(dialog, 'Export Rule Set', exc, det_msg='Could not write export file.', show=True)
+                show_friendly_error_dialog(
+                    dialog,
+                    "Export Rule Set",
+                    exc,
+                    det_msg="Could not write export file.",
+                    show=True,
+                )
 
         def do_import():
-            path, _ = QFileDialog.getOpenFileName(dialog, 'Import Rule Set', '', 'JSON files (*.json);;All files (*)')
+            path, _ = QFileDialog.getOpenFileName(
+                dialog, "Import Rule Set", "", "JSON files (*.json);;All files (*)"
+            )
             if not path:
                 return
             try:
-                with open(path, 'r', encoding='utf-8') as f:
+                with open(path, encoding="utf-8") as f:
                     data = json.load(f)
                 if not isinstance(data, dict):
-                    raise ValueError('Imported file must contain a JSON object.')
+                    raise ValueError("Imported file must contain a JSON object.")
             except Exception as exc:
-                show_friendly_error_dialog(dialog, 'Import Rule Set', exc, det_msg='Could not read or parse the JSON file.', show=True)
+                show_friendly_error_dialog(
+                    dialog,
+                    "Import Rule Set",
+                    exc,
+                    det_msg="Could not read or parse the JSON file.",
+                    show=True,
+                )
                 return
 
-            imported_rules = data.get('rules', '')
+            imported_rules = data.get("rules", "")
             if isinstance(imported_rules, list):
-                imported_rules = '\n'.join(str(r) for r in imported_rules)
+                imported_rules = "\n".join(str(r) for r in imported_rules)
             elif not isinstance(imported_rules, str):
-                imported_rules = str(imported_rules or '')
+                imported_rules = str(imported_rules or "")
 
-            imported_sites = data.get('sites', '')
+            imported_sites = data.get("sites", "")
             if isinstance(imported_sites, list):
-                imported_sites = '\n'.join(str(s) for s in imported_sites)
+                imported_sites = "\n".join(str(s) for s in imported_sites)
             elif not isinstance(imported_sites, str):
-                imported_sites = str(imported_sites or '')
+                imported_sites = str(imported_sites or "")
 
             msg = QMessageBox(dialog)
-            msg.setWindowTitle('Import Rule Set')
-            msg.setText('Choose how to apply the imported rule set:')
-            msg.setInformativeText('Merge: Combine imported rules and sites with current active preferences.\n'
-                                   'Replace: Overwrite current active rules, sites, and prefix settings.')
-            merge_btn = msg.addButton('Merge', QMessageBox.ButtonRole.AcceptRole)
-            replace_btn = msg.addButton('Replace', QMessageBox.ButtonRole.DestructiveRole)
+            msg.setWindowTitle("Import Rule Set")
+            msg.setText("Choose how to apply the imported rule set:")
+            msg.setInformativeText(
+                "Merge: Combine imported rules and sites with current active preferences.\n"
+                "Replace: Overwrite current active rules, sites, and prefix settings."
+            )
+            merge_btn = msg.addButton("Merge", QMessageBox.ButtonRole.AcceptRole)
+            msg.addButton("Replace", QMessageBox.ButtonRole.DestructiveRole)
             cancel_btn = msg.addButton(QMessageBox.StandardButton.Cancel)
             msg.exec()
 
@@ -1059,11 +1334,15 @@ class TaggerAction(DialogAction):
             if clicked == cancel_btn or clicked is None:
                 return
 
-            mode = 'merge' if clicked == merge_btn else 'replace'
+            mode = "merge" if clicked == merge_btn else "replace"
 
-            if mode == 'merge':
-                target_rules = rules_mod.merge_text_lines(rules_edit.toPlainText(), imported_rules)
-                target_sites = rules_mod.merge_text_lines(sites_edit.toPlainText(), imported_sites)
+            if mode == "merge":
+                target_rules = rules_mod.merge_text_lines(
+                    rules_edit.toPlainText(), imported_rules
+                )
+                target_sites = rules_mod.merge_text_lines(
+                    sites_edit.toPlainText(), imported_sites
+                )
             else:
                 target_rules = imported_rules
                 target_sites = imported_sites
@@ -1072,28 +1351,30 @@ class TaggerAction(DialogAction):
             if errors:
                 show_friendly_error_dialog(
                     dialog,
-                    'Import Rule Set - Syntax Error',
-                    'The rule set contains invalid syntax and was not applied:',
-                    det_msg='\n'.join(errors),
-                    show=True
+                    "Import Rule Set - Syntax Error",
+                    "The rule set contains invalid syntax and was not applied:",
+                    det_msg="\n".join(errors),
+                    show=True,
                 )
                 return
 
             rules_edit.setPlainText(target_rules)
             sites_edit.setPlainText(target_sites)
 
-            if mode == 'replace':
-                if 'add_source' in data:
-                    add_source.setChecked(bool(data['add_source']))
-                if 'source_prefix' in data:
-                    prefix.setText(str(data['source_prefix']))
-                if 'series_prefix' in data:
-                    series_prefix.setText(str(data['series_prefix']))
-                if 'scan_comments' in data:
-                    scan.setChecked(bool(data['scan_comments']))
+            if mode == "replace":
+                if "add_source" in data:
+                    add_source.setChecked(bool(data["add_source"]))
+                if "source_prefix" in data:
+                    prefix.setText(str(data["source_prefix"]))
+                if "series_prefix" in data:
+                    series_prefix.setText(str(data["series_prefix"]))
+                if "scan_comments" in data:
+                    scan.setChecked(bool(data["scan_comments"]))
 
             save_prefs()
-            info_dialog(dialog, 'Import Rule Set', 'Rule set imported successfully.', show=True)
+            info_dialog(
+                dialog, "Import Rule Set", "Rule set imported successfully.", show=True
+            )
 
         export_btn.clicked.connect(do_export)
         import_btn.clicked.connect(do_import)
@@ -1104,26 +1385,37 @@ class TaggerAction(DialogAction):
             extra, site_errors = rules_mod.parse_sites(sites_edit.toPlainText())
             errors = rule_errors + site_errors
 
-            state['updating'] = True
+            state["updating"] = True
             global_tree.clear()
             books_tree.clear()
-            state['updating'] = False
+            state["updating"] = False
 
             if errors:
-                summary_label.setText('Fix these first:\n' + '\n'.join(errors))
-                state['selection'] = None
+                summary_label.setText("Fix these first:\n" + "\n".join(errors))
+                state["selection"] = None
                 apply_btn.setEnabled(False)
                 return
 
-            ids = selected if scope_selected.isChecked() else sorted(self.gui.current_db.new_api.all_book_ids())
-            state['total_ids'] = len(ids)
-            plan = rules_mod.plan_changes(self.books_for(ids), prefix.text(), add_source.isChecked(), series_prefix.text(), parsed,
-                                          rules_mod.merge_sites(rules_mod.DEFAULT_SITES, extra), scan.isChecked())
+            ids = (
+                selected
+                if scope_selected.isChecked()
+                else sorted(self.gui.current_db.new_api.all_book_ids())
+            )
+            state["total_ids"] = len(ids)
+            plan = rules_mod.plan_changes(
+                self.books_for(ids),
+                prefix.text(),
+                add_source.isChecked(),
+                series_prefix.text(),
+                parsed,
+                rules_mod.merge_sites(rules_mod.DEFAULT_SITES, extra),
+                scan.isChecked(),
+            )
 
             sel = rules_mod.TagSelectionState(plan)
-            state['selection'] = sel
+            state["selection"] = sel
 
-            state['updating'] = True
+            state["updating"] = True
             try:
                 for tag, count in sel.get_distinct_tags():
                     g_item = QTreeWidgetItem([tag, str(count)])
@@ -1133,27 +1425,29 @@ class TaggerAction(DialogAction):
                     global_tree.addTopLevelItem(g_item)
 
                 for p in plan:
-                    b_item = QTreeWidgetItem([p['title']])
+                    b_item = QTreeWidgetItem([p["title"]])
                     b_item.setFlags(b_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                     b_item.setCheckState(0, Qt.CheckState.Checked)
-                    b_item._book_id = p['id']
-                    for tag in p.get('add', []):
+                    b_item._book_id = p["id"]
+                    for tag in p.get("add", []):
                         t_item = QTreeWidgetItem([tag])
-                        t_item.setFlags(t_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                        t_item.setFlags(
+                            t_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+                        )
                         t_item.setCheckState(0, Qt.CheckState.Checked)
-                        t_item._book_id = p['id']
+                        t_item._book_id = p["id"]
                         t_item._tag = tag
                         b_item.addChild(t_item)
                     books_tree.addTopLevelItem(b_item)
 
                 books_tree.expandAll()
             finally:
-                state['updating'] = False
+                state["updating"] = False
 
             update_summary()
 
         def do_apply():
-            sel = state.get('selection')
+            sel = state.get("selection")
             if not sel:
                 return
             active_plan = sel.get_active_plan()
@@ -1161,24 +1455,37 @@ class TaggerAction(DialogAction):
                 return
             try:
                 db = self.gui.current_db.new_api
-                db.set_field('tags', {p['id']: tuple(p['tags']) for p in active_plan})
-                self.gui.library_view.model().refresh_ids([p['id'] for p in active_plan])
+                db.set_field("tags", {p["id"]: tuple(p["tags"]) for p in active_plan})
+                self.gui.library_view.model().refresh_ids(
+                    [p["id"] for p in active_plan]
+                )
                 self.gui.tags_view.recount()
             except Exception as exc:
-                return show_friendly_error_dialog(self.gui, 'Auto-tag', exc, det_msg=f'Could not apply the tags to {len(active_plan)} book(s)', show=True)
-            info_dialog(self.gui, 'Auto-tag', f'Tags added to {len(active_plan)} book(s).', show=True)
+                return show_friendly_error_dialog(
+                    self.gui,
+                    "Auto-tag",
+                    exc,
+                    det_msg=f"Could not apply the tags to {len(active_plan)} book(s)",
+                    show=True,
+                )
+            info_dialog(
+                self.gui,
+                "Auto-tag",
+                f"Tags added to {len(active_plan)} book(s).",
+                show=True,
+            )
             dialog.accept()
 
         def invalidate_preview(*args):
-            if not state.get('selection'):
+            if not state.get("selection"):
                 return
-            state['selection'] = None
+            state["selection"] = None
             apply_btn.setEnabled(False)
-            state['updating'] = True
+            state["updating"] = True
             global_tree.clear()
             books_tree.clear()
-            state['updating'] = False
-            summary_label.setText('0 of 0 book(s) will change.')
+            state["updating"] = False
+            summary_label.setText("0 of 0 book(s) will change.")
 
         # Connect signals
         pat_edit.textChanged.connect(validate_form)
