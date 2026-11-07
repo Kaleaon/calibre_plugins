@@ -11,12 +11,6 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 
 ROOT = Path(__file__).resolve().parents[1]
 
-_ORIGINAL_MODULES = {
-    k: v
-    for k, v in sys.modules.items()
-    if k.startswith(("calibre", "qt", "calibre_plugins"))
-}
-
 
 def _setup_shims():
     """Ensure qt.core and calibre mocks exist for headless test execution."""
@@ -108,15 +102,6 @@ class CalibreLinkUITests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-
-    @classmethod
-    def tearDownClass(cls):
-        for k in list(sys.modules):
-            if k.startswith(("calibre", "qt", "calibre_plugins")):
-                if k in _ORIGINAL_MODULES:
-                    sys.modules[k] = _ORIGINAL_MODULES[k]
-                else:
-                    sys.modules.pop(k, None)
 
     def setUp(self):
         self.action = CalibreLinkAction(None, "Calibre Link")

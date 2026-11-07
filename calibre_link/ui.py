@@ -415,7 +415,7 @@ class CalibreLinkAction(InterfaceAction):
             return [
                 "Integrated Tailscale: WAITING FOR ONE-TIME LOGIN.",
                 "Open this link in your browser and approve the device:",
-                "  {}".format(st["auth_url"]),
+                f"  {st['auth_url']}",
                 "You only do this once. Afterwards this file will "
                 "show the tailnet address Tinker uses.",
             ]
@@ -425,8 +425,7 @@ class CalibreLinkAction(InterfaceAction):
             ]
         if st["state"] == "error":
             return [
-                "Integrated Tailscale: not running — %s"
-                % (st.get("error") or "unknown error")
+                f"Integrated Tailscale: not running — {st.get('error') or 'unknown error'}"
             ]
         return [
             "Integrated Tailscale: off (enable it in Preferences "
