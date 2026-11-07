@@ -2,6 +2,7 @@
 
 import os
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -20,11 +21,23 @@ sys.modules["calibre.customize"] = MagicMock()
 sys.modules["calibre.constants"] = MagicMock(islinux=True, iswindows=False)
 sys.modules["calibre.gui2"] = MagicMock()
 sys.modules["calibre.gui2.actions"] = MagicMock()
-sys.modules["calibre.gui2.actions"].InterfaceAction = type(
+actions = types.ModuleType("calibre.gui2.actions")
+actions.InterfaceAction = type(
     "InterfaceAction",
     (object,),
-    {"__init__": lambda self, gui, name: setattr(self, "gui", gui)},
+    {
+        "__init__": lambda self, *args, **kwargs: setattr(
+            self, "gui", args[0] if args else kwargs.get("gui")
+        )
+    },
 )
+sys.modules["calibre.gui2.actions"] = actions
+sys.modules["calibre.constants"] = types.ModuleType("calibre.constants")
+sys.modules["calibre.constants"].islinux = True
+sys.modules["calibre.constants"].iswindows = False
+sys.modules["calibre.constants"].isosx = False
+
+sys.modules["calibre.constants"].config_dir = tempfile.gettempdir()
 sys.modules["calibre.utils"] = MagicMock()
 sys.modules["calibre.utils.config"] = MagicMock()
 

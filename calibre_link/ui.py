@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Calibre Link interface action: owns the bridge server's lifecycle
 and the integrated Tailscale (tsnet) sidecar.
 
@@ -8,6 +7,7 @@ and the integrated Tailscale (tsnet) sidecar.
   current db on every request); just refresh the connection file.
 - shutting_down: stop the sidecar, then the bridge.
 """
+
 import os
 import subprocess
 import threading
@@ -22,6 +22,7 @@ from calibre_plugins.calibre_link.server import BridgeServer
 def _sidecar_resource():
     """Zip path of the bundled tsnet sidecar for this OS, or None."""
     from calibre.constants import islinux, iswindows
+
     if iswindows:
         return "tailscale/calibre-tsnet-windows-amd64.exe"
     if islinux:
@@ -31,17 +32,26 @@ def _sidecar_resource():
 
 class CalibreLinkAction(InterfaceAction):
     name = "Calibre Link"
-    action_spec = ("Calibre Link", None,
-                   "Show Calibre Link bridge status / connection info",
-                   None)
+    action_spec = (
+        "Calibre Link",
+        None,
+        "Show Calibre Link bridge status / connection info",
+        None,
+    )
 
     # -- lifecycle ------------------------------------------------------
     def genesis(self):
         self.server = None
         self.sidecar = None
         self._sidecar_stopping = False
-        self.ts_status = {"state": "off", "auth_url": None, "ip": None,
-                          "dns": None, "bridge": False, "error": None}
+        self.ts_status = {
+            "state": "off",
+            "auth_url": None,
+            "ip": None,
+            "dns": None,
+            "bridge": False,
+            "error": None,
+        }
         self.adapter = CalibreAdapter(lambda: self.gui.current_db)
         self.qaction.triggered.connect(self.show_status)
 
@@ -59,10 +69,12 @@ class CalibreLinkAction(InterfaceAction):
     # -- bridge server ----------------------------------------------------
     def start_server(self):
         self.stop_server()
-        self.server = BridgeServer(prefs.get("host", "0.0.0.0"),
-                                   int(prefs.get("port", 8765)),
-                                   get_token(),
-                                   self.adapter)
+        self.server = BridgeServer(
+            prefs.get("host", "0.0.0.0"),
+            int(prefs.get("port", 8765)),
+            get_token(),
+            self.adapter,
+        )
         self.server.start()
         self._write_connection_file()
 
@@ -122,6 +134,7 @@ class CalibreLinkAction(InterfaceAction):
         # 3) Read the plugin ZIP directly with zipfile.
         try:
             import zipfile
+
             candidates = []
             loader = globals().get("__loader__")
             archive = getattr(loader, "archive", None)
@@ -133,6 +146,7 @@ class CalibreLinkAction(InterfaceAction):
                 candidates.append(parts[0] + ".zip")
             try:
                 from calibre.utils.config import config_dir
+
                 pdir = os.path.join(config_dir, "plugins")
                 if os.path.isdir(pdir):
                     for name in os.listdir(pdir):
@@ -158,8 +172,9 @@ class CalibreLinkAction(InterfaceAction):
             return None
         basename = resource.rsplit("/", 1)[-1]
         # Dev / unpacked fallback: a real file next to this module.
-        candidate = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                 *resource.split("/"))
+        candidate = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), *resource.split("/")
+        )
         data = self._resource_bytes(resource)
         if data is None:
             return candidate if os.path.exists(candidate) else None
@@ -167,6 +182,7 @@ class CalibreLinkAction(InterfaceAction):
         # calibre config dir. Cache by content hash so the 22 MB
         # binary is not rewritten on every calibre start.
         import hashlib
+
         digest = hashlib.sha256(data).hexdigest()
         bin_dir = os.path.join(self._ts_dir(), "bin")
         os.makedirs(bin_dir, exist_ok=True)
@@ -175,8 +191,9 @@ class CalibreLinkAction(InterfaceAction):
         try:
             if os.path.exists(dest) and os.path.exists(marker):
                 with open(marker, encoding="utf-8") as f:
-                    if f.read().strip() == digest and \
-                            os.path.getsize(dest) == len(data):
+                    if f.read().strip() == digest and os.path.getsize(dest) == len(
+                        data
+                    ):
                         if os.name != "nt":
                             os.chmod(dest, 0o755)
                         return dest
@@ -200,6 +217,7 @@ class CalibreLinkAction(InterfaceAction):
 
     def _ts_dir(self):
         from calibre.utils.config import config_dir
+
         path = os.path.join(config_dir, "calibre_link")
         os.makedirs(path, exist_ok=True)
         return path
@@ -208,28 +226,40 @@ class CalibreLinkAction(InterfaceAction):
         self.stop_sidecar()
         self._sidecar_stopping = False
         if not prefs.get("ts_enabled", True):
-            self.ts_status = {"state": "off", "auth_url": None, "ip": None,
-                              "dns": None, "bridge": False, "error": None}
+            self.ts_status = {
+                "state": "off",
+                "auth_url": None,
+                "ip": None,
+                "dns": None,
+                "bridge": False,
+                "error": None,
+            }
             self._write_connection_file()
             return
-        self.ts_status = {"state": "starting", "auth_url": None,
-                          "ip": None, "dns": None, "bridge": False,
-                          "error": None}
+        self.ts_status = {
+            "state": "starting",
+            "auth_url": None,
+            "ip": None,
+            "dns": None,
+            "bridge": False,
+            "error": None,
+        }
         try:
             path = self._sidecar_path()
         except Exception as e:
             path = None
             self.ts_status.update(
-                state="error",
-                error="could not extract Tailscale sidecar: %s" % e)
+                state="error", error="could not extract Tailscale sidecar: %s" % e
+            )
             self._write_connection_file()
             return
         if path is None:
             self.ts_status.update(
                 state="error",
                 error="no Tailscale sidecar found for this platform "
-                      "(extraction from the plugin ZIP failed — "
-                      "see tsnet.log / reinstall the plugin)")
+                "(extraction from the plugin ZIP failed — "
+                "see tsnet.log / reinstall the plugin)",
+            )
             self._write_connection_file()
             return
         try:
@@ -249,21 +279,29 @@ class CalibreLinkAction(InterfaceAction):
         kwargs = {}
         if os.name == "nt":
             # No console window flashing up behind calibre.
-            kwargs["creationflags"] = getattr(
-                subprocess, "CREATE_NO_WINDOW", 0)
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
             self.sidecar = subprocess.Popen(
-                [path], env=env, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, text=True, bufsize=1, **kwargs)
+                [path],
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                **kwargs,
+            )
         except Exception as e:
-            self.ts_status.update(state="error",
-                                  error="could not launch sidecar: %s" % e)
+            self.ts_status.update(
+                state="error", error="could not launch sidecar: %s" % e
+            )
             self._write_connection_file()
             return
-        threading.Thread(target=self._sidecar_reader,
-                         args=(self.sidecar,),
-                         name="calibre-link-tsnet-log",
-                         daemon=True).start()
+        threading.Thread(
+            target=self._sidecar_reader,
+            args=(self.sidecar,),
+            name="calibre-link-tsnet-log",
+            daemon=True,
+        ).start()
         self._write_connection_file()
 
     def stop_sidecar(self):
@@ -286,8 +324,9 @@ class CalibreLinkAction(InterfaceAction):
         if proc is None or proc.stdout is None:
             return
         try:
-            log_file = open(os.path.join(self._ts_dir(), "tsnet.log"),
-                            "a", encoding="utf-8")
+            log_file = open(
+                os.path.join(self._ts_dir(), "tsnet.log"), "a", encoding="utf-8"
+            )
         except Exception:
             log_file = None
         try:
@@ -308,7 +347,8 @@ class CalibreLinkAction(InterfaceAction):
             self.ts_status.update(
                 state="error",
                 error="Tailscale node exited (code %s) — see tsnet.log"
-                      % getattr(proc, "returncode", "?"))
+                % getattr(proc, "returncode", "?"),
+            )
             self._write_connection_file()
 
     def _sidecar_line(self, line):
@@ -322,8 +362,7 @@ class CalibreLinkAction(InterfaceAction):
                 self._write_connection_file()
             return
         if line.startswith("CALIBRE_TSNET auth_url="):
-            self.ts_status.update(
-                state="auth", auth_url=line.split("=", 1)[1].strip())
+            self.ts_status.update(state="auth", auth_url=line.split("=", 1)[1].strip())
             self._write_connection_file()
         elif line.startswith("CALIBRE_TSNET ip="):
             fields = {}
@@ -331,8 +370,9 @@ class CalibreLinkAction(InterfaceAction):
                 if "=" in part:
                     k, v = part.split("=", 1)
                     fields[k] = v
-            self.ts_status.update(state="up", ip=fields.get("ip"),
-                                  dns=fields.get("dns"))
+            self.ts_status.update(
+                state="up", ip=fields.get("ip"), dns=fields.get("dns")
+            )
             self._write_connection_file()
         elif line.startswith("CALIBRE_TSNET bridge=ok"):
             self.ts_status.update(bridge=True)
@@ -343,40 +383,51 @@ class CalibreLinkAction(InterfaceAction):
         port = int(prefs.get("port", 8765))
         st = self.ts_status
         if st["state"] == "up":
-            lines = ["Integrated Tailscale: CONNECTED — this calibre is "
-                     "on your tailnet as its own device."]
+            lines = [
+                "Integrated Tailscale: CONNECTED — this calibre is "
+                "on your tailnet as its own device."
+            ]
             if st.get("dns"):
-                lines.append("  Tailnet name: http://%s:%d"
-                             % (st["dns"], port))
+                lines.append("  Tailnet name: http://%s:%d" % (st["dns"], port))
             if st.get("ip"):
-                lines.append("  Tailnet IP:   http://%s:%d"
-                             % (st["ip"], port))
-            lines.append("That is the address Tinker uses — reachable "
-                         "from anywhere on your tailnet. The token "
-                         "above is still required.")
+                lines.append("  Tailnet IP:   http://%s:%d" % (st["ip"], port))
+            lines.append(
+                "That is the address Tinker uses — reachable "
+                "from anywhere on your tailnet. The token "
+                "above is still required."
+            )
             return lines
         if st["state"] == "auth" and st.get("auth_url"):
-            return ["Integrated Tailscale: WAITING FOR ONE-TIME LOGIN.",
-                    "Open this link in your browser and approve the "
-                    "device:",
-                    "  %s" % st["auth_url"],
-                    "You only do this once. Afterwards this file will "
-                    "show the tailnet address Tinker uses."]
+            return [
+                "Integrated Tailscale: WAITING FOR ONE-TIME LOGIN.",
+                "Open this link in your browser and approve the device:",
+                "  %s" % st["auth_url"],
+                "You only do this once. Afterwards this file will "
+                "show the tailnet address Tinker uses.",
+            ]
         if st["state"] == "starting":
-            return ["Integrated Tailscale: starting — reopen this file "
-                    "in a few seconds."]
+            return [
+                "Integrated Tailscale: starting — reopen this file in a few seconds."
+            ]
         if st["state"] == "error":
-            return ["Integrated Tailscale: not running — %s"
-                    % (st.get("error") or "unknown error")]
-        return ["Integrated Tailscale: off (enable it in Preferences "
-                "-> Plugins -> Calibre Link)."]
+            return [
+                "Integrated Tailscale: not running — %s"
+                % (st.get("error") or "unknown error")
+            ]
+        return [
+            "Integrated Tailscale: off (enable it in Preferences "
+            "-> Plugins -> Calibre Link)."
+        ]
 
     def _write_connection_file(self):
         try:
             adapter_mod.write_connection_file(
-                self.adapter, prefs.get("host", "0.0.0.0"),
-                int(prefs.get("port", 8765)), get_token(),
-                extra_lines=self._ts_connection_lines())
+                self.adapter,
+                prefs.get("host", "0.0.0.0"),
+                int(prefs.get("port", 8765)),
+                get_token(),
+                extra_lines=self._ts_connection_lines(),
+            )
         except Exception:
             pass  # connection file is a convenience, never fatal
 
@@ -392,17 +443,24 @@ class CalibreLinkAction(InterfaceAction):
 
     # -- status dialog ------------------------------------------------------
     def show_status(self):
-        from qt.core import (QApplication, QDesktopServices, QDialog,
-                             QDialogButtonBox, QPushButton, QTextBrowser,
-                             QUrl, QVBoxLayout)
+        from qt.core import (
+            QApplication,
+            QDesktopServices,
+            QDialog,
+            QDialogButtonBox,
+            QPushButton,
+            QTextBrowser,
+            QUrl,
+            QVBoxLayout,
+        )
+
         host = prefs.get("host", "0.0.0.0")
         port = int(prefs.get("port", 8765))
         lines = ["Calibre Link", ""]
         if self.server is not None and self.server.running:
             lines.append("Bridge: RUNNING on %s:%d" % (host, port))
         elif self.server is not None and self.server.last_error:
-            lines.append("Bridge: FAILED TO START — %s"
-                         % self.server.last_error)
+            lines.append("Bridge: FAILED TO START — %s" % self.server.last_error)
         else:
             lines.append("Bridge: not running")
         lines.append("Token: %s" % get_token())
@@ -413,8 +471,9 @@ class CalibreLinkAction(InterfaceAction):
             lines.append("  CONNECTED as %s" % (st.get("dns") or "?"))
             if st.get("ip"):
                 lines.append("  Tailnet IP: %s" % st["ip"])
-            lines.append("  Local bridge link: %s"
-                         % ("OK" if st.get("bridge") else "pending"))
+            lines.append(
+                "  Local bridge link: %s" % ("OK" if st.get("bridge") else "pending")
+            )
         elif st["state"] == "auth":
             lines.append("  WAITING FOR ONE-TIME LOGIN — open:")
             auth_url = st.get("auth_url")
@@ -453,24 +512,17 @@ class CalibreLinkAction(InterfaceAction):
         auth_url = st.get("auth_url")
         if st["state"] == "auth" and auth_url:
             open_btn = QPushButton("Open Auth Link")
-            open_btn.clicked.connect(
-                lambda: QDesktopServices.openUrl(QUrl(auth_url)))
-            buttons.addButton(open_btn,
-                              QDialogButtonBox.ButtonRole.ActionRole)
+            open_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(auth_url)))
+            buttons.addButton(open_btn, QDialogButtonBox.ButtonRole.ActionRole)
             copy_btn = QPushButton("Copy Auth Link")
-            copy_btn.clicked.connect(
-                lambda: QApplication.clipboard().setText(auth_url))
-            buttons.addButton(copy_btn,
-                              QDialogButtonBox.ButtonRole.ActionRole)
+            copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(auth_url))
+            buttons.addButton(copy_btn, QDialogButtonBox.ButtonRole.ActionRole)
         restart = QPushButton("Restart bridge")
-        restart.clicked.connect(
-            lambda: (self.start_server(), dlg.accept()))
+        restart.clicked.connect(lambda: (self.start_server(), dlg.accept()))
         buttons.addButton(restart, QDialogButtonBox.ButtonRole.ActionRole)
         restart_ts = QPushButton("Restart Tailscale")
-        restart_ts.clicked.connect(
-            lambda: (self.start_sidecar(), dlg.accept()))
-        buttons.addButton(restart_ts,
-                          QDialogButtonBox.ButtonRole.ActionRole)
+        restart_ts.clicked.connect(lambda: (self.start_sidecar(), dlg.accept()))
+        buttons.addButton(restart_ts, QDialogButtonBox.ButtonRole.ActionRole)
         layout.addWidget(buttons)
         dlg.resize(560, 380)
         dlg.exec()
