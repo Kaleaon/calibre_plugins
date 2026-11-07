@@ -1328,6 +1328,31 @@ class ChangePlanTests(unittest.TestCase):
             "already tagged",
         )
 
+    def test_parse_date(self):
+        from datetime import timezone
+
+        d1 = matching.parse_date("1965-08-06")
+        self.assertEqual(d1.year, 1965)
+        self.assertEqual(d1.month, 8)
+        self.assertEqual(d1.day, 6)
+        self.assertEqual(d1.tzinfo, timezone.utc)
+
+        d2 = matching.parse_date("1965-08")
+        self.assertEqual(d2.year, 1965)
+        self.assertEqual(d2.month, 8)
+        self.assertEqual(d2.day, 1)
+        self.assertEqual(d2.tzinfo, timezone.utc)
+
+        d3 = matching.parse_date("1965")
+        self.assertEqual(d3.year, 1965)
+        self.assertEqual(d3.month, 1)
+        self.assertEqual(d3.day, 1)
+        self.assertEqual(d3.tzinfo, timezone.utc)
+
+        self.assertIsNone(matching.parse_date("invalid"))
+        self.assertIsNone(matching.parse_date("999-01-01"))
+        self.assertIsNone(matching.parse_date(None))
+
 
 class BookMatchTests(unittest.TestCase):
     def test_best_open_library_work(self):
