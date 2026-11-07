@@ -121,6 +121,13 @@ class QtCase(unittest.TestCase):
         sys.modules['calibre_plugins'].__path__ = []
 
     def tearDown(self):
+        if HAVE_QT and QtWidgets.QApplication.instance():
+            for widget in QtWidgets.QApplication.topLevelWidgets():
+                if isinstance(widget, QtWidgets.QDialog):
+                    widget.reject()
+                    widget.close()
+            QtWidgets.QApplication.sendPostedEvents()
+            QtWidgets.QApplication.processEvents()
         if hasattr(builtins, 'get_resources'):
             del builtins.get_resources
         for key in [k for k in sys.modules if k.startswith(('calibre', 'qt', 'calibre_plugins'))]:
@@ -194,7 +201,7 @@ class TaskAndTagSearchTests(QtCase):
 
             def accept_options_dialog():
                 for widget in QtWidgets.QApplication.topLevelWidgets():
-                    if isinstance(widget, QtWidgets.QDialog) and not isinstance(widget, QtWidgets.QProgressDialog):
+                    if isinstance(widget, QtWidgets.QDialog) and not isinstance(widget, QtWidgets.QProgressDialog) and widget.isVisible():
                         widget.accept()
                         return
                 QtCore.QTimer.singleShot(10, accept_options_dialog)
@@ -690,8 +697,19 @@ class RedditPluginTests(QtCase):
         dialog.login_endpoints['redirect_uri'] = login.REDIRECT_URI
 
         def browser(url):
-            state = parse_qs(urlparse(url).query)['state'][0]
-            threading.Thread(target=lambda: urllib.request.urlopen(f'{login.REDIRECT_URI}?code=abc&state={state}').read()).start()
+            parsed = parse_qs(urlparse(url).query)
+            state = parsed['state'][0]
+            cb_uri = parsed.get('redirect_uri', [login.REDIRECT_URI])[0]
+
+            def visit():
+                for _ in range(20):
+                    try:
+                        urllib.request.urlopen(f'{cb_uri}?code=abc&state={state}').read()
+                        break
+                    except OSError:
+                        time.sleep(0.05)
+
+            threading.Thread(target=visit, daemon=True).start()
         dialog.open_browser = browser
         dialog.log_in()
         self.assertEqual(RecordingBox.warnings, [])
@@ -1174,6 +1192,15 @@ class GeminiDialogTests(QtCase):
         super().setUp()
         self.tmp_batch_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp_batch_dir.cleanup)
+        try:
+            undo_file = os.path.join(tempfile.gettempdir(), 'gemini_library_fixer_undo.json')
+            if os.path.exists(undo_file):
+                os.remove(undo_file)
+            global_batch_dir = os.path.join(tempfile.gettempdir(), 'gemini_library_fixer_batches')
+            if os.path.exists(global_batch_dir):
+                shutil.rmtree(global_batch_dir, ignore_errors=True)
+        except Exception:
+            pass
 
     def test_check_apply_and_undo_through_the_real_window(self):
         import json
@@ -1304,12 +1331,8 @@ class GeminiDialogTests(QtCase):
 
             dialog.reject()
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, 'exec', drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
 
         self.assertEqual(seen['initial_mode_index'], 1, 'Started in override mode index 1')
         self.assertEqual(seen['initial_text'], 'Custom test instruction prompt')
@@ -1419,6 +1442,7 @@ class GeminiDialogTests(QtCase):
         action_mod, run, sent = self._window(db, answers, [1, 2])
         action_mod.prefs['covers'] = True
         action_mod.prefs['batch_size'] = 15
+        action_mod.prefs['provider_metadata'] = False
         seen = {}
 
         def drive(dialog):
@@ -1440,10 +1464,16 @@ class GeminiDialogTests(QtCase):
         self.assertIn('picture: front cover', seen['log'])
         self.assertIn('📖 read from the pictures for “dune messiah [epub]”: DUNE MESSIAH Frank Herbert', seen['log'])
         self.assertIn('ISBN 9999999999999 → 9780306406157', seen['log'])
-        written = {(n, tuple(m)): list(m.values())[0] for n, m in seen['after_apply']}
+        written = {}
+        for n, m in seen['after_apply']:
+            for bid, val in m.items():
+                written[(n, (bid,))] = val
         self.assertEqual(written[('identifiers', (1,))], {'isbn': '9780306406157', 'goodreads': '5'}, 'other identifiers are kept')
         self.assertEqual(written[('identifiers', (2,))], {'isbn': '0306406152'})
-        restored = [list(m.values())[0] for n, m in db.writes[len(seen['after_apply']):] if n == 'identifiers']
+        restored = []
+        for n, m in db.writes[len(seen['after_apply']):]:
+            if n == 'identifiers':
+                restored.extend(m.values())
         self.assertIn({'isbn': '9999999999999', 'goodreads': '5'}, restored)
         self.assertIn({}, restored, 'a book that had no ISBN gets none again')
 
@@ -1471,6 +1501,7 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs['api_key'] = 'k'
         action_mod.prefs['batch_size'] = 1
         action_mod.prefs['min_interval'] = 0
+        action_mod.prefs['batch_dir'] = self.tmp_batch_dir.name
         seen = {}
 
         def drive(dialog):
@@ -1491,6 +1522,7 @@ class GeminiDialogTests(QtCase):
         sys.modules['calibre.gui2.actions'].InterfaceAction = object
         engine = importlib.import_module(package + '.engine')
         action_mod = importlib.import_module(package + '.action')
+        action_mod.prefs['batch_dir'] = self.tmp_batch_dir.name
 
         partial_suggestions = [{'id': 1, 'title': 'Book 1', 'changes': {'title': ('Old Title', 'New Title')}, 'confidence': 'high', 'reason': 'fix junk', 'big': False}]
         partial_err = engine.GeminiPartialError('Batch 2 failed due to network error', suggestions=partial_suggestions, skipped=['Book 2: network error'])

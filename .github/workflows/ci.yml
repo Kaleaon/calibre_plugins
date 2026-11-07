@@ -81,31 +81,8 @@ jobs:
 
       - name: Run static code linting and formatting check
         run: |
-          python -c "
-          import os, subprocess, sys
-
-          base = os.environ.get('BASE_REF')
-          files = []
-          if base:
-              for ref in [f'origin/{base}', base]:
-                  try:
-                      proc = subprocess.run(
-                          ['git', 'diff', '--name-only', '--diff-filter=d', f'{ref}...HEAD', '--', '*.py'],
-                          capture_output=True, text=True, check=True
-                      )
-                      files = [f.strip() for f in proc.stdout.splitlines() if f.strip() and os.path.exists(f.strip())]
-                      if files:
-                          break
-                  except Exception:
-                      continue
-
-          targets = files if files else ['.']
-          print(f'Checking {len(targets)} target(s) with ruff: {targets}')
-          subprocess.run(['ruff', 'check'] + targets, check=True)
-          subprocess.run(['ruff', 'format', '--check'] + targets, check=True)
-          "
-        env:
-          BASE_REF: ${{ github.base_ref }}
+          ruff check .
+          ruff format --check .
 
       - name: Build plugin packages in strict mode
         run: |
@@ -144,37 +121,5 @@ jobs:
 
       - name: Run unit test suite
         run: |
-          python -c "
-          import glob, os, subprocess, sys
-
-          base = os.environ.get('BASE_REF')
-          test_targets = []
-          if base:
-              for ref in [f'origin/{base}', base]:
-                  try:
-                      proc = subprocess.run(
-                          ['git', 'diff', '--name-only', '--diff-filter=d', f'{ref}...HEAD', '--', '*.py'],
-                          capture_output=True, text=True, check=True
-                      )
-                      changed = [f.strip() for f in proc.stdout.splitlines() if f.strip()]
-                      for c in changed:
-                          if c.startswith('tests/test_') and c.endswith('.py') and os.path.exists(c):
-                              test_targets.append(c)
-                          else:
-                              part = c.split('/')[0]
-                              for match in glob.glob(f'tests/test_{part}*.py'):
-                                  test_targets.append(match)
-                      if test_targets:
-                          break
-                  except Exception:
-                      continue
-              test_targets = sorted(list(set(test_targets)))
-
-          targets = test_targets if test_targets else ['tests/test_readme_index.py']
-          print(f'Running unit tests on targets: {targets}')
-          cmd = [sys.executable, '-m', 'pytest'] + targets
-          subprocess.run(cmd, check=True)
-          "
-        env:
-          BASE_REF: ${{ github.base_ref }}
+          python -m pytest tests/
 
