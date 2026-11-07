@@ -1,5 +1,5 @@
 [tool.ruff]
-target-version = "py312"
+target-version = "py310"
 line-length = 88
 extend-exclude = [
     "dist",
@@ -15,10 +15,19 @@ select = [
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
 ]
-ignore = ["E501", "UP038"]
+ignore = [
+    "E501",  # line too long
+    "E402",  # module level import not at top of file
+    "E731",  # do not assign a lambda expression, use a def
+    "E741",  # ambiguous variable name
+    "F401",  # unused import
+    "F841",  # local variable assigned but never used
+    "UP031", # use format specifiers instead of percent format
+]
 
 [tool.ruff.lint.isort]
 known-first-party = [
+    "calibre_link",
     "common",
     "fanfic",
     "gemini",
