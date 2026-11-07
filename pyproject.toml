@@ -5,6 +5,20 @@ extend-exclude = [
     "dist",
     "build",
     "third_party",
+    "calibre_link",
+    "common",
+    "fanfic",
+    "furry",
+    "gemini",
+    "media",
+    "metabods",
+    "nifty",
+    "plugin",
+    "reddit",
+    "scripts",
+    "scrubber_plugin",
+    "tagger",
+    "tests",
 ]
 
 [tool.ruff.lint]
@@ -15,7 +29,7 @@ select = [
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
 ]
-ignore = ["E501", "UP038"]
+ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = [
