@@ -1,12 +1,10 @@
 import json
 from calibre.gui2 import error_dialog, info_dialog
-from calibre.gui2.actions import InterfaceAction
 from qt.core import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox,
                      QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPlainTextEdit,
                      QPushButton, QRadioButton, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
                      Qt, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 from calibre_plugins.story_collection_tagger.error_handler import show_friendly_error_dialog
-from calibre_plugins.story_collection_tagger.ui import TaggerPreviewDialog
 from calibre_plugins.story_collection_tagger import rules as rules_mod
 from calibre_plugins.story_collection_tagger import presets as presets_mod
 from calibre_plugins.story_collection_tagger.config import prefs

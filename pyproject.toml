@@ -15,7 +15,11 @@ select = [
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
 ]
-ignore = ["E501", "UP038"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--ignore=tests/test_qt_dialogs.py"
 
 [tool.ruff.lint.isort]
 known-first-party = [

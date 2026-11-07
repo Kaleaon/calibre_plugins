@@ -139,6 +139,7 @@ class QtCase(unittest.TestCase):
         package = types.ModuleType(f'calibre_plugins.{import_name}')
         package.__path__ = [str(target)]
         sys.modules[package.__name__] = package
+        setattr(sys.modules['calibre_plugins'], import_name, package)
         return package.__name__
 
 
