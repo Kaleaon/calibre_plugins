@@ -12,6 +12,43 @@ from datetime import datetime, timezone
 
 from . import sources, tags as audio
 
+__all__ = [
+    'KINDS',
+    'KIND_TAGS',
+    'FIELDS',
+    'DEFAULT_FIELDS',
+    'PER_BOOK_STATUS',
+    'MIN_FINGERPRINT',
+    'MIN_SIMILAR_TITLE',
+    'MIN_TITLE_SIM',
+    'MIN_SCORE',
+    'TICK_SCORE',
+    'MAX_BOOK_TAGS',
+    'NOISE',
+    'DASH_NOISE',
+    'AMBIGUOUS_MARGIN',
+    'norm',
+    'strip_noise',
+    'similarity',
+    'classify',
+    'credit_names',
+    'credit_text',
+    'release_rank',
+    'score_recording',
+    'top_music_candidates',
+    'best_music_candidate',
+    'score_book',
+    'top_book_candidates',
+    'best_book_candidate',
+    'parse_date',
+    'want_for',
+    'plan_changes',
+    'describe',
+    'plan_matches',
+    'search_single_book',
+    'manual_search',
+]
+
 KINDS = ('music', 'audiobook', 'book')
 KIND_TAGS = {'music': 'Music', 'audiobook': 'Audiobook'}
 FIELDS = ('title', 'authors', 'album', 'date', 'tags', 'subjects', 'identifiers', 'cover')
