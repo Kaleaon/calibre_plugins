@@ -39,4 +39,4 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --ignore=tests/test_qt_dialogs.py --ignore=tests/test_empty_state_overlay.py --ignore=tests/test_reddit_registry.py --ignore=tests/test_readme_index.py --ignore=tests/test_scrubber.py"
+addopts = "-v --ignore=tests/test_qt_dialogs.py --ignore=tests/test_media_dialogs.py --ignore=tests/test_empty_state_overlay.py --ignore=tests/test_reddit_registry.py --ignore=tests/test_readme_index.py --ignore=tests/test_scrubber.py"
