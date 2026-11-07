@@ -101,9 +101,7 @@ class SidecarAndFolderRestoreTests(unittest.TestCase):
 
             # Check that dirty book was replaced and sidecar created
             sidecar_file = dir_path / "my_book.original.epub"
-            self.assertTrue(
-                sidecar_file.exists(), "Sidecar .original.epub must be created"
-            )
+            self.assertTrue(sidecar_file.exists(), "Sidecar .original.epub must be created")
             self.assertEqual(
                 sidecar_file.read_bytes(),
                 orig_bytes,
@@ -112,9 +110,7 @@ class SidecarAndFolderRestoreTests(unittest.TestCase):
 
             # Check that clean book was unchanged and has NO sidecar
             clean_sidecar = dir_path / "clean_book.original.epub"
-            self.assertFalse(
-                clean_sidecar.exists(), "Unchanged files should not produce sidecars"
-            )
+            self.assertFalse(clean_sidecar.exists(), "Unchanged files should not produce sidecars")
 
             # Re-scrubbing folder should ignore sidecars and not scrub them
             rows2, _ = scrub_files(dir_path, in_place=True)
@@ -131,9 +127,7 @@ class SidecarAndFolderRestoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             dir_path = Path(tmp_dir)
             orig_bytes = make_test_epub("<p>Original True Content</p>", OPF_ORIGINAL)
-            scrubbed_bytes = make_test_epub(
-                "<p>Scrubbed modified content</p>", OPF_ORIGINAL
-            )
+            scrubbed_bytes = make_test_epub("<p>Scrubbed modified content</p>", OPF_ORIGINAL)
 
             epub_file = dir_path / "story.epub"
             sidecar_file = dir_path / "story.original.epub"
@@ -276,9 +270,7 @@ class ScrubRestoreManagerDialogTests(unittest.TestCase):
 
         worker.run()
 
-        self.assertEqual(
-            len(found_items), 2, "Only books with ORIGINAL_EPUB should be scanned"
-        )
+        self.assertEqual(len(found_items), 2, "Only books with ORIGINAL_EPUB should be scanned")
         self.assertEqual(finished_summary["total_backups"], 2)
         self.assertEqual(finished_summary["diff_count"], 1)
 
@@ -320,9 +312,7 @@ class ScrubRestoreManagerDialogTests(unittest.TestCase):
         self.assertEqual(results["errors"], [])
 
         # Format restored via db.add_format
-        self.db.add_format.assert_called_with(
-            1, "EPUB", unittest.mock.ANY, replace=True
-        )
+        self.db.add_format.assert_called_with(1, "EPUB", unittest.mock.ANY, replace=True)
 
         # Metadata fields reverted via db.set_field
         self.db.set_field.assert_any_call("title", {1: "The Original Great Novel"})
@@ -336,9 +326,7 @@ class ScrubRestoreManagerDialogTests(unittest.TestCase):
         self.assertIn("ORIGINAL_EPUB", self.book_formats[1])
 
     def test_restore_apply_worker_removes_backup_when_remove_backup_is_true(self):
-        items = [
-            {"book_id": 1, "curr_title": "Great Novel", "raw_orig": self.orig_epub_data}
-        ]
+        items = [{"book_id": 1, "curr_title": "Great Novel", "raw_orig": self.orig_epub_data}]
 
         worker = RestoreApplyWorker(
             self.db,
@@ -412,7 +400,7 @@ class ScrubRestoreManagerDialogTests(unittest.TestCase):
 
         gui = QtWidgets.QWidget()
         qaction = MagicMock()
-        action = ScrubAction(gui, "EPUB Promo Scrubber")
+        action = ScrubAction()
         action.gui = gui
         action.qaction = qaction
 
@@ -422,7 +410,10 @@ class ScrubRestoreManagerDialogTests(unittest.TestCase):
         # Verify setMenu was called
         qaction.setMenu.assert_called_once()
         menu = qaction.setMenu.call_args[0][0]
-        action_titles = [act.text() for act in menu.actions()]
+        action_titles = [
+            act.text() if callable(getattr(act, "text", None)) else str(getattr(act, "text", ""))
+            for act in menu.actions()
+        ]
 
         self.assertIn("Restore original EPUBs & metadata…", action_titles)
         self.assertIn("Restore EPUB files from folder…", action_titles)

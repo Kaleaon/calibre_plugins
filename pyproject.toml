@@ -1,6 +1,14 @@
 [tool.ruff]
-target-version = "py312"
-line-length = 88
+target-version = "py310"
+line-length = 120
+include = [
+    "scrubber_plugin/__init__.py",
+    "scrubber_plugin/action.py",
+    "scrubber_plugin/core.py",
+    "scrubber_plugin/ui.py",
+    "tests/test_scrubber.py",
+    "tests/test_scrubber_restore.py",
+]
 extend-exclude = [
     "dist",
     "build",
@@ -15,7 +23,7 @@ select = [
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
 ]
-ignore = ["E501", "UP038"]
+ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = [

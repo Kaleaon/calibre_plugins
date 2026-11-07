@@ -119,6 +119,16 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
         None,
     )
 
+    def __init__(self, *args, **kwargs):
+        if args and hasattr(args[0], "db"):
+            self.gui = args[0]
+        elif "gui" in kwargs:
+            self.gui = kwargs["gui"]
+        try:
+            super().__init__(*args, **kwargs)
+        except TypeError:
+            super().__init__()
+
     def genesis(self):
         menu = QMenu(self.gui)
         self.qaction.setMenu(menu)
@@ -155,27 +165,18 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
         db = self.gui.current_db.new_api
         selected_ids = (
             list(self.gui.library_view.get_selected_ids())
-            if hasattr(self.gui, "library_view")
-            and hasattr(self.gui.library_view, "get_selected_ids")
+            if hasattr(self.gui, "library_view") and hasattr(self.gui.library_view, "get_selected_ids")
             else []
         )
-        dialog = ScrubRestoreManagerDialog(
-            self.gui, db, prefs, selected_book_ids=selected_ids
-        )
+        dialog = ScrubRestoreManagerDialog(self.gui, db, prefs, selected_book_ids=selected_ids)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            if hasattr(self.gui, "library_view") and hasattr(
-                self.gui.library_view, "model"
-            ):
+            if hasattr(self.gui, "library_view") and hasattr(self.gui.library_view, "model"):
                 self.gui.library_view.model().refresh()
-            if hasattr(self.gui, "tags_view") and hasattr(
-                self.gui.tags_view, "recount"
-            ):
+            if hasattr(self.gui, "tags_view") and hasattr(self.gui.tags_view, "recount"):
                 self.gui.tags_view.recount()
 
     def restore_folder_action(self):
-        source = QFileDialog.getExistingDirectory(
-            self.gui, "Select folder containing .original.epub sidecar files"
-        )
+        source = QFileDialog.getExistingDirectory(self.gui, "Select folder containing .original.epub sidecar files")
         if not source:
             return
         from pathlib import Path
@@ -199,9 +200,7 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
             "Click Yes to restore and remove sidecars.\n"
             "Click No to restore but keep sidecars.\n"
             "Click Cancel to abort.",
-            QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.No
-            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
         )
         if choice == QMessageBox.StandardButton.Cancel:
             return
@@ -213,9 +212,7 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
 
         task = run_task(self.gui, "Restoring original EPUB files…", work)
         if task.error:
-            show_friendly_error_dialog(
-                self.gui, "Restore failed", task.error, show=True
-            )
+            show_friendly_error_dialog(self.gui, "Restore failed", task.error, show=True)
             return
 
         rows, report_path = task.result or ([], None)
@@ -232,11 +229,7 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
     def options(self):
         profiles = get_profiles_from_prefs(prefs)
         default_prof = resolve_profile([], profiles)
-        extra = [
-            line.strip()
-            for line in default_prof.get("extra_patterns", "").splitlines()
-            if line.strip()
-        ]
+        extra = [line.strip() for line in default_prof.get("extra_patterns", "").splitlines() if line.strip()]
         return (
             extra,
             default_prof.get("heuristic", True),
@@ -304,11 +297,8 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
         profiles = get_profiles_from_prefs(prefs)
         extra, heuristic, drop = self.options()
         db = self.gui.current_db.new_api
-        matcher = Matcher(extra, heuristic)
         delete_backups = False
-        if not prefs["backup"] and any(
-            "ORIGINAL_EPUB" in (db.formats(book_id) or ()) for book_id in ids
-        ):
+        if not prefs["backup"] and any("ORIGINAL_EPUB" in (db.formats(book_id) or ()) for book_id in ids):
             sure = QMessageBox.question(
                 self.gui,
                 "Delete existing backups?",
@@ -339,9 +329,7 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
                             profiles=profiles,
                         )
                         book_changes.extend(report.get("changes", []))
-                        active_profile_name = report.get(
-                            "active_profile", "Global Default"
-                        )
+                        active_profile_name = report.get("active_profile", "Global Default")
                     else:
                         doms = extract_domains_from_metadata(mi)
                         active_prof = resolve_profile(doms, profiles)
@@ -351,17 +339,11 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
                     active_prof = resolve_profile(doms, profiles)
                     p_extra = active_prof.get("extra_patterns", "")
                     if isinstance(p_extra, str):
-                        p_extra = [
-                            line.strip()
-                            for line in p_extra.splitlines()
-                            if line.strip()
-                        ]
+                        p_extra = [line.strip() for line in p_extra.splitlines() if line.strip()]
                     p_heuristic = active_prof.get("heuristic", True)
                     field_matcher = Matcher(p_extra, p_heuristic)
 
-                    meta_changes = self.scrub_fields(
-                        db, book_id, field_matcher, dry_run=True
-                    )
+                    meta_changes = self.scrub_fields(db, book_id, field_matcher, dry_run=True)
                     book_changes.extend(meta_changes)
                     if book_changes:
                         scan_results.append(
@@ -375,14 +357,10 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
                         )
                 return scan_results
 
-            task = run_task(
-                self.gui, "Scanning EPUBs for promo content...", scan_worker
-            )
+            task = run_task(self.gui, "Scanning EPUBs for promo content...", scan_worker)
             if task.cancelled() or task.error:
                 if task.error:
-                    show_friendly_error_dialog(
-                        self.gui, "Scan failed", task.error, show=True
-                    )
+                    show_friendly_error_dialog(self.gui, "Scan failed", task.error, show=True)
                 return
             scan_results = task.result or []
             if not scan_results:
@@ -434,12 +412,8 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
                                     db.save_original_format(book_id, "EPUB")
                                 elif "ORIGINAL_EPUB" in (db.formats(book_id) or ()):
                                     db.remove_formats({book_id: {"ORIGINAL_EPUB"}})
-                                if not db.add_format(
-                                    book_id, "EPUB", BytesIO(new_bytes), replace=True
-                                ):
-                                    raise ValueError(
-                                        "Calibre could not save the scrubbed EPUB"
-                                    )
+                                if not db.add_format(book_id, "EPUB", BytesIO(new_bytes), replace=True):
+                                    raise ValueError("Calibre could not save the scrubbed EPUB")
                                 book_changed = True
 
                         mi = db.get_metadata(book_id)
@@ -447,17 +421,11 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
                         active_prof = resolve_profile(doms, profiles)
                         p_extra = active_prof.get("extra_patterns", "")
                         if isinstance(p_extra, str):
-                            p_extra = [
-                                line.strip()
-                                for line in p_extra.splitlines()
-                                if line.strip()
-                            ]
+                            p_extra = [line.strip() for line in p_extra.splitlines() if line.strip()]
                         p_heuristic = active_prof.get("heuristic", True)
                         field_matcher = Matcher(p_extra, p_heuristic)
 
-                        field_changes = self.scrub_fields(
-                            db, book_id, field_matcher, allowed_change_ids=allowed_ids
-                        )
+                        field_changes = self.scrub_fields(db, book_id, field_matcher, allowed_change_ids=allowed_ids)
                         if field_changes or book_changed:
                             changed.append(book_id)
                         else:
@@ -492,22 +460,14 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
                         data = db.format(book_id, "EPUB")
                         if not data:
                             continue
-                        new, report = scrub_epub(
-                            data, extra, heuristic, drop, profiles=profiles
-                        )
+                        new, report = scrub_epub(data, extra, heuristic, drop, profiles=profiles)
                         if new is not None:
                             if prefs["backup"]:
                                 db.save_original_format(book_id, "EPUB")
-                            elif delete_backups and "ORIGINAL_EPUB" in (
-                                db.formats(book_id) or ()
-                            ):
+                            elif delete_backups and "ORIGINAL_EPUB" in (db.formats(book_id) or ()):
                                 db.remove_formats({book_id: {"ORIGINAL_EPUB"}})
-                            if not db.add_format(
-                                book_id, "EPUB", BytesIO(new), replace=True
-                            ):
-                                raise ValueError(
-                                    "Calibre could not save the scrubbed EPUB"
-                                )
+                            if not db.add_format(book_id, "EPUB", BytesIO(new), replace=True):
+                                raise ValueError("Calibre could not save the scrubbed EPUB")
                             changed.append(book_id)
                         else:
                             unchanged += 1
@@ -517,11 +477,7 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
                         active_prof = resolve_profile(doms, profiles)
                         p_extra = active_prof.get("extra_patterns", "")
                         if isinstance(p_extra, str):
-                            p_extra = [
-                                line.strip()
-                                for line in p_extra.splitlines()
-                                if line.strip()
-                            ]
+                            p_extra = [line.strip() for line in p_extra.splitlines() if line.strip()]
                         p_heuristic = active_prof.get("heuristic", True)
                         field_matcher = Matcher(p_extra, p_heuristic)
 
@@ -542,9 +498,7 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
                 msg += f"\n{'; '.join(errors)}"
             info_dialog(self.gui, "EPUB Promo Scrubber", msg, show=True)
 
-    def scrub_fields(
-        self, db, book_id, matcher, allowed_change_ids=None, dry_run=False
-    ):
+    def scrub_fields(self, db, book_id, matcher, allowed_change_ids=None, dry_run=False):
         """Remove the same marks from the library's own title, publisher and comments fields."""
         mi = db.get_metadata(book_id)
         field_changes = []
@@ -582,13 +536,9 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
             "Scrub a whole folder? Choose No to pick a single EPUB file.",
         )
         if choice == QMessageBox.StandardButton.Yes:
-            source = QFileDialog.getExistingDirectory(
-                self.gui, "Select folder containing EPUB files"
-            )
+            source = QFileDialog.getExistingDirectory(self.gui, "Select folder containing EPUB files")
         else:
-            source, _ = QFileDialog.getOpenFileName(
-                self.gui, "Select EPUB file", "", "EPUB (*.epub)"
-            )
+            source, _ = QFileDialog.getOpenFileName(self.gui, "Select EPUB file", "", "EPUB (*.epub)")
         if not source:
             return
         in_place = prefs["in_place"]
@@ -602,9 +552,7 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
             if sure != QMessageBox.StandardButton.Yes:
                 return
         else:
-            output = QFileDialog.getExistingDirectory(
-                self.gui, "Select a separate folder for scrubbed copies"
-            )
+            output = QFileDialog.getExistingDirectory(self.gui, "Select a separate folder for scrubbed copies")
             if not output:
                 return
 
@@ -615,9 +563,7 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
             from pathlib import Path
 
             src_path = Path(source)
-            paths = (
-                [src_path] if src_path.is_file() else sorted(src_path.rglob("*.epub"))
-            )
+            paths = [src_path] if src_path.is_file() else sorted(src_path.rglob("*.epub"))
 
             def scan_folder_worker(task):
                 scan_results = []
@@ -641,23 +587,17 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
                                     "path": str(p),
                                     "title": p.name,
                                     "changes": report["changes"],
-                                    "active_profile": report.get(
-                                        "active_profile", "Global Default"
-                                    ),
+                                    "active_profile": report.get("active_profile", "Global Default"),
                                 }
                             )
                     except Exception:
                         pass
                 return scan_results
 
-            task = run_task(
-                self.gui, "Scanning EPUB files for promo content...", scan_folder_worker
-            )
+            task = run_task(self.gui, "Scanning EPUB files for promo content...", scan_folder_worker)
             if task.cancelled() or task.error:
                 if task.error:
-                    show_friendly_error_dialog(
-                        self.gui, "Scan failed", task.error, show=True
-                    )
+                    show_friendly_error_dialog(self.gui, "Scan failed", task.error, show=True)
                 return
 
             scan_results = task.result or []
@@ -695,62 +635,38 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
                     profiles=profiles,
                 )
                 done = "replaced" if in_place else "scrubbed"
-                counts = {
-                    s: sum(r["status"] == s for r in rows)
-                    for s in (done, "unchanged", "error")
-                }
+                counts = {s: sum(r["status"] == s for r in rows) for s in (done, "unchanged", "error")}
                 info_dialog(
                     self.gui,
                     "EPUB Promo Scrubber",
                     f"{counts[done]} {done}, {counts['unchanged']} unchanged, {counts['error']} errors.\n"
-                    + (
-                        "Original files were overwritten."
-                        if in_place
-                        else "Originals were not modified."
-                    )
+                    + ("Original files were overwritten." if in_place else "Originals were not modified.")
                     + f"\nReport: {report_path}",
                     show=True,
                 )
             except Exception as exc:
-                show_friendly_error_dialog(
-                    self.gui, "EPUB Promo Scrubber failed", exc, show=True
-                )
+                show_friendly_error_dialog(self.gui, "EPUB Promo Scrubber failed", exc, show=True)
 
         else:
             try:
-                rows, report_path = scrub_files(
-                    source, output, extra, heuristic, drop, in_place, profiles=profiles
-                )
+                rows, report_path = scrub_files(source, output, extra, heuristic, drop, in_place, profiles=profiles)
                 done = "replaced" if in_place else "scrubbed"
-                counts = {
-                    s: sum(r["status"] == s for r in rows)
-                    for s in (done, "unchanged", "error")
-                }
+                counts = {s: sum(r["status"] == s for r in rows) for s in (done, "unchanged", "error")}
                 info_dialog(
                     self.gui,
                     "EPUB Promo Scrubber",
                     f"{counts[done]} {done}, {counts['unchanged']} unchanged, {counts['error']} errors.\n"
-                    + (
-                        "Original files were overwritten."
-                        if in_place
-                        else "Originals were not modified."
-                    )
+                    + ("Original files were overwritten." if in_place else "Originals were not modified.")
                     + f"\nReport: {report_path}",
                     show=True,
                 )
             except Exception as exc:
-                show_friendly_error_dialog(
-                    self.gui, "EPUB Promo Scrubber failed", exc, show=True
-                )
+                show_friendly_error_dialog(self.gui, "EPUB Promo Scrubber failed", exc, show=True)
 
     def merge_folder(self):
-        files, _ = QFileDialog.getOpenFileNames(
-            self.gui, "Select EPUB files to merge", "", "EPUB (*.epub)"
-        )
+        files, _ = QFileDialog.getOpenFileNames(self.gui, "Select EPUB files to merge", "", "EPUB (*.epub)")
         if not files or len(files) < 2:
-            info_dialog(
-                self.gui, "EPUB Merger", "Select at least two EPUB files.", show=True
-            )
+            info_dialog(self.gui, "EPUB Merger", "Select at least two EPUB files.", show=True)
             return
 
         try:
@@ -766,9 +682,7 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
 
         scan_results = scan_epub_files_for_merge(files)
         if not scan_results:
-            info_dialog(
-                self.gui, "EPUB Merger", "No EPUB files found to merge.", show=True
-            )
+            info_dialog(self.gui, "EPUB Merger", "No EPUB files found to merge.", show=True)
             return
 
         dialog = MergePreviewDialog(self.gui, scan_results)

@@ -117,9 +117,7 @@ except ImportError:
 
                 _c_path = Path(__file__).parent / "core.py"
                 if _c_path.exists():
-                    _spec = importlib.util.spec_from_file_location(
-                        "scrub_core", _c_path
-                    )
+                    _spec = importlib.util.spec_from_file_location("scrub_core", _c_path)
                     _c_mod = importlib.util.module_from_spec(_spec)
                     _spec.loader.exec_module(_c_mod)
                     parse_opf_metadata = getattr(_c_mod, "parse_opf_metadata", None)
@@ -174,12 +172,8 @@ def compute_side_by_side_html(orig_str, scrub_str, mode="full"):
                         )
 
                     hidden = count - context_lines * 2
-                    left_blocks.append(
-                        f'<div class="line separator">--- {hidden} unchanged lines ---</div>'
-                    )
-                    right_blocks.append(
-                        f'<div class="line separator">--- {hidden} unchanged lines ---</div>'
-                    )
+                    left_blocks.append(f'<div class="line separator">--- {hidden} unchanged lines ---</div>')
+                    right_blocks.append(f'<div class="line separator">--- {hidden} unchanged lines ---</div>')
 
                     for k in range(count - context_lines, count):
                         ln = i1 + k + 1
@@ -209,15 +203,11 @@ def compute_side_by_side_html(orig_str, scrub_str, mode="full"):
                 left_blocks.append(
                     f'<div class="line delete"><span class="num">{ln}</span>{html.escape(orig_lines[i1 + k])}</div>'
                 )
-                right_blocks.append(
-                    '<div class="line pad"><span class="num">&nbsp;</span></div>'
-                )
+                right_blocks.append('<div class="line pad"><span class="num">&nbsp;</span></div>')
         elif tag == "insert":
             right_len = j2 - j1
             for k in range(right_len):
-                left_blocks.append(
-                    '<div class="line pad"><span class="num">&nbsp;</span></div>'
-                )
+                left_blocks.append('<div class="line pad"><span class="num">&nbsp;</span></div>')
                 rn = j1 + k + 1
                 right_blocks.append(
                     f'<div class="line insert"><span class="num">{rn}</span>{html.escape(scrub_lines[j1 + k])}</div>'
@@ -243,20 +233,12 @@ def compute_side_by_side_html(orig_str, scrub_str, mode="full"):
                             l_html_parts.append(sub_l)
                             r_html_parts.append(sub_r)
                         elif c_tag == "delete":
-                            l_html_parts.append(
-                                f'<span class="del-char">{sub_l}</span>'
-                            )
+                            l_html_parts.append(f'<span class="del-char">{sub_l}</span>')
                         elif c_tag == "insert":
-                            r_html_parts.append(
-                                f'<span class="ins-char">{sub_r}</span>'
-                            )
+                            r_html_parts.append(f'<span class="ins-char">{sub_r}</span>')
                         elif c_tag == "replace":
-                            l_html_parts.append(
-                                f'<span class="del-char">{sub_l}</span>'
-                            )
-                            r_html_parts.append(
-                                f'<span class="ins-char">{sub_r}</span>'
-                            )
+                            l_html_parts.append(f'<span class="del-char">{sub_l}</span>')
+                            r_html_parts.append(f'<span class="ins-char">{sub_r}</span>')
 
                     ln = i1 + k + 1
                     rn = j1 + k + 1
@@ -271,13 +253,9 @@ def compute_side_by_side_html(orig_str, scrub_str, mode="full"):
                     left_blocks.append(
                         f'<div class="line delete"><span class="num">{ln}</span>{html.escape(left_chunk[k])}</div>'
                     )
-                    right_blocks.append(
-                        '<div class="line pad"><span class="num">&nbsp;</span></div>'
-                    )
+                    right_blocks.append('<div class="line pad"><span class="num">&nbsp;</span></div>')
                 else:
-                    left_blocks.append(
-                        '<div class="line pad"><span class="num">&nbsp;</span></div>'
-                    )
+                    left_blocks.append('<div class="line pad"><span class="num">&nbsp;</span></div>')
                     rn = j1 + k + 1
                     right_blocks.append(
                         f'<div class="line insert"><span class="num">{rn}</span>{html.escape(right_chunk[k])}</div>'
@@ -314,9 +292,7 @@ class SideBySideDiffDialog(QDialog):
         self.original_html = original_html or ""
         self.scrubbed_html = scrubbed_html or ""
         self.changes = changes or []
-        self.checked_change_ids = (
-            set(checked_change_ids) if checked_change_ids is not None else set()
-        )
+        self.checked_change_ids = set(checked_change_ids) if checked_change_ids is not None else set()
         self.raw_data = raw_data
         self.matcher = matcher
 
@@ -395,9 +371,7 @@ class SideBySideDiffDialog(QDialog):
         main_layout.addWidget(main_splitter)
 
         # Dialog Buttons
-        btn_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         btn_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply & Close")
         btn_box.accepted.connect(self.accept)
         btn_box.rejected.connect(self.reject)
@@ -446,25 +420,17 @@ class SideBySideDiffDialog(QDialog):
         self.changes_tree.blockSignals(True)
         self.changes_tree.clear()
 
-        file_changes = [
-            c
-            for c in self.changes
-            if c.get("file") == self.file_name or not self.file_name
-        ]
+        file_changes = [c for c in self.changes if c.get("file") == self.file_name or not self.file_name]
         if not file_changes:
             file_changes = self.changes
 
         for ch in file_changes:
             disp_text = ch.get("text") or ch.get("action") or "Change"
-            item = QTreeWidgetItem(
-                self.changes_tree, [disp_text, ch.get("category", "")]
-            )
+            item = QTreeWidgetItem(self.changes_tree, [disp_text, ch.get("category", "")])
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             ch_id = ch.get("id")
             is_checked = ch_id in self.checked_change_ids
-            item.setCheckState(
-                0, Qt.CheckState.Checked if is_checked else Qt.CheckState.Unchecked
-            )
+            item.setCheckState(0, Qt.CheckState.Checked if is_checked else Qt.CheckState.Unchecked)
             item.setData(0, Qt.ItemDataRole.UserRole, ch)
 
         self.changes_tree.blockSignals(False)
@@ -498,9 +464,7 @@ class SideBySideDiffDialog(QDialog):
         self.refresh_diff()
 
     def refresh_diff(self):
-        left_html, right_html = compute_side_by_side_html(
-            self.original_html, self.scrubbed_html, mode=self.diff_mode
-        )
+        left_html, right_html = compute_side_by_side_html(self.original_html, self.scrubbed_html, mode=self.diff_mode)
         self.left_browser.setHtml(left_html)
         self.right_browser.setHtml(right_html)
 
@@ -605,12 +569,8 @@ class ScrubPreviewDialog(QDialog):
         layout.addLayout(tb_layout)
 
         # Dialog Button Box
-        self.button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText(
-            "Apply Selected Changes"
-        )
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Selected Changes")
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
@@ -627,16 +587,10 @@ class ScrubPreviewDialog(QDialog):
         self.tree.clear()
 
         for res in self.scan_results:
-            title = (
-                res.get("title") or res.get("path") or f"Book ID {res.get('book_id')}"
-            )
-            prof_name = (
-                res.get("active_profile") or res.get("profile") or "Global Default"
-            )
+            title = res.get("title") or res.get("path") or f"Book ID {res.get('book_id')}"
+            prof_name = res.get("active_profile") or res.get("profile") or "Global Default"
             changes = res.get("changes", [])
-            book_item = QTreeWidgetItem(
-                self.tree, [title, f"{len(changes)} items (Profile: {prof_name})"]
-            )
+            book_item = QTreeWidgetItem(self.tree, [title, f"{len(changes)} items (Profile: {prof_name})"])
             book_item.setFlags(book_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             book_item.setCheckState(0, Qt.CheckState.Checked)
             book_item.setData(
@@ -656,23 +610,15 @@ class ScrubPreviewDialog(QDialog):
                 grouped.setdefault(cat, []).append(ch)
 
             for cat_name, cat_changes in grouped.items():
-                cat_item = QTreeWidgetItem(
-                    book_item, [cat_name, f"{len(cat_changes)} items"]
-                )
+                cat_item = QTreeWidgetItem(book_item, [cat_name, f"{len(cat_changes)} items"])
                 cat_item.setFlags(cat_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 cat_item.setCheckState(0, Qt.CheckState.Checked)
-                cat_item.setData(
-                    0, Qt.ItemDataRole.UserRole, {"type": "category", "name": cat_name}
-                )
+                cat_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "category", "name": cat_name})
 
                 for ch in cat_changes:
                     disp_text = ch.get("text") or ch.get("action") or "Promo Item"
-                    child_item = QTreeWidgetItem(
-                        cat_item, [disp_text, ch.get("action", "")]
-                    )
-                    child_item.setFlags(
-                        child_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-                    )
+                    child_item = QTreeWidgetItem(cat_item, [disp_text, ch.get("action", "")])
+                    child_item.setFlags(child_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                     child_item.setCheckState(0, Qt.CheckState.Checked)
                     child_item.setData(0, Qt.ItemDataRole.UserRole, ch)
 
@@ -741,9 +687,7 @@ class ScrubPreviewDialog(QDialog):
                     f"Book/File: {item.text(0)}\nActive Profile: {prof_name}\nTotal detected items: {item.childCount()}"
                 )
             elif data.get("type") == "category":
-                self.detail_edit.setPlainText(
-                    f"Category: {data.get('name')}\nTotal items: {item.childCount()}"
-                )
+                self.detail_edit.setPlainText(f"Category: {data.get('name')}\nTotal items: {item.childCount()}")
             else:
                 self.detail_edit.setPlainText(f"Selected: {item.text(0)}")
         else:
@@ -788,9 +732,7 @@ class ScrubPreviewDialog(QDialog):
         if not file_name:
             file_name = "OEBPS/c1.xhtml"
 
-        bufs = res.get("xhtml_buffers", {}).get(file_name) or res.get(
-            "buffers", {}
-        ).get(file_name)
+        bufs = res.get("xhtml_buffers", {}).get(file_name) or res.get("buffers", {}).get(file_name)
         raw_data = res.get("data")
 
         matcher = None
@@ -808,9 +750,7 @@ class ScrubPreviewDialog(QDialog):
 
         if not bufs and raw_data and matcher:
             checked_ids = self.get_selected_change_ids()
-            bufs = get_document_diff_buffers(
-                raw_data, matcher, file_name, allowed_change_ids=checked_ids
-            )
+            bufs = get_document_diff_buffers(raw_data, matcher, file_name, allowed_change_ids=checked_ids)
 
         orig_html = bufs.get("original", "") if bufs else ""
         scrub_html = bufs.get("scrubbed", "") if bufs else ""
@@ -841,11 +781,7 @@ class ScrubPreviewDialog(QDialog):
             data = item.data(0, Qt.ItemDataRole.UserRole)
             if isinstance(data, dict) and "id" in data:
                 ch_id = data["id"]
-                state = (
-                    Qt.CheckState.Checked
-                    if ch_id in checked_ids
-                    else Qt.CheckState.Unchecked
-                )
+                state = Qt.CheckState.Checked if ch_id in checked_ids else Qt.CheckState.Unchecked
                 item.setCheckState(0, state)
             for i in range(item.childCount()):
                 _sync(item.child(i))
@@ -904,9 +840,7 @@ class ScrubPreviewDialog(QDialog):
     def update_summary(self):
         selected_ids = self.get_selected_change_ids()
         total_count = self.total_item_count()
-        self.summary_label.setText(
-            f"Selected {len(selected_ids)} of {total_count} detected change(s)"
-        )
+        self.summary_label.setText(f"Selected {len(selected_ids)} of {total_count} detected change(s)")
         ok_btn = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
         if ok_btn is not None:
             ok_btn.setEnabled(len(selected_ids) > 0)
@@ -946,33 +880,23 @@ class ProfileEditorDialog(QDialog):
         form.addRow("Target Domain Patterns:", self.domains_edit)
 
         self.patterns_edit = QPlainTextEdit()
-        self.patterns_edit.setPlainText(
-            profile.get("extra_patterns", "") if profile else ""
-        )
+        self.patterns_edit.setPlainText(profile.get("extra_patterns", "") if profile else "")
         self.patterns_edit.setPlaceholderText(
             "Extra site names or regex rules, one per line (prefix with re: for regular expressions)"
         )
         form.addRow("Site Removal Patterns:", self.patterns_edit)
 
-        self.heuristic_cb = QCheckBox(
-            'Also remove short "Downloaded from..." style promo blocks'
-        )
-        self.heuristic_cb.setChecked(
-            profile.get("heuristic", True) if profile else True
-        )
+        self.heuristic_cb = QCheckBox('Also remove short "Downloaded from..." style promo blocks')
+        self.heuristic_cb.setChecked(profile.get("heuristic", True) if profile else True)
         form.addRow("", self.heuristic_cb)
 
         self.drop_cb = QCheckBox("Delete empty promotional pages and TOC entries")
-        self.drop_cb.setChecked(
-            profile.get("drop_empty_pages", True) if profile else True
-        )
+        self.drop_cb.setChecked(profile.get("drop_empty_pages", True) if profile else True)
         form.addRow("", self.drop_cb)
 
         layout.addLayout(form)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -988,9 +912,7 @@ class ProfileEditorDialog(QDialog):
         pats_raw = self.domains_edit.toPlainText()
         pats = [p.strip() for p in pats_raw.splitlines() if p.strip()]
         if not pats and not self.is_default:
-            QMessageBox.warning(
-                self, "Invalid Domains", "At least one domain pattern is required."
-            )
+            QMessageBox.warning(self, "Invalid Domains", "At least one domain pattern is required.")
             return
 
         self.result_profile = {
@@ -1043,9 +965,7 @@ class ScrubSettingsDialog(QDialog):
 
                     prof_path = Path(__file__).parent / "profiles.py"
                     if prof_path.exists():
-                        spec = importlib.util.spec_from_file_location(
-                            "profiles", prof_path
-                        )
+                        spec = importlib.util.spec_from_file_location("profiles", prof_path)
                         prof_mod = importlib.util.module_from_spec(spec)
                         spec.loader.exec_module(prof_mod)
                         export_profiles_to_json = prof_mod.export_profiles_to_json
@@ -1081,9 +1001,7 @@ class ScrubSettingsDialog(QDialog):
         self.backup = QCheckBox("Library books: keep unmodified EPUB as ORIGINAL_EPUB")
         self.backup.setChecked(prefs.get("backup", True))
 
-        self.in_place = QCheckBox(
-            "Files and folders: replace original files with cleaned versions"
-        )
+        self.in_place = QCheckBox("Files and folders: replace original files with cleaned versions")
         self.in_place.setChecked(prefs.get("in_place", False))
 
         gen_layout.addWidget(self.show_preview)
@@ -1099,14 +1017,10 @@ class ScrubSettingsDialog(QDialog):
 
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(
-            ["Profile Name", "Domain Patterns", "Heuristics", "Drop Pages"]
-        )
+        self.table.setHorizontalHeaderLabels(["Profile Name", "Domain Patterns", "Heuristics", "Drop Pages"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        self.table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
-        )
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
 
         prof_layout.addWidget(self.table)
 
@@ -1135,9 +1049,7 @@ class ScrubSettingsDialog(QDialog):
 
         layout.addWidget(self.tabs)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -1159,9 +1071,7 @@ class ScrubSettingsDialog(QDialog):
             dom_item = QTableWidgetItem(pats_str)
 
             heur_item = QTableWidgetItem("Yes" if prof.get("heuristic", True) else "No")
-            drop_item = QTableWidgetItem(
-                "Yes" if prof.get("drop_empty_pages", True) else "No"
-            )
+            drop_item = QTableWidgetItem("Yes" if prof.get("drop_empty_pages", True) else "No")
 
             self.table.setItem(row, 0, name_item)
             self.table.setItem(row, 1, dom_item)
@@ -1183,9 +1093,7 @@ class ScrubSettingsDialog(QDialog):
     def on_clone_profile(self):
         idx = self.selected_profile_index()
         if idx < 0:
-            QMessageBox.information(
-                self, "Clone Profile", "Select a profile to clone first."
-            )
+            QMessageBox.information(self, "Clone Profile", "Select a profile to clone first.")
             return
         orig = self.profiles[idx]
         cloned = dict(orig)
@@ -1203,14 +1111,10 @@ class ScrubSettingsDialog(QDialog):
     def on_edit_profile(self):
         idx = self.selected_profile_index()
         if idx < 0:
-            QMessageBox.information(
-                self, "Edit Profile", "Select a profile to edit first."
-            )
+            QMessageBox.information(self, "Edit Profile", "Select a profile to edit first.")
             return
         prof = self.profiles[idx]
-        dlg = ProfileEditorDialog(
-            self, profile=prof, is_default=prof.get("is_default", False)
-        )
+        dlg = ProfileEditorDialog(self, profile=prof, is_default=prof.get("is_default", False))
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.result_profile:
             self.profiles[idx] = dlg.result_profile
             self.populate_table()
@@ -1218,27 +1122,19 @@ class ScrubSettingsDialog(QDialog):
     def on_delete_profile(self):
         idx = self.selected_profile_index()
         if idx < 0:
-            QMessageBox.information(
-                self, "Delete Profile", "Select a profile to delete first."
-            )
+            QMessageBox.information(self, "Delete Profile", "Select a profile to delete first.")
             return
         prof = self.profiles[idx]
         if prof.get("is_default") or prof.get("name") == "Global Default":
-            QMessageBox.warning(
-                self, "Cannot Delete", "The Global Default profile cannot be deleted."
-            )
+            QMessageBox.warning(self, "Cannot Delete", "The Global Default profile cannot be deleted.")
             return
-        ans = QMessageBox.question(
-            self, "Confirm Delete", f"Delete profile '{prof.get('name')}'?"
-        )
+        ans = QMessageBox.question(self, "Confirm Delete", f"Delete profile '{prof.get('name')}'?")
         if ans == QMessageBox.StandardButton.Yes:
             del self.profiles[idx]
             self.populate_table()
 
     def on_import_profiles(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Import Profiles JSON", "", "JSON Files (*.json)"
-        )
+        path, _ = QFileDialog.getOpenFileName(self, "Import Profiles JSON", "", "JSON Files (*.json)")
         if not path:
             return
         try:
@@ -1248,27 +1144,17 @@ class ScrubSettingsDialog(QDialog):
             count = len(imported)
             for imp in imported:
                 match_idx = next(
-                    (
-                        i
-                        for i, p in enumerate(self.profiles)
-                        if p["name"] == imp["name"]
-                    ),
+                    (i for i, p in enumerate(self.profiles) if p["name"] == imp["name"]),
                     None,
                 )
-                if match_idx is not None and not self.profiles[match_idx].get(
-                    "is_default"
-                ):
+                if match_idx is not None and not self.profiles[match_idx].get("is_default"):
                     self.profiles[match_idx] = imp
                 elif match_idx is None:
                     self.profiles.append(imp)
             self.populate_table()
-            QMessageBox.information(
-                self, "Import Successful", f"Successfully imported {count} profile(s)."
-            )
+            QMessageBox.information(self, "Import Successful", f"Successfully imported {count} profile(s).")
         except Exception as exc:
-            QMessageBox.critical(
-                self, "Import Failed", f"Could not import profiles:\n{exc}"
-            )
+            QMessageBox.critical(self, "Import Failed", f"Could not import profiles:\n{exc}")
 
     def on_export_profiles(self):
         idx = self.selected_profile_index()
@@ -1288,9 +1174,7 @@ class ScrubSettingsDialog(QDialog):
                 f"Exported {len(to_export)} profile(s) to:\n{path}",
             )
         except Exception as exc:
-            QMessageBox.critical(
-                self, "Export Failed", f"Could not export profiles:\n{exc}"
-            )
+            QMessageBox.critical(self, "Export Failed", f"Could not export profiles:\n{exc}")
 
     def on_accept(self):
         self.prefs["show_preview"] = self.show_preview.isChecked()
@@ -1324,9 +1208,7 @@ class LibraryScanWorker(QThread):
         try:
             res = self.scanner.scan_library(
                 self.book_ids,
-                on_progress=lambda cur, tot, bid, title, cnt: self.progress.emit(
-                    cur, tot, bid, title, cnt
-                ),
+                on_progress=lambda cur, tot, bid, title, cnt: self.progress.emit(cur, tot, bid, title, cnt),
                 should_cancel=lambda: self._cancelled,
             )
             self.scan_finished.emit(res)
@@ -1390,12 +1272,8 @@ class LibraryScannerDialog(QDialog):
 
         scope_row = QHBoxLayout()
         scope_row.addWidget(QLabel("<b>Scan Target:</b>"))
-        self.rb_all = QRadioButton(
-            f"Entire Calibre Library ({len(self.all_book_ids)} books)"
-        )
-        self.rb_selected = QRadioButton(
-            f"Selected Books ({len(self.selected_book_ids)} books)"
-        )
+        self.rb_all = QRadioButton(f"Entire Calibre Library ({len(self.all_book_ids)} books)")
+        self.rb_selected = QRadioButton(f"Selected Books ({len(self.selected_book_ids)} books)")
         self.scope_group = QButtonGroup(self)
         self.scope_group.addButton(self.rb_all)
         self.scope_group.addButton(self.rb_selected)
@@ -1458,9 +1336,7 @@ class LibraryScannerDialog(QDialog):
         filter_layout = QHBoxLayout()
         filter_layout.addWidget(QLabel("Filter:"))
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText(
-            "Search by book title or pattern keyword..."
-        )
+        self.filter_edit.setPlaceholderText("Search by book title or pattern keyword...")
         self.filter_edit.textChanged.connect(self.apply_filter)
         filter_layout.addWidget(self.filter_edit)
 
@@ -1502,9 +1378,7 @@ class LibraryScannerDialog(QDialog):
         self.thumb_label = QLabel()
         self.thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.thumb_label.setMinimumHeight(120)
-        self.thumb_label.setStyleSheet(
-            "background: #fafafa; border: 1px dashed #cccccc;"
-        )
+        self.thumb_label.setStyleSheet("background: #fafafa; border: 1px dashed #cccccc;")
         img_box_layout.addWidget(self.thumb_label)
 
         self.img_info_label = QLabel()
@@ -1569,9 +1443,7 @@ class LibraryScannerDialog(QDialog):
         bottom_row.addWidget(self.btn_export)
 
         self.btn_apply = QPushButton("Scrub Selected Findings (0 items)")
-        self.btn_apply.setStyleSheet(
-            "font-weight: bold; background-color: #2b78e4; color: white; padding: 6px 14px;"
-        )
+        self.btn_apply.setStyleSheet("font-weight: bold; background-color: #2b78e4; color: white; padding: 6px 14px;")
         self.btn_apply.setEnabled(False)
         self.btn_apply.clicked.connect(self.start_clean)
         bottom_row.addWidget(self.btn_apply)
@@ -1583,11 +1455,7 @@ class LibraryScannerDialog(QDialog):
         main_layout.addLayout(bottom_row)
 
     def start_scan(self):
-        target_ids = (
-            self.selected_book_ids
-            if self.rb_selected.isChecked()
-            else self.all_book_ids
-        )
+        target_ids = self.selected_book_ids if self.rb_selected.isChecked() else self.all_book_ids
         if not target_ids:
             QMessageBox.information(self, "No Books", "There are no books to scan.")
             return
@@ -1618,9 +1486,7 @@ class LibraryScannerDialog(QDialog):
         pct = int((current / total) * 100) if total else 0
         self.progress_bar.setValue(pct)
         if count > 0:
-            self.status_label.setText(
-                f"[{current}/{total}] Found {count} promo item(s) in: {title[:40]}"
-            )
+            self.status_label.setText(f"[{current}/{total}] Found {count} promo item(s) in: {title[:40]}")
         else:
             self.status_label.setText(f"[{current}/{total}] Clean: {title[:40]}")
 
@@ -1705,23 +1571,15 @@ class LibraryScannerDialog(QDialog):
                 grouped.setdefault(f.get("category", "General"), []).append(f)
 
             for cat_name, cat_findings in grouped.items():
-                cat_item = QTreeWidgetItem(
-                    book_item, [cat_name, f"{len(cat_findings)} item(s)"]
-                )
+                cat_item = QTreeWidgetItem(book_item, [cat_name, f"{len(cat_findings)} item(s)"])
                 cat_item.setFlags(cat_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 cat_item.setCheckState(0, Qt.CheckState.Checked)
-                cat_item.setData(
-                    0, Qt.ItemDataRole.UserRole, {"type": "category", "name": cat_name}
-                )
+                cat_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "category", "name": cat_name})
 
                 for f in cat_findings:
                     leaf_text = f.get("text") or f.get("file") or f.get("action")
-                    leaf_item = QTreeWidgetItem(
-                        cat_item, [leaf_text, f.get("action", "")]
-                    )
-                    leaf_item.setFlags(
-                        leaf_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-                    )
+                    leaf_item = QTreeWidgetItem(cat_item, [leaf_text, f.get("action", "")])
+                    leaf_item.setFlags(leaf_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                     leaf_item.setCheckState(0, Qt.CheckState.Checked)
                     leaf_item.setData(0, Qt.ItemDataRole.UserRole, f)
 
@@ -1781,9 +1639,7 @@ class LibraryScannerDialog(QDialog):
                         fmt = info.get("format", "image").upper()
                         conf = cls.get("confidence", "high").capitalize()
                         reason = cls.get("reason") or data.get("detail", "")
-                        self.img_info_label.setText(
-                            f"<b>Dimensions:</b> {w}x{h} ({fmt}) | <b>Confidence:</b> {conf}"
-                        )
+                        self.img_info_label.setText(f"<b>Dimensions:</b> {w}x{h} ({fmt}) | <b>Confidence:</b> {conf}")
                         self.img_reason_label.setText(
                             f"<b>Category:</b> {cls.get('category', 'ad').upper()}<br><b>Reason:</b> {reason}"
                         )
@@ -1819,9 +1675,7 @@ class LibraryScannerDialog(QDialog):
             self.detail_edit.setPlainText(book_str)
             self.btn_compare_html.setEnabled(False)
         elif data.get("type") == "category":
-            self.detail_edit.setPlainText(
-                f"Category: {data.get('name')}\nTotal items: {item.childCount()}"
-            )
+            self.detail_edit.setPlainText(f"Category: {data.get('name')}\nTotal items: {item.childCount()}")
             self.btn_compare_html.setEnabled(False)
 
     def open_visual_diff(self):
@@ -1851,9 +1705,7 @@ class LibraryScannerDialog(QDialog):
             target_file = first_key
 
         if not target_buf:
-            QMessageBox.information(
-                self, "No Diff", "No XHTML markup diff is available for this item."
-            )
+            QMessageBox.information(self, "No Diff", "No XHTML markup diff is available for this item.")
             return
 
         orig_str = target_buf.get("original", "")
@@ -1925,15 +1777,11 @@ class LibraryScannerDialog(QDialog):
                 cat_item = top.child(j)
                 cat_name = cat_item.text(0)
                 target_state = (
-                    Qt.CheckState.Checked
-                    if cat_name == "Promotional Images & Ads"
-                    else Qt.CheckState.Unchecked
+                    Qt.CheckState.Checked if cat_name == "Promotional Images & Ads" else Qt.CheckState.Unchecked
                 )
                 cat_item.setCheckState(0, target_state)
                 self._set_children_check_state(cat_item, target_state)
-            self._update_parent_check_state(
-                top.child(0)
-            ) if top.childCount() > 0 else None
+            self._update_parent_check_state(top.child(0)) if top.childCount() > 0 else None
         self.tree.blockSignals(False)
         self.update_summary()
 
@@ -1944,16 +1792,10 @@ class LibraryScannerDialog(QDialog):
             for j in range(top.childCount()):
                 cat_item = top.child(j)
                 cat_name = cat_item.text(0)
-                target_state = (
-                    Qt.CheckState.Checked
-                    if cat_name == "Dropped Pages"
-                    else Qt.CheckState.Unchecked
-                )
+                target_state = Qt.CheckState.Checked if cat_name == "Dropped Pages" else Qt.CheckState.Unchecked
                 cat_item.setCheckState(0, target_state)
                 self._set_children_check_state(cat_item, target_state)
-            self._update_parent_check_state(
-                top.child(0)
-            ) if top.childCount() > 0 else None
+            self._update_parent_check_state(top.child(0)) if top.childCount() > 0 else None
         self.tree.blockSignals(False)
         self.update_summary()
 
@@ -2002,18 +1844,12 @@ class LibraryScannerDialog(QDialog):
         self.btn_start.setEnabled(False)
         self.status_label.setText("Applying scrubbing to selected books...")
 
-        self.clean_worker = LibraryCleanWorker(
-            self.scanner, self.scan_results, allowed_ids, backup
-        )
+        self.clean_worker = LibraryCleanWorker(self.scanner, self.scan_results, allowed_ids, backup)
         self.clean_worker.progress.connect(
-            lambda cur, tot, title: self.status_label.setText(
-                f"Scrubbing [{cur}/{tot}]: {title[:40]}..."
-            )
+            lambda cur, tot, title: self.status_label.setText(f"Scrubbing [{cur}/{tot}]: {title[:40]}...")
         )
         self.clean_worker.clean_finished.connect(self.on_clean_finished)
-        self.clean_worker.clean_error.connect(
-            lambda err: QMessageBox.critical(self, "Scrubbing Error", err)
-        )
+        self.clean_worker.clean_error.connect(lambda err: QMessageBox.critical(self, "Scrubbing Error", err))
         self.clean_worker.start()
 
     def on_clean_finished(self, summary):
@@ -2024,12 +1860,7 @@ class LibraryScannerDialog(QDialog):
 
         msg = f"Successfully scrubbed {cnt} book(s)!"
         if errors:
-            msg += (
-                "\n\nEncountered "
-                + str(len(errors))
-                + " error(s):\n"
-                + "\n".join(errors[:5])
-            )
+            msg += "\n\nEncountered " + str(len(errors)) + " error(s):\n" + "\n".join(errors[:5])
 
         self.status_label.setText(f"Cleaning complete: {cnt} book(s) updated.")
         QMessageBox.information(self, "Scrubbing Complete", msg)
@@ -2046,9 +1877,7 @@ class LibraryScannerDialog(QDialog):
 
     def export_report(self):
         if not self.scan_results:
-            QMessageBox.information(
-                self, "No Report", "No scan results available to export."
-            )
+            QMessageBox.information(self, "No Report", "No scan results available to export.")
             return
 
         path, _ = QFileDialog.getSaveFileName(
@@ -2074,9 +1903,7 @@ class LibraryScannerDialog(QDialog):
                 "Scan report successfully exported to:\n" + str(path),
             )
         except Exception as exc:
-            QMessageBox.critical(
-                self, "Export Failed", "Could not export scan report:\n" + str(exc)
-            )
+            QMessageBox.critical(self, "Export Failed", "Could not export scan report:\n" + str(exc))
 
 
 def _format_size(num_bytes):
@@ -2141,11 +1968,7 @@ class RestoreScanWorker(QThread):
 
                 curr_title = getattr(mi, "title", "") or f"Book {bid}"
                 authors = getattr(mi, "authors", []) or []
-                curr_authors = (
-                    ", ".join(authors)
-                    if isinstance(authors, (list, tuple))
-                    else str(authors)
-                )
+                curr_authors = ", ".join(authors) if isinstance(authors, (list, tuple)) else str(authors)
                 curr_publisher = getattr(mi, "publisher", "") or ""
                 curr_comments = getattr(mi, "comments", "") or ""
 
@@ -2156,9 +1979,7 @@ class RestoreScanWorker(QThread):
 
                 if hasattr(raw_orig, "read"):
                     raw_orig = raw_orig.read()
-                elif isinstance(raw_orig, (str, Path)) and os.path.exists(
-                    str(raw_orig)
-                ):
+                elif isinstance(raw_orig, (str, Path)) and os.path.exists(str(raw_orig)):
                     raw_orig = Path(raw_orig).read_bytes()
 
                 backup_size = len(raw_orig) if raw_orig else 0
@@ -2199,16 +2020,9 @@ class RestoreScanWorker(QThread):
                 orig_publisher = orig_meta.get("publisher") or curr_publisher
                 orig_comments = orig_meta.get("comments") or curr_comments
 
-                diff_title = bool(
-                    orig_meta.get("title") and orig_meta["title"] != curr_title
-                )
-                diff_publisher = bool(
-                    orig_meta.get("publisher")
-                    and orig_meta["publisher"] != curr_publisher
-                )
-                diff_comments = bool(
-                    orig_meta.get("comments") and orig_meta["comments"] != curr_comments
-                )
+                diff_title = bool(orig_meta.get("title") and orig_meta["title"] != curr_title)
+                diff_publisher = bool(orig_meta.get("publisher") and orig_meta["publisher"] != curr_publisher)
+                diff_comments = bool(orig_meta.get("comments") and orig_meta["comments"] != curr_comments)
                 has_diff = diff_title or diff_publisher or diff_comments
                 if has_diff:
                     diff_count += 1
@@ -2234,9 +2048,7 @@ class RestoreScanWorker(QThread):
                 }
                 results.append(item)
                 self.book_found.emit(item)
-                self.progress.emit(
-                    idx + 1, total, f"Scanned [{idx + 1}/{total}]: {curr_title[:35]}"
-                )
+                self.progress.emit(idx + 1, total, f"Scanned [{idx + 1}/{total}]: {curr_title[:35]}")
 
             summary = {
                 "books": results,
@@ -2286,35 +2098,25 @@ class RestoreApplyWorker(QThread):
                     break
                 bid = item["book_id"]
                 title = item.get("curr_title", f"Book {bid}")
-                self.progress.emit(
-                    idx + 1, total, f"Restoring [{idx + 1}/{total}]: {title[:35]}"
-                )
+                self.progress.emit(idx + 1, total, f"Restoring [{idx + 1}/{total}]: {title[:35]}")
 
                 try:
-                    raw_orig = item.get("raw_orig") or self.db.format(
-                        bid, "ORIGINAL_EPUB"
-                    )
+                    raw_orig = item.get("raw_orig") or self.db.format(bid, "ORIGINAL_EPUB")
                 except Exception:
                     raw_orig = None
 
                 if hasattr(raw_orig, "read"):
                     raw_orig = raw_orig.read()
-                elif isinstance(raw_orig, (str, Path)) and os.path.exists(
-                    str(raw_orig)
-                ):
+                elif isinstance(raw_orig, (str, Path)) and os.path.exists(str(raw_orig)):
                     raw_orig = Path(raw_orig).read_bytes()
 
                 if not raw_orig or not zipfile.is_zipfile(io.BytesIO(raw_orig)):
-                    errors.append(
-                        f"Book {bid} ({title}): Backup package is invalid or corrupt."
-                    )
+                    errors.append(f"Book {bid} ({title}): Backup package is invalid or corrupt.")
                     continue
 
                 try:
                     if self.restore_epub:
-                        success = self.db.add_format(
-                            bid, "EPUB", io.BytesIO(raw_orig), replace=True
-                        )
+                        success = self.db.add_format(bid, "EPUB", io.BytesIO(raw_orig), replace=True)
                         if not success:
                             raise ValueError("Calibre add_format returned False")
 
@@ -2378,7 +2180,9 @@ class ScrubRestoreManagerDialog(QDialog):
 
         # 2. Metrics Strip
         metrics_layout = QHBoxLayout()
-        pill_style = "padding: 4px 10px; border-radius: 4px; background: #f0f0f0; border: 1px solid #d0d0d0; font-weight: bold;"
+        pill_style = (
+            "padding: 4px 10px; border-radius: 4px; background: #f0f0f0; border: 1px solid #d0d0d0; font-weight: bold;"
+        )
         self.pill_backups = QLabel("Total Backups: 0")
         self.pill_selected = QLabel("Selected: 0")
         self.pill_size = QLabel("Total Size: 0 MB")
@@ -2398,9 +2202,7 @@ class ScrubRestoreManagerDialog(QDialog):
         filter_layout = QHBoxLayout()
         filter_layout.addWidget(QLabel("Filter:"))
         self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText(
-            "Search by title, author, publisher, or book ID..."
-        )
+        self.filter_edit.setPlaceholderText("Search by title, author, publisher, or book ID...")
         self.filter_edit.textChanged.connect(self.apply_filter)
         filter_layout.addWidget(self.filter_edit)
 
@@ -2436,31 +2238,15 @@ class ScrubRestoreManagerDialog(QDialog):
                 "Archive",
             ]
         )
-        self.table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Fixed
-        )
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(0, 36)
-        self.table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.Stretch
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            3, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            4, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            5, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            6, QHeaderView.ResizeMode.ResizeToContents
-        )
-        self.table.horizontalHeader().setSectionResizeMode(
-            7, QHeaderView.ResizeMode.ResizeToContents
-        )
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.itemChanged.connect(self.on_table_item_changed)
         self.table.itemSelectionChanged.connect(self.on_table_selection_changed)
@@ -2500,16 +2286,12 @@ class ScrubRestoreManagerDialog(QDialog):
         options_box = QGroupBox("Restore Options")
         options_layout = QVBoxLayout(options_box)
 
-        self.chk_restore_epub = QCheckBox(
-            "Restore primary EPUB file format from ORIGINAL_EPUB"
-        )
+        self.chk_restore_epub = QCheckBox("Restore primary EPUB file format from ORIGINAL_EPUB")
         self.chk_restore_epub.setChecked(True)
         options_layout.addWidget(self.chk_restore_epub)
 
         meta_row = QHBoxLayout()
-        self.chk_restore_meta = QCheckBox(
-            "Restore pre-scrubbed Calibre metadata fields:"
-        )
+        self.chk_restore_meta = QCheckBox("Restore pre-scrubbed Calibre metadata fields:")
         self.chk_restore_meta.setChecked(True)
         self.chk_restore_meta.toggled.connect(self.toggle_meta_fields)
         meta_row.addWidget(self.chk_restore_meta)
@@ -2526,9 +2308,7 @@ class ScrubRestoreManagerDialog(QDialog):
         meta_row.addStretch()
         options_layout.addLayout(meta_row)
 
-        self.chk_remove_backup = QCheckBox(
-            "Remove ORIGINAL_EPUB backup after restore (frees storage space)"
-        )
+        self.chk_remove_backup = QCheckBox("Remove ORIGINAL_EPUB backup after restore (frees storage space)")
         self.chk_remove_backup.setChecked(False)  # Non-destructive default
         options_layout.addWidget(self.chk_remove_backup)
 
@@ -2562,9 +2342,7 @@ class ScrubRestoreManagerDialog(QDialog):
         bottom_row.addWidget(self.btn_delete)
 
         self.btn_restore = QPushButton("Restore Selected (0)")
-        self.btn_restore.setStyleSheet(
-            "font-weight: bold; background-color: #2b78e4; color: white; padding: 6px 14px;"
-        )
+        self.btn_restore.setStyleSheet("font-weight: bold; background-color: #2b78e4; color: white; padding: 6px 14px;")
         self.btn_restore.clicked.connect(self.start_restore)
         bottom_row.addWidget(self.btn_restore)
 
@@ -2589,9 +2367,7 @@ class ScrubRestoreManagerDialog(QDialog):
         self.table.setRowCount(0)
         self.items.clear()
         self.progress_bar.setValue(0)
-        self.status_label.setText(
-            "Scanning library for books with ORIGINAL_EPUB backups..."
-        )
+        self.status_label.setText("Scanning library for books with ORIGINAL_EPUB backups...")
 
         self.scan_worker = RestoreScanWorker(self.db)
         self.scan_worker.progress.connect(self.on_scan_progress)
@@ -2613,15 +2389,9 @@ class ScrubRestoreManagerDialog(QDialog):
 
         # Checkbox
         chk_item = QTableWidgetItem()
-        chk_item.setFlags(
-            Qt.ItemFlag.ItemIsUserCheckable
-            | Qt.ItemFlag.ItemIsEnabled
-            | Qt.ItemFlag.ItemIsSelectable
-        )
+        chk_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
         is_checked = (bid in self.selected_book_ids) if self.selected_book_ids else True
-        chk_item.setCheckState(
-            Qt.CheckState.Checked if is_checked else Qt.CheckState.Unchecked
-        )
+        chk_item.setCheckState(Qt.CheckState.Checked if is_checked else Qt.CheckState.Unchecked)
         chk_item.setData(Qt.ItemDataRole.UserRole, bid)
         self.table.setItem(row, 0, chk_item)
 
@@ -2683,9 +2453,7 @@ class ScrubRestoreManagerDialog(QDialog):
         self.pill_diff.setText(f"Metadata Differences: {diff_cnt}")
 
         if tot == 0:
-            self.status_label.setText(
-                "No books with ORIGINAL_EPUB backups found in this library."
-            )
+            self.status_label.setText("No books with ORIGINAL_EPUB backups found in this library.")
         else:
             self.status_label.setText(
                 f"Scan complete: Found {tot} book(s) with backups ({diff_cnt} with metadata differences)."
@@ -2697,9 +2465,7 @@ class ScrubRestoreManagerDialog(QDialog):
 
     def on_scan_error(self, err):
         self.status_label.setText(f"Scan error: {err}")
-        QMessageBox.warning(
-            self, "Scan Error", f"An error occurred while scanning for backups:\n{err}"
-        )
+        QMessageBox.warning(self, "Scan Error", f"An error occurred while scanning for backups:\n{err}")
 
     def on_table_item_changed(self, item):
         if item.column() == 0:
@@ -2708,9 +2474,7 @@ class ScrubRestoreManagerDialog(QDialog):
     def on_table_selection_changed(self):
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
-            self.detail_text.setHtml(
-                "<i>Select a book from the table to inspect backup and metadata details.</i>"
-            )
+            self.detail_text.setHtml("<i>Select a book from the table to inspect backup and metadata details.</i>")
             return
 
         row = selected_rows[0].row()
@@ -2724,16 +2488,12 @@ class ScrubRestoreManagerDialog(QDialog):
 
         html_blocks = []
         html_blocks.append(f"<h3>{html.escape(item['curr_title'])}</h3>")
-        html_blocks.append(
-            f"<p><b>Book ID:</b> {bid} &nbsp;|&nbsp; <b>Authors:</b> {html.escape(item['authors'])}</p>"
-        )
+        html_blocks.append(f"<p><b>Book ID:</b> {bid} &nbsp;|&nbsp; <b>Authors:</b> {html.escape(item['authors'])}</p>")
         html_blocks.append(
             f"<p><b>Backup Size:</b> {_format_size(item['backup_size'])} &nbsp;|&nbsp; <b>Archive Status:</b> {html.escape(item['integrity_status'])}</p>"
         )
         if item["error_msg"]:
-            html_blocks.append(
-                f"<p style='color:red;'><b>Integrity Warning:</b> {html.escape(item['error_msg'])}</p>"
-            )
+            html_blocks.append(f"<p style='color:red;'><b>Integrity Warning:</b> {html.escape(item['error_msg'])}</p>")
 
         html_blocks.append("<hr/>")
         html_blocks.append("<h4>Metadata Comparison</h4>")
@@ -2838,9 +2598,7 @@ class ScrubRestoreManagerDialog(QDialog):
     def start_restore(self):
         checked = self.get_checked_items()
         if not checked:
-            QMessageBox.information(
-                self, "No Books Selected", "Please select one or more books to restore."
-            )
+            QMessageBox.information(self, "No Books Selected", "Please select one or more books to restore.")
             return
 
         restore_epub = self.chk_restore_epub.isChecked()
@@ -2866,15 +2624,11 @@ class ScrubRestoreManagerDialog(QDialog):
 
         confirm_msg = f"Restore {len(checked)} book(s)?\n\n"
         if restore_epub:
-            confirm_msg += (
-                "• Primary EPUB format will be restored from ORIGINAL_EPUB.\n"
-            )
+            confirm_msg += "• Primary EPUB format will be restored from ORIGINAL_EPUB.\n"
         if fields_to_restore:
             confirm_msg += f"• Metadata fields will be reverted: {', '.join(sorted(fields_to_restore))}.\n"
         if remove_backup:
-            confirm_msg += (
-                "• ORIGINAL_EPUB backup files will be removed after restore.\n"
-            )
+            confirm_msg += "• ORIGINAL_EPUB backup files will be removed after restore.\n"
         else:
             confirm_msg += "• ORIGINAL_EPUB backup files will be preserved.\n"
 
@@ -2945,9 +2699,7 @@ class ScrubRestoreManagerDialog(QDialog):
         self.btn_restore.setEnabled(True)
         self.btn_delete.setEnabled(True)
         self.status_label.setText(f"Restore error: {err}")
-        QMessageBox.critical(
-            self, "Restore Error", f"An error occurred during restore:\n{err}"
-        )
+        QMessageBox.critical(self, "Restore Error", f"An error occurred during restore:\n{err}")
 
     def delete_backups(self):
         checked = self.get_checked_items()
@@ -2997,9 +2749,7 @@ class ScrubRestoreManagerDialog(QDialog):
         self.start_scan()
 
     def open_folder_restore(self):
-        source = QFileDialog.getExistingDirectory(
-            self, "Select folder containing .original.epub sidecar files"
-        )
+        source = QFileDialog.getExistingDirectory(self, "Select folder containing .original.epub sidecar files")
         if not source:
             return
         src_path = Path(source)
@@ -3020,9 +2770,7 @@ class ScrubRestoreManagerDialog(QDialog):
             "Click Yes to restore and remove sidecars.\n"
             "Click No to restore but keep sidecars.\n"
             "Click Cancel to abort.",
-            QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.No
-            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
         )
         if choice == QMessageBox.StandardButton.Cancel:
             return
@@ -3030,9 +2778,7 @@ class ScrubRestoreManagerDialog(QDialog):
         remove_sidecars = choice == QMessageBox.StandardButton.Yes
         try:
             rows, report_path = restore_files(source, remove_sidecars=remove_sidecars)
-            counts = {
-                s: sum(r["status"] == s for r in rows) for s in ("restored", "error")
-            }
+            counts = {s: sum(r["status"] == s for r in rows) for s in ("restored", "error")}
             res_msg = f"{counts.get('restored', 0)} file(s) restored, {counts.get('error', 0)} error(s)."
             if remove_sidecars:
                 res_msg += "\nBackup sidecars were removed."
@@ -3042,15 +2788,11 @@ class ScrubRestoreManagerDialog(QDialog):
                 res_msg += f"\nReport: {report_path}"
             QMessageBox.information(self, "Folder Restore Complete", res_msg)
         except Exception as exc:
-            QMessageBox.critical(
-                self, "Folder Restore Failed", f"Could not restore folder:\n{exc}"
-            )
+            QMessageBox.critical(self, "Folder Restore Failed", f"Could not restore folder:\n{exc}")
 
     def export_report(self):
         if not self.items:
-            QMessageBox.information(
-                self, "No Data", "No backup data available to export."
-            )
+            QMessageBox.information(self, "No Data", "No backup data available to export.")
             return
 
         path, _ = QFileDialog.getSaveFileName(
@@ -3084,10 +2826,6 @@ class ScrubRestoreManagerDialog(QDialog):
             }
             with open(path, "w", encoding="utf-8") as f:
                 f.write(json.dumps(manifest, indent=2, ensure_ascii=False))
-            QMessageBox.information(
-                self, "Export Successful", f"Backup manifest exported to:\n{path}"
-            )
+            QMessageBox.information(self, "Export Successful", f"Backup manifest exported to:\n{path}")
         except Exception as exc:
-            QMessageBox.critical(
-                self, "Export Failed", f"Could not export manifest:\n{exc}"
-            )
+            QMessageBox.critical(self, "Export Failed", f"Could not export manifest:\n{exc}")
