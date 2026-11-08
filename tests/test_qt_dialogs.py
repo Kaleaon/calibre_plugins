@@ -102,7 +102,10 @@ class QtCase(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        cls.tmp.cleanup()
+        try:
+            cls.tmp.cleanup()
+        except OSError:
+            pass
 
     def setUp(self):
         self.saved = {k: v for k, v in sys.modules.items() if k.startswith(('calibre', 'qt', 'calibre_plugins'))}
@@ -125,6 +128,9 @@ class QtCase(unittest.TestCase):
         config = types.ModuleType('calibre.utils.config')
         config.JSONConfig = lambda name: StubPrefs()
         sys.modules['calibre.utils.config'] = config
+        shared_file = types.ModuleType('calibre.utils.shared_file')
+        shared_file.share_open = lambda p, *a, **kw: open(p, *a, **kw)
+        sys.modules['calibre.utils.shared_file'] = shared_file
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins'].__path__ = []
 
@@ -142,7 +148,7 @@ class QtCase(unittest.TestCase):
                 del sys.modules[key]
         target = Path(self.tmp.name) / import_name
         if target.exists():
-            shutil.rmtree(target)
+            shutil.rmtree(target, ignore_errors=True)
         zipfile.ZipFile(self.built[import_name]).extractall(target)
         package = types.ModuleType(f'calibre_plugins.{import_name}')
         package.__path__ = [str(target)]

@@ -30,6 +30,7 @@ for mod_name in (
     'calibre.utils',
     'calibre.utils.config',
     'calibre.utils.date',
+    'calibre.utils.shared_file',
     'calibre.ebooks',
     'calibre.ebooks.metadata',
     'calibre.ebooks.metadata.book',
@@ -41,6 +42,9 @@ for mod_name in (
         m = types.ModuleType(mod_name)
         m.__path__ = []
         sys.modules[mod_name] = m
+
+if not hasattr(sys.modules['calibre.utils.shared_file'], 'share_open'):
+    sys.modules['calibre.utils.shared_file'].share_open = lambda p, *a, **kw: open(p, *a, **kw)
 
 if not hasattr(sys.modules['calibre.customize'], 'InterfaceActionBase'):
     sys.modules['calibre.customize'].InterfaceActionBase = type(
@@ -112,4 +116,19 @@ sys.modules['calibre.ebooks.metadata.book.base'].Metadata = Metadata
 if 'calibre.utils.date' not in sys.modules:
     sys.modules['calibre.utils.date'] = types.ModuleType('calibre.utils.date')
 sys.modules['calibre.utils.date'].parse_date = lambda d, assume_utc=True: None
+
+import tempfile
+
+_orig_cleanup = tempfile.TemporaryDirectory.cleanup
+
+
+def _safe_cleanup(self):
+    try:
+        _orig_cleanup(self)
+    except OSError:
+        pass
+
+
+tempfile.TemporaryDirectory.cleanup = _safe_cleanup
+
 

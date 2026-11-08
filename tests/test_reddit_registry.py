@@ -43,15 +43,18 @@ class SQLiteRegistryTests(unittest.TestCase):
         self.reg = registry_mod.SeriesRegistry(self.db_path)
 
     def tearDown(self):
-        self.temp_dir.cleanup()
+        try:
+            self.temp_dir.cleanup()
+        except OSError:
+            pass
 
     def test_tables_initialized(self):
-        conn = self.reg._get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = {row['name'] for row in cursor.fetchall()}
-        expected = {'series', 'feed_sources', 'authors', 'chapters', 'manifests'}
-        self.assertTrue(expected.issubset(tables), f"Missing tables. Found: {tables}")
+        with self.reg._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = {row['name'] for row in cursor.fetchall()}
+            expected = {'series', 'feed_sources', 'authors', 'chapters', 'manifests'}
+            self.assertTrue(expected.issubset(tables), f"Missing tables. Found: {tables}")
 
     def test_crud_multi_source_series(self):
         s_dict = {

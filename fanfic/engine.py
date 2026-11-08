@@ -3,9 +3,11 @@
 Inside Calibre the library ships in the plugin zip as a sub-package; in tests it is imported from site-packages.
 """
 import configparser
+from io import BytesIO, StringIO
 import logging
 import re
-from io import BytesIO, StringIO
+import sys
+import types
 
 # Sites whose content is primarily adult. Curated by hand and deliberately conservative; sites that merely allow
 # adult works (Archive of Our Own, FanFiction.Net, ...) are handled by FanFicFare's own adult-confirmation step.
@@ -28,6 +30,20 @@ def load():
     global _ns
     if _ns is not None:
         return _ns
+    if sys.platform.startswith('win') and 'calibre.utils.shared_file' not in sys.modules:
+        try:
+            from calibre.utils.shared_file import share_open  # noqa: F401
+        except ImportError:
+            try:
+                import win32file  # noqa: F401
+            except ImportError:
+                for _mod in ('calibre', 'calibre.utils', 'calibre.utils.shared_file'):
+                    if _mod not in sys.modules:
+                        m = types.ModuleType(_mod)
+                        m.__path__ = []
+                        sys.modules[_mod] = m
+                if not hasattr(sys.modules['calibre.utils.shared_file'], 'share_open'):
+                    sys.modules['calibre.utils.shared_file'].share_open = lambda p, *a, **kw: open(p, *a, **kw)
     try:
         from .fanficfare import adapters, exceptions, writers
         from .fanficfare.configurable import Configuration
