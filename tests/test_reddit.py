@@ -880,6 +880,81 @@ class IndexTests(unittest.TestCase):
             ("Into A Wider Galaxy, Chapter 005", "Chapter 005"),
         )
 
+    # Rows in the shape of the real Out of Cruel Space Archive sheet (gid 1375133682): a Seq that runs unbroken
+    # across the rename, a Short Link per chapter, suffixed chapters minutes apart, and one ISO-form date.
+    REAL_CSV = (
+        "Out of Cruel Space (an extension of Kerserv's Archive - link on the right),,,,,,,,,\n"
+        "Date (CEST),Author,Chapter,Note,,Content by Type,,,Seq,Short Link,CTN\n"
+        "2021/05/19 04:30,KyleKKent,Chapter 001,Pirates,,Notes,,,1,OOCS 001,\n"
+        "2024/05/11 21:21,KyleKKent,Chapter 999,HHH,,,,,1528,OOCS 999,\n"
+        '2024/05/12 20:16,KyleKKent,"Into A Wider Galaxy, Chapter 001",Dauntless,,,,,1529,IAWG 001,\n'
+        '2024/06/11 20:32,KyleKKent,"Into A Wider Galaxy, Chapter 030 Plot",For Newest England,,,,,1572,IAWG 030-P,\n'
+        '2024/06/11 20:34,KyleKKent,"Into A Wider Galaxy, Chapter 030 [NSFW]",For Newest England,,,,,1573,IAWG 030,\n'
+        '2024/08/31 20:39,KyleKKent,"Into A Wider Galaxy, Chapter 097-A [NSFW]",A Scion of Many Worlds,,,,,1684,IAWG 097-A,\n'
+        '2024/08/31 20:41,KyleKKent,"Into A Wider Galaxy, Chapter 097-B SFW",A Scion of Many Worlds,,,,,1685,IAWG 097-B,\n'
+        '2026-07-19T20:44,KyleKKent,"Into A Wider Galaxy, Chapter 726",Undying Blues,,,,,2716,IAWG 726,\n'
+    )
+
+    def test_real_sheet_rows_keep_seq_ref_era_suffix_and_iso_dates(self):
+        rows = core.parse_index(self.REAL_CSV, "KyleKKent")
+        self.assertEqual(
+            len(rows), 8, "the ISO-dated row (IAWG 726) is kept, not dropped"
+        )
+        self.assertEqual(
+            (rows[0]["seq"], rows[0]["ref"], rows[0]["era"], rows[0]["suffix"]),
+            (1, "OOCS 001", "", ""),
+        )
+        self.assertEqual(
+            (rows[2]["seq"], rows[2]["ref"], rows[2]["era"]),
+            (1529, "IAWG 001", "into a wider galaxy"),
+            "the Seq runs unbroken across the rename: OOCS 999 is 1528, IAWG 001 is 1529",
+        )
+        self.assertEqual((rows[3]["suffix"], rows[3]["ref"]), ("Plot", "IAWG 030-P"))
+        self.assertEqual(
+            (rows[5]["suffix"], rows[6]["suffix"]), ("-A [NSFW]", "-B SFW")
+        )
+        self.assertEqual((rows[7]["n"], rows[7]["ref"]), (726, "IAWG 726"))
+        self.assertAlmostEqual(
+            rows[7]["ts"],
+            core.datetime(2026, 7, 19, 18, 44, tzinfo=core.timezone.utc).timestamp(),
+        )
+
+    def test_suffixed_and_restarted_chapters_match_their_own_posts(self):
+        rows = core.parse_index(self.REAL_CSV, "KyleKKent")
+        posts = [
+            self.post("t3_first", "Out of Cruel Space, Part 1", "2021-05-19 02:30"),
+            self.post(
+                "t3_iawg1", "OOCS, Into A Wider Galaxy, Part 1", "2024-05-12 18:16"
+            ),
+            self.post(
+                "t3_plot", "OOCS, Into A Wider Galaxy, Part 30 Plot", "2024-06-11 18:32"
+            ),
+            self.post(
+                "t3_nsfw", "OOCS, Into A Wider Galaxy, Part 30", "2024-06-11 18:34"
+            ),
+            self.post("t3_a", "OOCS, Into A Wider Galaxy, Part 97", "2024-08-31 18:39"),
+            self.post("t3_b", "OOCS, Into A Wider Galaxy, Part 97", "2024-08-31 18:41"),
+            self.post(
+                "t3_726", "OOCS, Into A Wider Galaxy, Part 726", "2026-07-19 18:44"
+            ),
+        ]
+        matched, missing, unlisted = core.match_index(posts, rows)
+        self.assertEqual(
+            {pid: r["ref"] for pid, r in matched.items()},
+            {
+                "t3_first": "OOCS 001",
+                "t3_iawg1": "IAWG 001",
+                "t3_plot": "IAWG 030-P",
+                "t3_nsfw": "IAWG 030",
+                "t3_a": "IAWG 097-A",
+                "t3_b": "IAWG 097-B",
+                "t3_726": "IAWG 726",
+            },
+            "each post takes its own row: era, suffix and the ISO-dated chapter included",
+        )
+        self.assertEqual([r["label"] for r in missing], ["Chapter 999"])
+        self.assertEqual(unlisted, [])
+
     def test_index_is_fetched_once_a_day_survives_failures_and_names_the_chapters(self):
         calls = []
 
@@ -1036,6 +1111,97 @@ class DiscoveryTests(unittest.TestCase):
             [p["id"] for p in salvage["posts"]],
             ["t3_1", "t3_2", "t3_3", "t3_4"],
             "posts are listed by date",
+        )
+
+    def test_retitled_series_is_one_group_and_its_follow_is_the_preset(self):
+        def p(i, title):
+            return {
+                "id": f"t3_k{i}",
+                "title": title,
+                "author": "KyleKKent",
+                "flair": "OC",
+                "created": 1620000000.0 + i * 86400,
+                "html": "<p>x</p>",
+                "link": "",
+                "score": 5,
+            }
+
+        entries = [
+            p(1, "Out of Cruel Space, Part 1"),
+            p(2, "Out of Cruel Space, Part 2"),
+            p(3, "Out of Cruel Space, Part 999"),
+            p(4, "OOCS, Into A Wider Galaxy, Part 1"),
+            p(5, "OOCS, Into A Wider Galaxy, Part 2"),
+            p(6, "OOCS, Into A Wider Galaxy, Part 823"),
+            p(7, "Out of Cruel Space Side Story: Of Dog, Volpir, and Man, Part 1"),
+        ]
+        groups = core.group_series(entries)
+        kyle = [g for g in groups if g["author"] == "KyleKKent"]
+        merged = [g for g in kyle if g["name"] == "Out of Cruel Space"]
+        self.assertEqual(
+            len(merged), 1, "the two title eras are one group, not two series"
+        )
+        self.assertEqual(
+            len(merged[0]["posts"]),
+            6,
+            "both eras' parts are in it; the side story stays its own group",
+        )
+        self.assertTrue(merged[0]["is_series"])
+        follow = core.series_follow(merged[0])
+        preset = core.PRESETS[0]
+        self.assertEqual(
+            (
+                follow["name"],
+                follow["title_filter"],
+                follow["author_filter"],
+                follow["index_url"],
+                follow["title_from_body"],
+            ),
+            (
+                preset["name"],
+                preset["title_filter"],
+                preset["author_filter"],
+                preset["index_url"],
+                True,
+            ),
+            "following the discovered group brings the preset: both eras matched, chapter index attached",
+        )
+        for title, want in (
+            ("Out of Cruel Space, Part 5", True),
+            ("OOCS, Into A Wider Galaxy, Part 800", True),
+            ("Out of Cruel Space Side Story: Of Dog, Volpir, and Man", False),
+        ):
+            self.assertEqual(
+                core.matches(
+                    {"title": title, "author": "KyleKKent", "html": "<p>x</p>"}, follow
+                ),
+                want,
+                title,
+            )
+
+    def test_following_either_era_of_a_retitled_series_counts_as_following_it(self):
+        split_follow = core.new_follow(
+            "OOCS, Into A Wider Galaxy", "u/KyleKKent", "OOCS", "KyleKKent"
+        )
+        self.assertIn(
+            ("kylekkent", "out of cruel space"),
+            core.followed_keys([split_follow]),
+            "an existing follow under the new title covers the canonical series",
+        )
+        merged = {
+            "name": "Out of Cruel Space",
+            "author": "KyleKKent",
+            "authors": ["KyleKKent"],
+            "posts": [1, 2, 3],
+            "numbers": {1, 2, 3},
+            "flairs": set(),
+            "score": 10**9,
+            "is_series": True,
+        }
+        self.assertEqual(
+            core.top_series([merged], 5, 3, [split_follow]),
+            [],
+            "and top-rated will not offer it again as a second book",
         )
 
     def scored(self):
