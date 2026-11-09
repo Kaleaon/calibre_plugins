@@ -19,28 +19,25 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
-    from .storykit import (
+    from .storykit import (  # noqa: F401
         Cancelled,
         Fetcher,
         RateLimited,
         clean_fragment,
         escape,
         strip_tags,
-    )  # noqa: F401
-    from .storykit import (
-        build_epub as _build_epub,
     )
+    from .storykit import build_epub as _build_epub
 except ImportError:  # tests load this file directly with common/ on sys.path
-    from storykit import (
+    from storykit import (  # noqa: F401
         Cancelled,
         Fetcher,
         RateLimited,
         clean_fragment,
+        escape,
         strip_tags,
-    )  # noqa: F401
-    from storykit import (
-        build_epub as _build_epub,
     )
+    from storykit import build_epub as _build_epub
 
 WWW = "https://www.reddit.com"
 OAUTH = "https://oauth.reddit.com"
@@ -218,6 +215,37 @@ PRESETS = [
         "layout": "each",
     },
 ]
+
+
+# Series their author retitled part-way, where a public chapter index proves the old and new titles are ONE series, so
+# discovery must not split them into two books. Stems are _stem_key() forms. The Out of Cruel Space index (PRESETS[0]'s
+# sheet) lists KyleKKent's chapters in one continuous Seq: "Chapter 001".."Chapter 999" (Seq 1..1528, short links
+# "OOCS NNN"), then the numbering restarts as "Into A Wider Galaxy, Chapter 001".."Chapter 823" (Seq 1529..2853,
+# "IAWG NNN") with no break in the sequence — the rename is a new chapter heading, not a new series.
+RETITLED_SERIES = [
+    {
+        "author": "KyleKKent",
+        "name": "Out of Cruel Space",
+        "preset": 0,
+        "stems": ("out of cruel space", "oocs into a wider galaxy", "oocs"),
+    },
+]
+
+
+def retitled_series(author, stem_key):
+    """The RETITLED_SERIES entry covering this author and title stem, or None."""
+    for entry in RETITLED_SERIES:
+        if (author or "").strip().casefold() == entry[
+            "author"
+        ].casefold() and stem_key in entry["stems"]:
+            return entry
+    return None
+
+
+def canonical_stem(author, stem_key):
+    """The stem a post should be grouped under: a retitled series groups under its one canonical name."""
+    entry = retitled_series(author, stem_key)
+    return _stem_key(entry["name"]) if entry else stem_key
 
 
 def source_text(src):
@@ -626,21 +654,27 @@ def group_series(entries, cross_author=False):
         if not e.get("html") or not e.get("title"):
             continue
         stem, number = series_parts(e["title"])
+        # a retitled series (see RETITLED_SERIES) groups under its canonical name, not under each era's title stem,
+        # so its parts stay one group — and one book — instead of splitting at the rename
+        grouped = canonical_stem(e.get("author", ""), _stem_key(stem))
+        retitled = retitled_series(e.get("author", ""), _stem_key(stem))
         if cross_author:
-            key = _stem_key(stem)
+            key = grouped
         else:
-            key = (e.get("author", "").casefold(), _stem_key(stem))
+            key = (e.get("author", "").casefold(), grouped)
         g = groups.setdefault(
             key,
             {
-                "name": stem,
+                "name": retitled["name"] if retitled else stem,
                 "authors": [],
                 "posts": {},
                 "numbers": set(),
                 "flairs": set(),
                 "score": 0,
+                "stems": set(),
             },
         )
+        g["stems"].add(_stem_key(stem))
         if e.get("author"):
             cleaned_a = e["author"].strip()
             if cleaned_a and cleaned_a not in g["authors"]:
@@ -685,13 +719,16 @@ def rank_groups(groups, by="score"):
 
 
 def followed_keys(follows):
-    """(author, name) tuples of series already followed, to avoid adding the same one twice."""
+    """(author, name) tuples of series already followed, to avoid adding the same one twice. A follow under any era's
+    title of a retitled series also counts as following the canonical series, so discovery will not offer its other
+    era as a separate new series (which is how one series ended up as two books)."""
     keys = set()
     for f in follows:
         authors = parse_authors(f.get("author_filter") or f.get("authors", ""))
         stem = _stem_key(f.get("name", ""))
         for a in authors:
             keys.add((a.casefold(), stem))
+            keys.add((a.casefold(), canonical_stem(a, stem)))
     return keys
 
 
@@ -707,7 +744,10 @@ def top_series(groups, count=5, min_parts=3, follows=()):
             a.casefold()
             for a in (g.get("authors") or parse_authors(g.get("author", "")))
         ]
-        if any((a, g_stem) in taken for a in g_authors):
+        if any(
+            (a, g_stem) in taken or (a, canonical_stem(a, g_stem)) in taken
+            for a in g_authors
+        ):
             continue
         chosen.append(g)
     return chosen[:count]
@@ -766,7 +806,25 @@ def discover(
 
 
 def series_follow(group, author_note=False):
-    """A follow for a discovered series: the author's posts whose title starts with the series name."""
+    """A follow for a discovered series: the author's posts whose title starts with the series name.
+    A retitled series (RETITLED_SERIES) instead gets its preset follow, which matches both title eras and carries
+    the chapter index, so following it from discovery collects the whole series as one book, not one era of it."""
+    authors = group.get("authors") or parse_authors(group.get("author", ""))
+    stems = set(group.get("stems") or ()) | {_stem_key(group["name"])}
+    for author in authors:
+        for stem_key in stems:
+            entry = retitled_series(author, stem_key)
+            if entry:
+                preset = PRESETS[entry["preset"]]
+                return new_follow(
+                    preset["name"],
+                    preset["source"],
+                    preset["title_filter"],
+                    preset["author_filter"],
+                    author_note=author_note,
+                    index_url=preset.get("index_url", ""),
+                    title_from_body=bool(preset.get("title_from_body")),
+                )
     stem = group["name"]
     name = re.escape(stem).replace(
         "\\ ", " "
@@ -849,10 +907,51 @@ def sheet_csv_url(url):
     )
 
 
+def _index_ts(text):
+    """Epoch seconds for one index-sheet date, or None when it cannot be read. The sheet writes '2021/05/19 04:30'
+    (CEST, so UTC+2 like the rest of the sheet), but occasional rows use the ISO form '2026-07-19T20:44' — those rows
+    used to be dropped entirely, which lost their chapter (Into A Wider Galaxy, Chapter 726 in the real sheet)."""
+    text = (text or "").strip()
+    for fmt in (
+        "%Y/%m/%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+    ):
+        try:
+            return (
+                datetime.strptime(text.replace("T", " "), fmt)
+                .replace(tzinfo=timezone.utc)
+                .timestamp()
+                - 2 * 3600
+            )
+        except ValueError:
+            continue
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.timestamp() if parsed.tzinfo else None
+
+
+def _label_era(label):
+    """The part of a chapter label before 'Chapter', normalised: '' for 'Chapter 001', 'into a wider galaxy' for
+    'Into A Wider Galaxy, Chapter 001'. The two eras restart their numbering, so the era is part of a chapter's
+    identity — Chapter 010 and Into A Wider Galaxy, Chapter 010 are different chapters."""
+    m = _CHAPTER_LABEL.search(label or "")
+    return _stem_key(label[: m.start()]) if m else ""
+
+
 def parse_index(csv_text, author=""):
-    """Chapters listed by an index sheet with columns Date, Author, Chapter and (optionally) Note. Returns
-    [{'n', 'label', 'note', 'ts'}] for the author's rows, where ts is the listed date read as UTC+2 (the sheet's CEST) in epoch
-    seconds. Rows whose Chapter cell has no 'Chapter N' (side stories, notes) are ignored."""
+    """Chapters listed by an index sheet with columns Date, Author, Chapter and (optionally) Note, Seq and Short Link.
+    Returns [{'n', 'label', 'note', 'ts', 'era', 'suffix', 'seq', 'ref'}] for the author's rows, where ts is the listed
+    date read as UTC+2 (the sheet's CEST) in epoch seconds, era is the label's part before 'Chapter' (the numbering
+    restarts when a series is retitled, so era + n identifies a chapter), suffix is what follows the number
+    ('Plot', '-A [NSFW]' — suffixed rows are separate posts, not duplicates), and seq / ref are the sheet's own
+    continuous sequence number and short link ('OOCS 001', 'IAWG 030-P') when it has them: for Out of Cruel Space the
+    Seq runs unbroken across the rename, which is what proves the two eras are one series. Rows whose Chapter cell
+    has no 'Chapter N' (side stories, notes) are ignored."""
     rows = list(csv.reader(io.StringIO(csv_text)))
     head = next(
         (
@@ -872,7 +971,11 @@ def parse_index(csv_text, author=""):
         cols.get("author", 1),
         cols.get("chapter", 2),
     )
-    col_note = cols.get("note")
+    col_note, col_seq, col_ref = (
+        cols.get("note"),
+        cols.get("seq"),
+        cols.get("short link"),
+    )
     author_set = {a.casefold() for a in parse_authors(author)}
     out = []
     for r in rows[head + 1 :]:
@@ -881,52 +984,103 @@ def parse_index(csv_text, author=""):
         if author_set and r[col_author].strip().casefold() not in author_set:
             continue
         m = _CHAPTER_LABEL.search(r[col_chapter])
-        if not m or not re.match(r"\d{4}/\d\d/\d\d", r[col_date].strip()):
+        when = _index_ts(r[col_date]) if m else None
+        if not m or when is None:
             continue
-        try:
-            when = (
-                datetime.strptime(r[col_date].strip(), "%Y/%m/%d %H:%M")
-                .replace(tzinfo=timezone.utc)
-                .timestamp()
-                - 2 * 3600
-            )
-        except ValueError:
-            continue
+        label = re.sub(r"\s+", " ", r[col_chapter]).strip()
+        lm = _CHAPTER_LABEL.search(label)
         note = r[col_note].strip() if col_note is not None and len(r) > col_note else ""
+        seq = r[col_seq].strip() if col_seq is not None and len(r) > col_seq else ""
         out.append(
             {
                 "n": int(m.group(1)),
-                "label": re.sub(r"\s+", " ", r[col_chapter]).strip(),
+                "label": label,
                 "note": re.sub(r"\s+", " ", note),
                 "ts": when,
+                "era": _label_era(label),
+                "suffix": label[lm.end() :].strip() if lm else "",
+                "seq": int(seq) if seq.isdigit() else None,
+                "ref": re.sub(r"\s+", " ", r[col_ref]).strip()
+                if col_ref is not None and len(r) > col_ref
+                else "",
             }
         )
     return out
 
 
+def _post_era(title):
+    """The era a post title names, in _label_era form: 'into a wider galaxy' when the title says so, else ''."""
+    return (
+        "into a wider galaxy" if "into a wider galaxy" in _stem_key(title or "") else ""
+    )
+
+
+def _suffix_rank(row, title):
+    """0 when the row's chapter suffix is named in the post title ('Plot', '-A'), 1 otherwise. Suffixed rows are
+    separate posts minutes apart with the same chapter number (the real sheet has 'Chapter 030 Plot' and
+    'Chapter 030 [NSFW]' two minutes apart, and 'Chapter 097-A' / 'Chapter 097-B' likewise), so a title that
+    names the suffix settles which post is which; posting time settles the rest."""
+    distinctive = [
+        w
+        for w in re.sub(
+            r"[^a-z0-9]+", " ", (row.get("suffix") or "").casefold()
+        ).split()
+        if len(w) >= 3 and w not in ("nsfw", "sfw")
+    ]
+    if not distinctive:
+        return 1
+    words = {w for w in re.split(r"[^a-z0-9]+", _stem_key(title or "")) if w}
+    return 0 if any(w in words for w in distinctive) else 1
+
+
 def match_index(posts, rows):
-    """Pair posts with index rows. First by chapter number and date (within three days, so Chapter 5 of two eras do not mix up),
-    then leftovers one-to-one by posting time (within 36 hours), which catches mistitled posts. Returns
+    """Pair posts with index rows. First by chapter number and date (within three days), then leftovers one-to-one by
+    posting time (within 36 hours), which catches mistitled posts. A post that names an era ('Into A Wider Galaxy')
+    only takes a row of that era, and rows are told apart by their suffix as well as their number, so the two eras'
+    restarted numbering and same-number suffixed posts do not compete for each other's posts. Returns
     ({post_id: row}, unmatched rows, unmatched posts)."""
     posts = sorted(posts, key=lambda p: p["created"])
     free = list(rows)
     matched, left = {}, []
     for p in posts:
         numbers = {int(n) for n in re.findall(r"\d+", p["title"])}
+        era = _post_era(p["title"])
         near = [
             r
             for r in free
-            if r["n"] in numbers and abs(r["ts"] - p["created"]) <= 3 * 86400
+            if r["n"] in numbers
+            and abs(r["ts"] - p["created"]) <= 3 * 86400
+            and not (
+                era
+                and (r.get("era") or _label_era(r["label"]))
+                and (r.get("era") or _label_era(r["label"])) != era
+            )
         ]
         if near:
-            best = min(near, key=lambda r: abs(r["ts"] - p["created"]))
+            best = min(
+                near,
+                key=lambda r: (
+                    _suffix_rank(r, p["title"]),
+                    abs(r["ts"] - p["created"]),
+                ),
+            )
             matched[p["id"]] = best
             free.remove(best)
         else:
             left.append(p)
     still = []
     for p in left:
-        near = [r for r in free if abs(r["ts"] - p["created"]) <= 36 * 3600]
+        era = _post_era(p["title"])
+        near = [
+            r
+            for r in free
+            if abs(r["ts"] - p["created"]) <= 36 * 3600
+            and not (
+                era
+                and (r.get("era") or _label_era(r["label"]))
+                and (r.get("era") or _label_era(r["label"])) != era
+            )
+        ]
         if near:
             best = min(near, key=lambda r: abs(r["ts"] - p["created"]))
             matched[p["id"]] = best
