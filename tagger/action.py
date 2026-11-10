@@ -124,19 +124,13 @@ class RuleSetManagerDialog(QDialog):
 
         rules_controls = QHBoxLayout()
         select_all_rules_btn = QPushButton("Select All")
-        select_all_rules_btn.clicked.connect(
-            lambda: self._set_all_checked(self.rules_table, True)
-        )
+        select_all_rules_btn.clicked.connect(lambda: self._set_all_checked(self.rules_table, True))
         deselect_all_rules_btn = QPushButton("Deselect All")
-        deselect_all_rules_btn.clicked.connect(
-            lambda: self._set_all_checked(self.rules_table, False)
-        )
+        deselect_all_rules_btn.clicked.connect(lambda: self._set_all_checked(self.rules_table, False))
         add_rule_btn = QPushButton("Add Rule")
         add_rule_btn.clicked.connect(self._add_rule_row)
         delete_rule_btn = QPushButton("Delete Selected")
-        delete_rule_btn.clicked.connect(
-            lambda: self._delete_selected_rows(self.rules_table)
-        )
+        delete_rule_btn.clicked.connect(lambda: self._delete_selected_rows(self.rules_table))
 
         rules_controls.addWidget(select_all_rules_btn)
         rules_controls.addWidget(deselect_all_rules_btn)
@@ -147,25 +141,13 @@ class RuleSetManagerDialog(QDialog):
 
         self.rules_table = QTableWidget()
         self.rules_table.setColumnCount(5)
-        self.rules_table.setHorizontalHeaderLabels(
-            ["Include", "Field", "Pattern", "Target Tags", "Status"]
-        )
+        self.rules_table.setHorizontalHeaderLabels(["Include", "Field", "Pattern", "Target Tags", "Status"])
         if hasattr(QHeaderView, "ResizeMode"):
-            self.rules_table.horizontalHeader().setSectionResizeMode(
-                0, QHeaderView.ResizeMode.ResizeToContents
-            )
-            self.rules_table.horizontalHeader().setSectionResizeMode(
-                1, QHeaderView.ResizeMode.ResizeToContents
-            )
-            self.rules_table.horizontalHeader().setSectionResizeMode(
-                2, QHeaderView.ResizeMode.Stretch
-            )
-            self.rules_table.horizontalHeader().setSectionResizeMode(
-                3, QHeaderView.ResizeMode.Stretch
-            )
-            self.rules_table.horizontalHeader().setSectionResizeMode(
-                4, QHeaderView.ResizeMode.ResizeToContents
-            )
+            self.rules_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            self.rules_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+            self.rules_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            self.rules_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+            self.rules_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.rules_table.itemChanged.connect(self._on_item_changed)
         rules_layout.addWidget(self.rules_table)
 
@@ -177,19 +159,13 @@ class RuleSetManagerDialog(QDialog):
 
         sites_controls = QHBoxLayout()
         select_all_sites_btn = QPushButton("Select All")
-        select_all_sites_btn.clicked.connect(
-            lambda: self._set_all_checked(self.sites_table, True)
-        )
+        select_all_sites_btn.clicked.connect(lambda: self._set_all_checked(self.sites_table, True))
         deselect_all_sites_btn = QPushButton("Deselect All")
-        deselect_all_sites_btn.clicked.connect(
-            lambda: self._set_all_checked(self.sites_table, False)
-        )
+        deselect_all_sites_btn.clicked.connect(lambda: self._set_all_checked(self.sites_table, False))
         add_site_btn = QPushButton("Add Site")
         add_site_btn.clicked.connect(self._add_site_row)
         delete_site_btn = QPushButton("Delete Selected")
-        delete_site_btn.clicked.connect(
-            lambda: self._delete_selected_rows(self.sites_table)
-        )
+        delete_site_btn.clicked.connect(lambda: self._delete_selected_rows(self.sites_table))
 
         sites_controls.addWidget(select_all_sites_btn)
         sites_controls.addWidget(deselect_all_sites_btn)
@@ -200,22 +176,12 @@ class RuleSetManagerDialog(QDialog):
 
         self.sites_table = QTableWidget()
         self.sites_table.setColumnCount(4)
-        self.sites_table.setHorizontalHeaderLabels(
-            ["Include", "Hosts", "Site Name", "Status"]
-        )
+        self.sites_table.setHorizontalHeaderLabels(["Include", "Hosts", "Site Name", "Status"])
         if hasattr(QHeaderView, "ResizeMode"):
-            self.sites_table.horizontalHeader().setSectionResizeMode(
-                0, QHeaderView.ResizeMode.ResizeToContents
-            )
-            self.sites_table.horizontalHeader().setSectionResizeMode(
-                1, QHeaderView.ResizeMode.Stretch
-            )
-            self.sites_table.horizontalHeader().setSectionResizeMode(
-                2, QHeaderView.ResizeMode.Stretch
-            )
-            self.sites_table.horizontalHeader().setSectionResizeMode(
-                3, QHeaderView.ResizeMode.ResizeToContents
-            )
+            self.sites_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            self.sites_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            self.sites_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            self.sites_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.sites_table.itemChanged.connect(self._on_item_changed)
         sites_layout.addWidget(self.sites_table)
 
@@ -224,9 +190,7 @@ class RuleSetManagerDialog(QDialog):
         self.status_label = QLabel("")
         layout.addWidget(self.status_label)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -239,9 +203,7 @@ class RuleSetManagerDialog(QDialog):
 
         self.rules_table.setRowCount(0)
         for r in self.local_rules:
-            self._insert_rule_row(
-                r.field, r.pattern, r.tags, checked=True, status="Existing"
-            )
+            self._insert_rule_row(r.field, r.pattern, r.tags, checked=True, status="Existing")
 
         self.sites_table.setRowCount(0)
         for name, hosts, _ in self.local_sites:
@@ -256,11 +218,7 @@ class RuleSetManagerDialog(QDialog):
         self.rules_table.insertRow(row)
 
         chk = QTableWidgetItem()
-        chk.setFlags(
-            Qt.ItemFlag.ItemIsUserCheckable
-            | Qt.ItemFlag.ItemIsEnabled
-            | Qt.ItemFlag.ItemIsSelectable
-        )
+        chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
         chk.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
         self.rules_table.setItem(row, 0, chk)
 
@@ -268,9 +226,7 @@ class RuleSetManagerDialog(QDialog):
         self.rules_table.setItem(row, 1, QTableWidgetItem(fld_str))
         self.rules_table.setItem(row, 2, QTableWidgetItem(pattern or ""))
 
-        tags_str = (
-            ", ".join(tags) if isinstance(tags, (list, tuple)) else str(tags or "")
-        )
+        tags_str = ", ".join(tags) if isinstance(tags, (list, tuple)) else str(tags or "")
         self.rules_table.setItem(row, 3, QTableWidgetItem(tags_str))
         self.rules_table.setItem(row, 4, QTableWidgetItem(status))
 
@@ -279,17 +235,11 @@ class RuleSetManagerDialog(QDialog):
         self.sites_table.insertRow(row)
 
         chk = QTableWidgetItem()
-        chk.setFlags(
-            Qt.ItemFlag.ItemIsUserCheckable
-            | Qt.ItemFlag.ItemIsEnabled
-            | Qt.ItemFlag.ItemIsSelectable
-        )
+        chk.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
         chk.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
         self.sites_table.setItem(row, 0, chk)
 
-        hosts_str = (
-            ", ".join(hosts) if isinstance(hosts, (list, tuple)) else str(hosts or "")
-        )
+        hosts_str = ", ".join(hosts) if isinstance(hosts, (list, tuple)) else str(hosts or "")
         self.sites_table.setItem(row, 1, QTableWidgetItem(hosts_str))
         self.sites_table.setItem(row, 2, QTableWidgetItem(name or ""))
         self.sites_table.setItem(row, 3, QTableWidgetItem(status))
@@ -303,9 +253,7 @@ class RuleSetManagerDialog(QDialog):
         self._update_counts()
 
     def _delete_selected_rows(self, table):
-        selected_rows = sorted(
-            set(idx.row() for idx in table.selectedIndexes()), reverse=True
-        )
+        selected_rows = sorted(set(idx.row() for idx in table.selectedIndexes()), reverse=True)
         table.blockSignals(True)
         for row in selected_rows:
             table.removeRow(row)
@@ -318,9 +266,7 @@ class RuleSetManagerDialog(QDialog):
             if not table.isRowHidden(row):
                 item = table.item(row, 0)
                 if item:
-                    item.setCheckState(
-                        Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-                    )
+                    item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
         table.blockSignals(False)
         self._update_counts()
 
@@ -333,23 +279,19 @@ class RuleSetManagerDialog(QDialog):
         rule_checked = sum(
             1
             for r in range(rule_total)
-            if self.rules_table.item(r, 0)
-            and self.rules_table.item(r, 0).checkState() == Qt.CheckState.Checked
+            if self.rules_table.item(r, 0) and self.rules_table.item(r, 0).checkState() == Qt.CheckState.Checked
         )
 
         site_total = self.sites_table.rowCount()
         site_checked = sum(
             1
             for r in range(site_total)
-            if self.sites_table.item(r, 0)
-            and self.sites_table.item(r, 0).checkState() == Qt.CheckState.Checked
+            if self.sites_table.item(r, 0) and self.sites_table.item(r, 0).checkState() == Qt.CheckState.Checked
         )
 
         self.tabs.setTabText(0, f"Keyword Rules ({rule_checked}/{rule_total})")
         self.tabs.setTabText(1, f"Source Sites ({site_checked}/{site_total})")
-        self.status_label.setText(
-            f"Selected for configuration: {rule_checked} rule(s), {site_checked} site(s)."
-        )
+        self.status_label.setText(f"Selected for configuration: {rule_checked} rule(s), {site_checked} site(s).")
 
     def _filter_tables(self, text):
         text = text.casefold()
@@ -367,9 +309,7 @@ class RuleSetManagerDialog(QDialog):
                 table.setRowHidden(r, not match)
 
     def _load_json(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Load Rule Set JSON", "", "JSON Files (*.json);;All Files (*)"
-        )
+        path, _ = QFileDialog.getOpenFileName(self, "Load Rule Set JSON", "", "JSON Files (*.json);;All Files (*)")
         if not path:
             return
 
@@ -377,9 +317,7 @@ class RuleSetManagerDialog(QDialog):
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
         except Exception as exc:
-            QMessageBox.critical(
-                self, "Load Error", f"Failed to read or parse JSON file:\n{exc}"
-            )
+            QMessageBox.critical(self, "Load Error", f"Failed to read or parse JSON file:\n{exc}")
             return
 
         parsed_rules, parsed_sites, errors = rules_mod.import_rule_set_data(data)
@@ -387,8 +325,7 @@ class RuleSetManagerDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "Rule Validation Error",
-                "The rule set file contains invalid or malformed rules and cannot be imported:\n\n"
-                + "\n".join(errors),
+                "The rule set file contains invalid or malformed rules and cannot be imported:\n\n" + "\n".join(errors),
             )
             return
 
@@ -402,9 +339,7 @@ class RuleSetManagerDialog(QDialog):
         for r in parsed_rules:
             status = rules_mod.classify_rule(r, self.local_rules)
             if status == "New":
-                self._insert_rule_row(
-                    r.field, r.pattern, r.tags, checked=True, status="New"
-                )
+                self._insert_rule_row(r.field, r.pattern, r.tags, checked=True, status="New")
                 new_rules += 1
             elif status == "Conflict":
                 self._insert_rule_row(
@@ -416,9 +351,7 @@ class RuleSetManagerDialog(QDialog):
                 )
                 conflict_rules += 1
             elif status == "Duplicate":
-                self._insert_rule_row(
-                    r.field, r.pattern, r.tags, checked=False, status="Duplicate"
-                )
+                self._insert_rule_row(r.field, r.pattern, r.tags, checked=False, status="Duplicate")
 
         for s in parsed_sites:
             name, hosts, _ = s
@@ -426,9 +359,7 @@ class RuleSetManagerDialog(QDialog):
             if status == "New":
                 self._insert_site_row(hosts, name, checked=True, status="New")
             elif status == "Conflict":
-                self._insert_site_row(
-                    hosts, name, checked=False, status="Conflict (differs)"
-                )
+                self._insert_site_row(hosts, name, checked=False, status="Conflict (differs)")
             elif status == "Duplicate":
                 self._insert_site_row(hosts, name, checked=False, status="Duplicate")
 
@@ -461,13 +392,9 @@ class RuleSetManagerDialog(QDialog):
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-            QMessageBox.information(
-                self, "Export Successful", f"Rule set exported successfully to:\n{path}"
-            )
+            QMessageBox.information(self, "Export Successful", f"Rule set exported successfully to:\n{path}")
         except Exception as exc:
-            QMessageBox.critical(
-                self, "Export Error", f"Failed to save JSON file:\n{exc}"
-            )
+            QMessageBox.critical(self, "Export Error", f"Failed to save JSON file:\n{exc}")
 
     def _get_checked_rules_and_sites_text(self):
         rule_lines = []
@@ -515,8 +442,7 @@ class RuleSetManagerDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "Invalid Rules",
-                "Cannot commit configuration due to rule syntax errors:\n\n"
-                + "\n".join(all_errors),
+                "Cannot commit configuration due to rule syntax errors:\n\n" + "\n".join(all_errors),
             )
             return
 
@@ -585,9 +511,7 @@ class TaggerAction(DialogAction):
         # Active Rules Table
         rules_table = QTableWidget()
         rules_table.setColumnCount(5)
-        rules_table.setHorizontalHeaderLabels(
-            ["Field", "Match Mode", "Pattern", "Target Tags", "Actions"]
-        )
+        rules_table.setHorizontalHeaderLabels(["Field", "Match Mode", "Pattern", "Target Tags", "Actions"])
         header = rules_table.horizontalHeader()
         if hasattr(header, "setSectionResizeMode"):
             header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -632,9 +556,7 @@ class TaggerAction(DialogAction):
 
         form_row2.addWidget(QLabel("Target Tags:"))
         tags_edit = QLineEdit()
-        tags_edit.setPlaceholderText(
-            "Comma-separated tags (e.g., Genre.LitRPG, Trope.Isekai)"
-        )
+        tags_edit.setPlaceholderText("Comma-separated tags (e.g., Genre.LitRPG, Trope.Isekai)")
         form_row2.addWidget(tags_edit)
         form_layout.addLayout(form_row2)
 
@@ -676,12 +598,8 @@ class TaggerAction(DialogAction):
         preset_list_table.setColumnCount(2)
         preset_list_table.setHorizontalHeaderLabels(["Category", "Preset Pack"])
         if hasattr(preset_list_table.horizontalHeader(), "setSectionResizeMode"):
-            preset_list_table.horizontalHeader().setSectionResizeMode(
-                0, QHeaderView.ResizeMode.ResizeToContents
-            )
-            preset_list_table.horizontalHeader().setSectionResizeMode(
-                1, QHeaderView.ResizeMode.Stretch
-            )
+            preset_list_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            preset_list_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         splitter.addWidget(preset_list_table)
 
         # Right pane: preset preview details
@@ -695,9 +613,7 @@ class TaggerAction(DialogAction):
 
         preset_preview_edit = QPlainTextEdit()
         preset_preview_edit.setReadOnly(True)
-        preset_preview_edit.setPlaceholderText(
-            "Pack rules and custom sites will appear here."
-        )
+        preset_preview_edit.setPlaceholderText("Pack rules and custom sites will appear here.")
 
         merge_preset_btn = QPushButton("Merge Preset Pack into Active Rules")
         merge_preset_btn.setEnabled(False)
@@ -746,9 +662,7 @@ class TaggerAction(DialogAction):
         row.addWidget(series_prefix)
         tab_settings_layout.addLayout(row)
 
-        scan = QCheckBox(
-            "Also look for site addresses inside book descriptions (may over-match)"
-        )
+        scan = QCheckBox("Also look for site addresses inside book descriptions (may over-match)")
         scan.setChecked(bool(prefs["scan_comments"]))
         tab_settings_layout.addWidget(scan)
 
@@ -760,9 +674,7 @@ class TaggerAction(DialogAction):
         sites_edit.setPlaceholderText(SITES_HELP)
         tab_settings_layout.addWidget(sites_edit, 1)
 
-        builtin_label = QLabel(
-            "Built-in sites: " + ", ".join(s[0] for s in rules_mod.DEFAULT_SITES)
-        )
+        builtin_label = QLabel("Built-in sites: " + ", ".join(s[0] for s in rules_mod.DEFAULT_SITES))
         builtin_label.setWordWrap(True)
         tab_settings_layout.addWidget(builtin_label)
 
@@ -846,15 +758,11 @@ class TaggerAction(DialogAction):
                     rules_table.insertRow(idx)
 
                     field_item = QTableWidgetItem(r_dict.get("field", "any"))
-                    mode_item = QTableWidgetItem(
-                        (r_dict.get("match_mode") or "substring").title()
-                    )
+                    mode_item = QTableWidgetItem((r_dict.get("match_mode") or "substring").title())
                     pat_item = QTableWidgetItem(r_dict.get("pattern", ""))
                     tags_list = r_dict.get("tags") or []
                     tags_item = QTableWidgetItem(
-                        ", ".join(tags_list)
-                        if isinstance(tags_list, list)
-                        else str(tags_list)
+                        ", ".join(tags_list) if isinstance(tags_list, list) else str(tags_list)
                     )
 
                     rules_table.setItem(idx, 0, field_item)
@@ -886,19 +794,11 @@ class TaggerAction(DialogAction):
                     cursor_pos = state.pop("cursor_position", None)
 
                 raw_text = presets_mod.rules_to_text(state["active_rules"])
-                was_blocked = (
-                    rules_edit.blockSignals(True)
-                    if hasattr(rules_edit, "blockSignals")
-                    else False
-                )
+                was_blocked = rules_edit.blockSignals(True) if hasattr(rules_edit, "blockSignals") else False
                 try:
                     rules_edit.setPlainText(raw_text)
                     if cursor_pos is not None:
-                        cursor = (
-                            rules_edit.textCursor()
-                            if hasattr(rules_edit, "textCursor")
-                            else None
-                        )
+                        cursor = rules_edit.textCursor() if hasattr(rules_edit, "textCursor") else None
                         if cursor is not None and hasattr(cursor, "setPosition"):
                             if isinstance(cursor_pos, int):
                                 new_pos = max(0, min(cursor_pos, len(raw_text)))
@@ -961,9 +861,7 @@ class TaggerAction(DialogAction):
             if not ok:
                 return
 
-            if state["editing_index"] >= 0 and state["editing_index"] < len(
-                state["active_rules"]
-            ):
+            if state["editing_index"] >= 0 and state["editing_index"] < len(state["active_rules"]):
                 state["active_rules"][state["editing_index"]] = r_dict
             else:
                 state["active_rules"].append(r_dict)
@@ -988,9 +886,7 @@ class TaggerAction(DialogAction):
 
             pat_edit.setText(r_dict.get("pattern", ""))
             tags_list = r_dict.get("tags") or []
-            tags_edit.setText(
-                ", ".join(tags_list) if isinstance(tags_list, list) else str(tags_list)
-            )
+            tags_edit.setText(", ".join(tags_list) if isinstance(tags_list, list) else str(tags_list))
 
             add_rule_btn.setText("Save Changes")
             validate_form()
@@ -1039,9 +935,7 @@ class TaggerAction(DialogAction):
 
             p = state["bundled_presets"][row_idx]
             preset_title_label.setText(f"<b>{p.get('name', 'Preset Pack')}</b>")
-            preset_desc_label.setText(
-                f"Category: {p.get('category', 'General')}\n{p.get('description', '')}"
-            )
+            preset_desc_label.setText(f"Category: {p.get('category', 'General')}\n{p.get('description', '')}")
 
             rules_count = len(p.get("rules", []))
             sites_count = len(p.get("sites", []))
@@ -1069,10 +963,8 @@ class TaggerAction(DialogAction):
             active_rules_txt = rules_edit.toPlainText()
             active_sites_txt = sites_edit.toPlainText()
 
-            up_rules_txt, up_sites_txt, r_added, s_added = (
-                presets_mod.merge_preset_into_active(
-                    active_rules_txt, active_sites_txt, preset_pack
-                )
+            up_rules_txt, up_sites_txt, r_added, s_added = presets_mod.merge_preset_into_active(
+                active_rules_txt, active_sites_txt, preset_pack
             )
 
             rules_edit.setPlainText(up_rules_txt)
@@ -1091,9 +983,7 @@ class TaggerAction(DialogAction):
             )
 
         def do_import_preset():
-            filepath, _ = QFileDialog.getOpenFileName(
-                dialog, "Import Preset Pack (JSON)", "", "JSON Files (*.json)"
-            )
+            filepath, _ = QFileDialog.getOpenFileName(dialog, "Import Preset Pack (JSON)", "", "JSON Files (*.json)")
             if not filepath:
                 return
             try:
@@ -1185,9 +1075,7 @@ class TaggerAction(DialogAction):
                         if getattr(tag_item, "_tag", None) == tag:
                             tag_item.setCheckState(
                                 0,
-                                Qt.CheckState.Checked
-                                if checked
-                                else Qt.CheckState.Unchecked,
+                                Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked,
                             )
             finally:
                 state["updating"] = False
@@ -1215,9 +1103,7 @@ class TaggerAction(DialogAction):
                         tag_item = item.child(j)
                         tag_item.setCheckState(
                             0,
-                            Qt.CheckState.Checked
-                            if checked
-                            else Qt.CheckState.Unchecked,
+                            Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked,
                         )
                         child_tag = getattr(tag_item, "_tag", None)
                         if child_tag:
@@ -1286,9 +1172,7 @@ class TaggerAction(DialogAction):
                 )
 
         def do_import():
-            path, _ = QFileDialog.getOpenFileName(
-                dialog, "Import Rule Set", "", "JSON files (*.json);;All files (*)"
-            )
+            path, _ = QFileDialog.getOpenFileName(dialog, "Import Rule Set", "", "JSON files (*.json);;All files (*)")
             if not path:
                 return
             try:
@@ -1337,12 +1221,8 @@ class TaggerAction(DialogAction):
             mode = "merge" if clicked == merge_btn else "replace"
 
             if mode == "merge":
-                target_rules = rules_mod.merge_text_lines(
-                    rules_edit.toPlainText(), imported_rules
-                )
-                target_sites = rules_mod.merge_text_lines(
-                    sites_edit.toPlainText(), imported_sites
-                )
+                target_rules = rules_mod.merge_text_lines(rules_edit.toPlainText(), imported_rules)
+                target_sites = rules_mod.merge_text_lines(sites_edit.toPlainText(), imported_sites)
             else:
                 target_rules = imported_rules
                 target_sites = imported_sites
@@ -1372,9 +1252,7 @@ class TaggerAction(DialogAction):
                     scan.setChecked(bool(data["scan_comments"]))
 
             save_prefs()
-            info_dialog(
-                dialog, "Import Rule Set", "Rule set imported successfully.", show=True
-            )
+            info_dialog(dialog, "Import Rule Set", "Rule set imported successfully.", show=True)
 
         export_btn.clicked.connect(do_export)
         import_btn.clicked.connect(do_import)
@@ -1396,11 +1274,7 @@ class TaggerAction(DialogAction):
                 apply_btn.setEnabled(False)
                 return
 
-            ids = (
-                selected
-                if scope_selected.isChecked()
-                else sorted(self.gui.current_db.new_api.all_book_ids())
-            )
+            ids = selected if scope_selected.isChecked() else sorted(self.gui.current_db.new_api.all_book_ids())
             state["total_ids"] = len(ids)
             plan = rules_mod.plan_changes(
                 self.books_for(ids),
@@ -1431,9 +1305,7 @@ class TaggerAction(DialogAction):
                     b_item._book_id = p["id"]
                     for tag in p.get("add", []):
                         t_item = QTreeWidgetItem([tag])
-                        t_item.setFlags(
-                            t_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-                        )
+                        t_item.setFlags(t_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                         t_item.setCheckState(0, Qt.CheckState.Checked)
                         t_item._book_id = p["id"]
                         t_item._tag = tag
@@ -1456,9 +1328,7 @@ class TaggerAction(DialogAction):
             try:
                 db = self.gui.current_db.new_api
                 db.set_field("tags", {p["id"]: tuple(p["tags"]) for p in active_plan})
-                self.gui.library_view.model().refresh_ids(
-                    [p["id"] for p in active_plan]
-                )
+                self.gui.library_view.model().refresh_ids([p["id"] for p in active_plan])
                 self.gui.tags_view.recount()
             except Exception as exc:
                 return show_friendly_error_dialog(
