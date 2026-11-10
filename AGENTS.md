@@ -60,6 +60,11 @@ The `--strict` flag ensures the build fails if vendored dependencies (such as `f
 QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest
 ```
 
+When targeting a specific plugin's tests (as done in CI for pull requests):
+```bash
+QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest tests/test_reddit.py tests/test_reddit_login.py tests/test_reddit_registry.py
+```
+
 ### Test Suite Execution with `unittest` (CI Alignment)
 To run the exact unit test suite command executed in CI:
 ```bash
@@ -75,14 +80,19 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m unittest discover -s tests -p "
 ## 5. Code Quality & Formatting
 
 ### Linting with Ruff
-To run the Ruff linter across modified files or specific files:
+To run the Ruff linter across modified files (as in PR CI):
 ```bash
-ruff check common/guikit.py scrubber_plugin/ui.py tagger/ui.py tests/test_tree_check_state_mixin.py
+ruff check <modified_files>
 ```
 
 To run across changed files in a pull request:
 ```bash
 ruff check $(git diff --name-only origin/main...HEAD -- '*.py')
+```
+
+To run the Ruff linter across the codebase:
+```bash
+ruff check .
 ```
 
 To automatically fix safe lint issues:
@@ -93,12 +103,22 @@ ruff check . --fix
 ### Code Formatting with Ruff
 To check code formatting on modified files:
 ```bash
-ruff format --check common/guikit.py scrubber_plugin/ui.py tagger/ui.py tests/test_tree_check_state_mixin.py
+ruff format --check <modified_files>
+```
+
+To check code formatting across the codebase:
+```bash
+ruff format --check .
 ```
 
 To apply code formatting across modified files:
 ```bash
-ruff format common/guikit.py scrubber_plugin/ui.py tagger/ui.py tests/test_tree_check_state_mixin.py
+ruff format <modified_files>
+```
+
+To apply code formatting across the repository:
+```bash
+ruff format .
 ```
 
 ### Pre-commit Hooks
