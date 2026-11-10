@@ -210,7 +210,7 @@ def add_vendored(z):
     )
 
 
-def build_all(dest, skip_unavailable=True):
+def build_all(dest, skip_unavailable=False):
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
     built = {}
@@ -238,5 +238,6 @@ def build_all(dest, skip_unavailable=True):
 
 
 if __name__ == "__main__":
-    for target in build_all(root / "dist", skip_unavailable="--strict" not in sys.argv).values():
+    skip_unavailable = "--skip-unavailable" in sys.argv and "--strict" not in sys.argv
+    for target in build_all(root / "dist", skip_unavailable=skip_unavailable).values():
         print(target)
