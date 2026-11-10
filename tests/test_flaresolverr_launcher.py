@@ -1,26 +1,44 @@
 import importlib.util
 import os
-from pathlib import Path
+import signal
 import socket
 import stat
+import subprocess
 import sys
 import tempfile
 import textwrap
 import time
 import unittest
+from pathlib import Path
 
-spec = importlib.util.spec_from_file_location('fs', Path(__file__).resolve().parents[1] / 'fanfic/flaresolverr.py')
+spec = importlib.util.spec_from_file_location(
+    "fs", Path(__file__).resolve().parents[1] / "fanfic/flaresolverr.py"
+)
 fs = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fs)
 
-POSIX = not sys.platform.startswith('win')
+POSIX = not sys.platform.startswith("win")
+SIGKILL = getattr(signal, "SIGKILL", getattr(signal, "SIGTERM", 9))
 
-SERVER = textwrap.dedent('''\
+SERVER = textwrap.dedent("""\
     #!{python}
-    import http.server, json, os, subprocess, sys
+    import http.server, json, os, subprocess, sys, time
     open({envfile!r}, 'w').write(os.environ.get('HOST', '') + ' ' + os.environ.get('PORT', ''))
-    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])  # stands in for the browser FlareSolverr starts
+    child_script = (
+        'import os, subprocess, sys, time\\n'
+        'if hasattr(os, "setpgrp"):\\n'
+        '    try: os.setpgrp()\\n'
+        '    except Exception: pass\\n'
+        'g = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])\\n'
+        'open(sys.argv[1], "w").write(str(g.pid))\\n'
+        'time.sleep(300)\\n'
+    )
+    child = subprocess.Popen([sys.executable, '-c', child_script, {descendantfile!r}])  # stands in for the browser FlareSolverr starts
     open({childfile!r}, 'w').write(str(child.pid))
+    for _ in range(100):
+        if os.path.exists({descendantfile!r}) and os.path.getsize({descendantfile!r}) > 0:
+            break
+        time.sleep(0.05)
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a): pass
         def do_POST(self):
@@ -29,18 +47,19 @@ SERVER = textwrap.dedent('''\
             self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(data)
     print('fake flaresolverr listening', flush=True)
     http.server.HTTPServer((os.environ['HOST'], int(os.environ['PORT'])), H).serve_forever()
-''')
+""")
 
 
 def free_port():
     with socket.socket() as s:
-        s.bind(('127.0.0.1', 0))
+        s.bind(("127.0.0.1", 0))
         return str(s.getsockname()[1])
 
 
 def alive(pid):
     try:
         import psutil
+
         if not psutil.pid_exists(pid):
             return False
         p = psutil.Process(pid)
@@ -48,15 +67,22 @@ def alive(pid):
     except Exception:
         pass
 
-    if sys.platform.startswith('win'):
+    if sys.platform.startswith("win"):
         try:
             import ctypes
+
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            handle = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+            )
+            if not handle:
+                handle = ctypes.windll.kernel32.OpenProcess(0x0400, False, pid)
             if not handle:
                 return False
             exit_code = ctypes.c_ulong()
-            success = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+            success = ctypes.windll.kernel32.GetExitCodeProcess(
+                handle, ctypes.byref(exit_code)
+            )
             ctypes.windll.kernel32.CloseHandle(handle)
             STILL_ACTIVE = 259
             return bool(success and exit_code.value == STILL_ACTIVE)
@@ -67,24 +93,27 @@ def alive(pid):
             os.kill(pid, 0)
         except OSError:
             return False
-        proc_stat = Path(f'/proc/{pid}/stat')
+        proc_stat = Path(f"/proc/{pid}/stat")
         if proc_stat.exists():
             try:
-                return proc_stat.read_text().split()[2] != 'Z'
+                return proc_stat.read_text().split()[2] != "Z"
             except OSError:
                 return True
         try:
             import subprocess
-            res = subprocess.run(['ps', '-p', str(pid), '-o', 'stat'], capture_output=True, text=True)
+
+            res = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "stat"], capture_output=True, text=True
+            )
             if res.returncode != 0:
                 return False
             lines = [line.strip() for line in res.stdout.splitlines() if line.strip()]
             if not lines:
                 return False
             state_line = lines[-1] if len(lines) > 1 else lines[0]
-            if state_line.upper().startswith(('STAT', 'STATE')):
+            if state_line.upper().startswith(("STAT", "STATE")):
                 return False
-            return 'Z' not in state_line.upper()
+            return "Z" not in state_line.upper()
         except Exception:
             return True
 
@@ -100,30 +129,41 @@ def wait_gone(pid, seconds=10):
 
 class ValidationTests(unittest.TestCase):
     def test_validate_and_name_guard(self):
-        self.assertIn('No FlareSolverr', fs.validate_executable(''))
-        self.assertIn('does not exist', fs.validate_executable('/nonexistent/flaresolverr'))
+        self.assertIn("No FlareSolverr", fs.validate_executable(""))
+        self.assertIn(
+            "does not exist", fs.validate_executable("/nonexistent/flaresolverr")
+        )
         with tempfile.TemporaryDirectory() as d:
-            name = 'flaresolverr.exe' if sys.platform.startswith('win') else 'flaresolverr'
+            name = (
+                "flaresolverr.exe" if sys.platform.startswith("win") else "flaresolverr"
+            )
             path = Path(d) / name
-            path.write_text('#!/bin/sh\n')
+            path.write_text("#!/bin/sh\n")
             if POSIX:
                 path.chmod(0o644)
-                self.assertIn('chmod +x', fs.validate_executable(str(path)))
+                self.assertIn("chmod +x", fs.validate_executable(str(path)))
                 path.chmod(0o755)
-                self.assertEqual(fs.validate_executable(str(path)), '')
+                self.assertEqual(fs.validate_executable(str(path)), "")
             else:
-                self.assertEqual(fs.validate_executable(str(path)), '')
-            self.assertIn('does not exist', fs.validate_executable(d))  # a folder is not a program
-        self.assertTrue(fs.looks_like_flaresolverr('/x/FlareSolverr.exe'))
-        self.assertFalse(fs.looks_like_flaresolverr('/x/some-other-tool'))
+                self.assertEqual(fs.validate_executable(str(path)), "")
+            self.assertIn(
+                "does not exist", fs.validate_executable(d)
+            )  # a folder is not a program
+        self.assertTrue(fs.looks_like_flaresolverr("/x/FlareSolverr.exe"))
+        self.assertFalse(fs.looks_like_flaresolverr("/x/some-other-tool"))
 
 
 class LauncherTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self.tmp.name)
-        self.envfile, self.childfile = self.dir / 'env.txt', self.dir / 'child.txt'
-        self.settings = {'address': 'localhost', 'port': free_port(), 'protocol': 'http'}
+        self.envfile, self.childfile = self.dir / "env.txt", self.dir / "child.txt"
+        self.descendantfile = self.dir / "descendant.txt"
+        self.settings = {
+            "address": "localhost",
+            "port": free_port(),
+            "protocol": "http",
+        }
         self.launchers = []
 
     def tearDown(self):
@@ -132,7 +172,7 @@ class LauncherTests(unittest.TestCase):
         try:
             self.tmp.cleanup()
         except OSError:
-            import time; time.sleep(0.5)
+            time.sleep(0.5)
             try:
                 self.tmp.cleanup()
             except OSError:
@@ -145,21 +185,32 @@ class LauncherTests(unittest.TestCase):
 
     def program(self, py_body, name=None):
         if name is None:
-            name = 'flaresolverr.bat' if sys.platform.startswith('win') else 'flaresolverr'
+            name = (
+                "flaresolverr.bat" if sys.platform.startswith("win") else "flaresolverr"
+            )
         path = self.dir / name
-        if sys.platform.startswith('win'):
-            py_path = self.dir / f'{path.stem}_script.py'
+        if sys.platform.startswith("win"):
+            py_path = self.dir / f"{path.stem}_script.py"
             py_path.write_text(py_body)
-            path.write_text(f'@echo off\n"{sys.executable}" "{py_path.resolve()}" %*\nexit /b %errorlevel%\n')
+            path.write_text(
+                f'@echo off\n"{sys.executable}" "{py_path.resolve()}" %*\nexit /b %errorlevel%\n'
+            )
         else:
-            if not py_body.startswith('#!'):
-                py_body = f'#!{sys.executable}\n' + py_body
+            if not py_body.startswith("#!"):
+                py_body = f"#!{sys.executable}\n" + py_body
             path.write_text(py_body)
             path.chmod(path.stat().st_mode | stat.S_IXUSR)
         return str(path)
 
     def server_program(self):
-        return self.program(SERVER.format(python=sys.executable, envfile=str(self.envfile), childfile=str(self.childfile)))
+        return self.program(
+            SERVER.format(
+                python=sys.executable,
+                envfile=str(self.envfile).replace("\\", "/"),
+                childfile=str(self.childfile).replace("\\", "/"),
+                descendantfile=str(self.descendantfile).replace("\\", "/"),
+            )
+        )
 
     def test_start_answer_and_stop_kills_the_whole_tree(self):
         launcher = self.launcher()
@@ -168,61 +219,114 @@ class LauncherTests(unittest.TestCase):
         self.assertTrue(launcher.running())
         self.assertTrue(fs.check_server(self.settings)[0])
         child = int(self.childfile.read_text())
+        descendant = int(self.descendantfile.read_text())
         self.assertTrue(alive(child))
-        self.assertEqual(self.envfile.read_text(), f"127.0.0.1 {self.settings['port']}")  # bound to this computer only
-        self.assertIn('stopped', launcher.stop())
+        self.assertTrue(alive(descendant))
+        self.assertEqual(
+            self.envfile.read_text(), f"127.0.0.1 {self.settings['port']}"
+        )  # bound to this computer only
+        self.assertIn("stopped", launcher.stop())
         self.assertFalse(launcher.running())
         self.assertFalse(fs.check_server(self.settings, timeout=2)[0])
-        self.assertTrue(wait_gone(child), 'the helper process it started was left running')
+        self.assertTrue(
+            wait_gone(child), "the helper process it started was left running"
+        )
+        self.assertTrue(
+            wait_gone(descendant), "the descendant child process was left running"
+        )
+
+    @unittest.skipUnless(POSIX, "Process tree discovery via /proc or ps is POSIX only")
+    def test_get_child_pids_discovers_descendants(self):
+        p1 = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import subprocess, sys, time\n"
+                    'p2 = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])\n'
+                    "print(p2.pid, flush=True)\n"
+                    "time.sleep(300)\n"
+                ),
+            ],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        p2_pid = None
+        try:
+            line = p1.stdout.readline().strip()
+            p2_pid = int(line)
+            children = fs._get_child_pids(p1.pid)
+            self.assertIn(p2_pid, children)
+        finally:
+            if p1.stdout:
+                p1.stdout.close()
+            for pid in (p2_pid, p1.pid):
+                if pid:
+                    try:
+                        os.kill(pid, SIGKILL)
+                    except OSError:
+                        pass
+            p1.wait()
+
+    def test_get_child_pids_invalid_or_missing(self):
+        self.assertEqual(fs._get_child_pids(None), [])
+        self.assertEqual(fs._get_child_pids(0), [])
+        self.assertEqual(fs._get_child_pids(-1), [])
 
     def test_does_not_start_a_second_copy(self):
         first, second = self.launcher(), self.launcher()
         self.assertTrue(first.start(self.server_program(), self.settings, wait=30)[0])
         ok, message = second.start(self.server_program(), self.settings, wait=30)
         self.assertTrue(ok)
-        self.assertIn('already answering', message)
+        self.assertIn("already answering", message)
         self.assertIsNone(second.process)
-        self.assertIn('already started', first.start(self.server_program(), self.settings)[1])
+        self.assertIn(
+            "already started", first.start(self.server_program(), self.settings)[1]
+        )
 
     def test_remote_address_is_refused(self):
-        ok, message = self.launcher().start(self.server_program(), dict(self.settings, address='192.168.1.9'))
+        ok, message = self.launcher().start(
+            self.server_program(), dict(self.settings, address="192.168.1.9")
+        )
         self.assertFalse(ok)
-        self.assertIn('another machine', message)
+        self.assertIn("another machine", message)
         self.assertFalse(self.envfile.exists())  # nothing was launched
 
     def test_bad_path_is_refused(self):
-        ok, message = self.launcher().start(str(self.dir / 'missing'), self.settings)
+        ok, message = self.launcher().start(str(self.dir / "missing"), self.settings)
         self.assertFalse(ok)
-        self.assertIn('does not exist', message)
+        self.assertIn("does not exist", message)
 
     def test_program_that_exits_reports_its_output(self):
         launcher = self.launcher()
         code = 'import sys\nprint("boom: no chrome found")\nsys.exit(3)\n'
         ok, message = launcher.start(self.program(code), self.settings, wait=20)
         self.assertFalse(ok)
-        self.assertIn('code 3', message)
-        self.assertIn('boom: no chrome found', message)
+        self.assertIn("code 3", message)
+        self.assertIn("boom: no chrome found", message)
         self.assertFalse(launcher.running())
 
     def test_program_that_never_answers_is_stopped(self):
         launcher = self.launcher()
-        code = 'import time\ntime.sleep(300)\n'
+        code = "import time\ntime.sleep(300)\n"
         ok, message = launcher.start(self.program(code), self.settings, wait=2)
         self.assertFalse(ok)
-        self.assertIn('did not start answering', message)
+        self.assertIn("did not start answering", message)
         self.assertFalse(launcher.running())
 
     def test_cancel_stops_it(self):
         launcher = self.launcher()
-        code = 'import time\ntime.sleep(300)\n'
-        ok, message = launcher.start(self.program(code), self.settings, wait=30, cancelled=lambda: True)
+        code = "import time\ntime.sleep(300)\n"
+        ok, message = launcher.start(
+            self.program(code), self.settings, wait=30, cancelled=lambda: True
+        )
         self.assertFalse(ok)
-        self.assertIn('Cancelled', message)
+        self.assertIn("Cancelled", message)
         self.assertFalse(launcher.running())
 
     def test_stop_with_nothing_running(self):
-        self.assertIn('no running FlareSolverr', self.launcher().stop())
+        self.assertIn("no running FlareSolverr", self.launcher().stop())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
