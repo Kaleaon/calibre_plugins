@@ -51,13 +51,7 @@ def is_403_error(exc):
         return False
     text = str(exc)
     low = text.lower()
-    return (
-        "403" in text
-        or "forbidden" in low
-        or "cloudflare" in low
-        or "bot challenge" in low
-        or "cf-mitigated" in low
-    )
+    return "403" in text or "forbidden" in low or "cloudflare" in low or "bot challenge" in low or "cf-mitigated" in low
 
 
 def settings_from_ini(text, section=SECTION):
@@ -71,9 +65,7 @@ def settings_from_ini(text, section=SECTION):
     for name in ("defaults", section):  # later wins
         if parser.has_section(name):
             for key in found:
-                value = parser.get(
-                    name, f"flaresolverr_proxy_{key}", fallback=""
-                ).strip()
+                value = parser.get(name, f"flaresolverr_proxy_{key}", fallback="").strip()
                 if value:
                     found[key] = value
     return found
@@ -328,26 +320,20 @@ class Launcher:
                 "Something is already answering as FlareSolverr at that address, so no second copy was started.",
             )
         path = os.path.abspath(os.path.expanduser(path))
-        env = dict(
-            os.environ, HOST="127.0.0.1", PORT=str(settings["port"])
-        )  # reachable from this computer only
+        env = dict(os.environ, HOST="127.0.0.1", PORT=str(settings["port"]))  # reachable from this computer only
         env.setdefault("LOG_LEVEL", "info")
         handle, self.log_path = tempfile.mkstemp(prefix="flaresolverr-", suffix=".log")
         kwargs = {}
         if sys.platform.startswith("win"):
-            kwargs["creationflags"] = getattr(
-                subprocess, "CREATE_NO_WINDOW", 0
-            ) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        else:
-            kwargs["start_new_session"] = (
-                True  # its own process group, so stopping it also stops the browser it starts
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
+                subprocess, "CREATE_NEW_PROCESS_GROUP", 0
             )
+        else:
+            kwargs["start_new_session"] = True  # its own process group, so stopping it also stops the browser it starts
         try:
             with os.fdopen(handle, "wb") as log:
                 cmd = [path]
-                if sys.platform.startswith("win") and path.lower().endswith(
-                    (".bat", ".cmd")
-                ):
+                if sys.platform.startswith("win") and path.lower().endswith((".bat", ".cmd")):
                     cmd = ["cmd.exe", "/c", path]
                 self.process = subprocess.Popen(
                     cmd,
@@ -362,9 +348,7 @@ class Launcher:
             self.process = None
             return False, f"Could not start {path}: {exc}"
         if not self._registered:
-            atexit.register(
-                self.stop
-            )  # do not leave a browser server running after Calibre quits
+            atexit.register(self.stop)  # do not leave a browser server running after Calibre quits
             self._registered = True
         deadline = time.monotonic() + wait
         while time.monotonic() < deadline:

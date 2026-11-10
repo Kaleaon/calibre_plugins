@@ -13,3 +13,5 @@ pyparsing
 PyMuPDF
 pytest
 ruff
+pre-commit
+filelock>=4.2.1

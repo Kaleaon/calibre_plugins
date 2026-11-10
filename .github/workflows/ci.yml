@@ -82,6 +82,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install --require-hashes -r requirements.txt
 
+      - name: Run pre-commit hooks
+        run: |
+          pre-commit run --all-files
+
       - name: Run static code linting and formatting check
         run: python .github/scripts/run_ci_checks.py lint
         env:

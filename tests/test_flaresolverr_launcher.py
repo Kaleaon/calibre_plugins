@@ -11,9 +11,7 @@ import time
 import unittest
 from pathlib import Path
 
-spec = importlib.util.spec_from_file_location(
-    "fs", Path(__file__).resolve().parents[1] / "fanfic/flaresolverr.py"
-)
+spec = importlib.util.spec_from_file_location("fs", Path(__file__).resolve().parents[1] / "fanfic/flaresolverr.py")
 fs = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fs)
 
@@ -72,17 +70,13 @@ def alive(pid):
             import ctypes
 
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            handle = ctypes.windll.kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-            )
+            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if not handle:
                 handle = ctypes.windll.kernel32.OpenProcess(0x0400, False, pid)
             if not handle:
                 return False
             exit_code = ctypes.c_ulong()
-            success = ctypes.windll.kernel32.GetExitCodeProcess(
-                handle, ctypes.byref(exit_code)
-            )
+            success = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
             ctypes.windll.kernel32.CloseHandle(handle)
             STILL_ACTIVE = 259
             return bool(success and exit_code.value == STILL_ACTIVE)
@@ -102,9 +96,7 @@ def alive(pid):
         try:
             import subprocess
 
-            res = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "stat"], capture_output=True, text=True
-            )
+            res = subprocess.run(["ps", "-p", str(pid), "-o", "stat"], capture_output=True, text=True)
             if res.returncode != 0:
                 return False
             lines = [line.strip() for line in res.stdout.splitlines() if line.strip()]
@@ -130,13 +122,9 @@ def wait_gone(pid, seconds=10):
 class ValidationTests(unittest.TestCase):
     def test_validate_and_name_guard(self):
         self.assertIn("No FlareSolverr", fs.validate_executable(""))
-        self.assertIn(
-            "does not exist", fs.validate_executable("/nonexistent/flaresolverr")
-        )
+        self.assertIn("does not exist", fs.validate_executable("/nonexistent/flaresolverr"))
         with tempfile.TemporaryDirectory() as d:
-            name = (
-                "flaresolverr.exe" if sys.platform.startswith("win") else "flaresolverr"
-            )
+            name = "flaresolverr.exe" if sys.platform.startswith("win") else "flaresolverr"
             path = Path(d) / name
             path.write_text("#!/bin/sh\n")
             if POSIX:
@@ -146,9 +134,7 @@ class ValidationTests(unittest.TestCase):
                 self.assertEqual(fs.validate_executable(str(path)), "")
             else:
                 self.assertEqual(fs.validate_executable(str(path)), "")
-            self.assertIn(
-                "does not exist", fs.validate_executable(d)
-            )  # a folder is not a program
+            self.assertIn("does not exist", fs.validate_executable(d))  # a folder is not a program
         self.assertTrue(fs.looks_like_flaresolverr("/x/FlareSolverr.exe"))
         self.assertFalse(fs.looks_like_flaresolverr("/x/some-other-tool"))
 
@@ -185,16 +171,12 @@ class LauncherTests(unittest.TestCase):
 
     def program(self, py_body, name=None):
         if name is None:
-            name = (
-                "flaresolverr.bat" if sys.platform.startswith("win") else "flaresolverr"
-            )
+            name = "flaresolverr.bat" if sys.platform.startswith("win") else "flaresolverr"
         path = self.dir / name
         if sys.platform.startswith("win"):
             py_path = self.dir / f"{path.stem}_script.py"
             py_path.write_text(py_body)
-            path.write_text(
-                f'@echo off\n"{sys.executable}" "{py_path.resolve()}" %*\nexit /b %errorlevel%\n'
-            )
+            path.write_text(f'@echo off\n"{sys.executable}" "{py_path.resolve()}" %*\nexit /b %errorlevel%\n')
         else:
             if not py_body.startswith("#!"):
                 py_body = f"#!{sys.executable}\n" + py_body
@@ -222,18 +204,12 @@ class LauncherTests(unittest.TestCase):
         descendant = int(self.descendantfile.read_text())
         self.assertTrue(alive(child))
         self.assertTrue(alive(descendant))
-        self.assertEqual(
-            self.envfile.read_text(), f"127.0.0.1 {self.settings['port']}"
-        )  # bound to this computer only
+        self.assertEqual(self.envfile.read_text(), f"127.0.0.1 {self.settings['port']}")  # bound to this computer only
         self.assertIn("stopped", launcher.stop())
         self.assertFalse(launcher.running())
         self.assertFalse(fs.check_server(self.settings, timeout=2)[0])
-        self.assertTrue(
-            wait_gone(child), "the helper process it started was left running"
-        )
-        self.assertTrue(
-            wait_gone(descendant), "the descendant child process was left running"
-        )
+        self.assertTrue(wait_gone(child), "the helper process it started was left running")
+        self.assertTrue(wait_gone(descendant), "the descendant child process was left running")
 
     @unittest.skipUnless(POSIX, "Process tree discovery via /proc or ps is POSIX only")
     def test_get_child_pids_discovers_descendants(self):
@@ -280,14 +256,10 @@ class LauncherTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn("already answering", message)
         self.assertIsNone(second.process)
-        self.assertIn(
-            "already started", first.start(self.server_program(), self.settings)[1]
-        )
+        self.assertIn("already started", first.start(self.server_program(), self.settings)[1])
 
     def test_remote_address_is_refused(self):
-        ok, message = self.launcher().start(
-            self.server_program(), dict(self.settings, address="192.168.1.9")
-        )
+        ok, message = self.launcher().start(self.server_program(), dict(self.settings, address="192.168.1.9"))
         self.assertFalse(ok)
         self.assertIn("another machine", message)
         self.assertFalse(self.envfile.exists())  # nothing was launched
@@ -317,9 +289,7 @@ class LauncherTests(unittest.TestCase):
     def test_cancel_stops_it(self):
         launcher = self.launcher()
         code = "import time\ntime.sleep(300)\n"
-        ok, message = launcher.start(
-            self.program(code), self.settings, wait=30, cancelled=lambda: True
-        )
+        ok, message = launcher.start(self.program(code), self.settings, wait=30, cancelled=lambda: True)
         self.assertFalse(ok)
         self.assertIn("Cancelled", message)
         self.assertFalse(launcher.running())

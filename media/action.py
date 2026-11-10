@@ -115,9 +115,7 @@ ADD_NOTE = _(
 def show_value(field, value):
     if field == "album":
         name, index = value
-        return (f"{name} #{index:g}" if name and index is not None else name) or _(
-            "(none)"
-        )
+        return (f"{name} #{index:g}" if name and index is not None else name) or _("(none)")
     if field == "date":
         return value[:10] if value else _("(none)")
     if field == "authors" or field == "tags":
@@ -129,12 +127,7 @@ def show_value(field, value):
             _("none")
             if value is None
             else (
-                _("front cover from ")
-                + (
-                    _("Cover Art Archive")
-                    if "coverartarchive" in value[0]
-                    else "Open Library"
-                )
+                _("front cover from ") + (_("Cover Art Archive") if "coverartarchive" in value[0] else "Open Library")
             )
         )
     return value or _("(none)")
@@ -147,9 +140,7 @@ def split_artists(text):
 class MatchInspectorDialog(QDialog):
     def __init__(self, parent, book, suggestion, http, options, chosen_fields):
         super().__init__(parent)
-        self.setWindowTitle(
-            f"Match Inspector — {book.get('title') or 'Book ' + str(book['id'])}"
-        )
+        self.setWindowTitle(f"Match Inspector — {book.get('title') or 'Book ' + str(book['id'])}")
         self.resize(800, 580)
         self.book = book
         self.suggestion = suggestion
@@ -157,12 +148,9 @@ class MatchInspectorDialog(QDialog):
         self.options = options
         self.chosen_fields = chosen_fields
         self.candidates = list(
-            suggestion.get("candidates")
-            or ([suggestion["candidate"]] if suggestion.get("candidate") else [])
+            suggestion.get("candidates") or ([suggestion["candidate"]] if suggestion.get("candidate") else [])
         )
-        self.selected_candidate = suggestion.get("candidate") or (
-            self.candidates[0] if self.candidates else None
-        )
+        self.selected_candidate = suggestion.get("candidate") or (self.candidates[0] if self.candidates else None)
 
         layout = QVBoxLayout(self)
 
@@ -186,9 +174,7 @@ class MatchInspectorDialog(QDialog):
 
         row2.addWidget(QLabel("MBID / OLID:"))
         ids = book.get("identifiers") or {}
-        cur_id = (
-            ids.get("mb_recording") or ids.get("mb_release") or ids.get("olid") or ""
-        )
+        cur_id = ids.get("mb_recording") or ids.get("mb_release") or ids.get("olid") or ""
         self.id_edit = QLineEdit(cur_id)
         row2.addWidget(self.id_edit, 2)
 
@@ -217,15 +203,9 @@ class MatchInspectorDialog(QDialog):
         layout.addWidget(self.cand_tree, 1)
 
         # Side-by-side Field Diffs
-        layout.addWidget(
-            QLabel(
-                "<b>Side-by-Side Field Comparison (Current vs Selected Candidate):</b>"
-            )
-        )
+        layout.addWidget(QLabel("<b>Side-by-Side Field Comparison (Current vs Selected Candidate):</b>"))
         self.diff_tree = QTreeWidget()
-        self.diff_tree.setHeaderLabels(
-            ["Field", "Current Value", "Proposed Value", "Status"]
-        )
+        self.diff_tree.setHeaderLabels(["Field", "Current Value", "Proposed Value", "Status"])
         self.diff_tree.setColumnWidth(0, 140)
         self.diff_tree.setColumnWidth(1, 240)
         self.diff_tree.setColumnWidth(2, 240)
@@ -251,12 +231,7 @@ class MatchInspectorDialog(QDialog):
         target_item = None
         for cand in self.candidates:
             src = SOURCE_NAMES.get(cand.get("source"), cand.get("source", ""))
-            ident = (
-                cand.get("recording_id")
-                or cand.get("olid")
-                or cand.get("release_id")
-                or ""
-            )
+            ident = cand.get("recording_id") or cand.get("olid") or cand.get("release_id") or ""
             item = QTreeWidgetItem(
                 self.cand_tree,
                 [
@@ -271,8 +246,7 @@ class MatchInspectorDialog(QDialog):
             item.setData(0, Qt.ItemDataRole.UserRole, cand)
             if (
                 self.selected_candidate
-                and cand.get("recording_id")
-                == self.selected_candidate.get("recording_id")
+                and cand.get("recording_id") == self.selected_candidate.get("recording_id")
                 and cand.get("title") == self.selected_candidate.get("title")
             ):
                 target_item = item
@@ -294,9 +268,7 @@ class MatchInspectorDialog(QDialog):
 
     def update_diffs(self, cand):
         self.diff_tree.clear()
-        kind = self.suggestion.get(
-            "kind", matching.classify(self.book, self.options.get("kind", "auto"))
-        )
+        kind = self.suggestion.get("kind", matching.classify(self.book, self.options.get("kind", "auto")))
         changes = matching.plan_changes(self.book, kind, cand, self.chosen_fields)
         for field, label in FIELD_LABELS:
             if field not in self.chosen_fields:
@@ -416,9 +388,7 @@ class ManualSearchDialog(QDialog):
         r2.addWidget(QLabel(_("Direct Identifier:")))
         self.id_edit = QLineEdit(direct_id)
         self.id_edit.setPlaceholderText(
-            _(
-                "MusicBrainz MBID, Open Library OLID, ISBN, or Barcode (e.g. barcode:..., upc:...)"
-            )
+            _("MusicBrainz MBID, Open Library OLID, ISBN, or Barcode (e.g. barcode:..., upc:...)")
         )
         r2.addWidget(self.id_edit, 1)
         fields_layout.addLayout(r2)
@@ -521,9 +491,7 @@ class ManualSearchDialog(QDialog):
                 item.setData(0, Qt.ItemDataRole.UserRole, c)
 
             if not cands:
-                self.details_label.setText(
-                    _("No candidates found matching search criteria.")
-                )
+                self.details_label.setText(_("No candidates found matching search criteria."))
             else:
                 top = self.tree.topLevelItem(0)
                 self.tree.setCurrentItem(top)
@@ -552,10 +520,7 @@ class ManualSearchDialog(QDialog):
             f"{_('By')}: {', '.join(c.get('authors') or [])}",
         ]
         if c.get("album"):
-            info.append(
-                f"{_('Album')}: {c['album']}"
-                + (f" #{c['track']}" if c.get("track") else "")
-            )
+            info.append(f"{_('Album')}: {c['album']}" + (f" #{c['track']}" if c.get("track") else ""))
         if c.get("date"):
             info.append(f"{_('Date')}: {c['date']}")
         if c.get("source"):
@@ -596,9 +561,7 @@ class MediaMatcherAction(InterfaceAction):
     action_spec = (
         _("Music & audiobooks"),
         None,
-        _(
-            "Add music files and audiobooks, and match music, audiobooks and books against free databases"
-        ),
+        _("Add music files and audiobooks, and match music, audiobooks and books against free databases"),
         None,
     )
     popup_type = QToolButton.ToolButtonPopupMode.InstantPopup
@@ -651,9 +614,7 @@ class MediaMatcherAction(InterfaceAction):
                     "identifiers": dict(mi.identifiers or {}),
                     "publisher": mi.publisher or "",
                     "path": path,
-                    "pubdate": pub.isoformat()
-                    if pub is not None and getattr(pub, "year", 0) > 1900
-                    else None,
+                    "pubdate": pub.isoformat() if pub is not None and getattr(pub, "year", 0) > 1900 else None,
                     "has_cover": bool(db.field_for("cover", book_id)),
                 }
             )
@@ -683,14 +644,8 @@ class MediaMatcherAction(InterfaceAction):
                         db.set_field("identifiers", {book_id: dict(new)})
                     elif field == "cover":
                         if book_id in covers:
-                            old_cover = (
-                                db.cover(book_id) if hasattr(db, "cover") else None
-                            )
-                            saved["cover"] = (
-                                base64.b64encode(old_cover).decode("ascii")
-                                if old_cover
-                                else None
-                            )
+                            old_cover = db.cover(book_id) if hasattr(db, "cover") else None
+                            saved["cover"] = base64.b64encode(old_cover).decode("ascii") if old_cover else None
                             db.set_cover({book_id: covers[book_id]})
                         continue
                     saved[field] = old
@@ -734,9 +689,7 @@ class MediaMatcherAction(InterfaceAction):
                             else:
                                 db.set_cover({book_id: None})
                         else:
-                            cover_bytes = (
-                                base64.b64decode(old) if isinstance(old, str) else old
-                            )
+                            cover_bytes = base64.b64decode(old) if isinstance(old, str) else old
                             db.set_cover({book_id: cover_bytes})
                 done.append(book_id)
             except Exception as exc:
@@ -779,16 +732,8 @@ class MediaMatcherAction(InterfaceAction):
     # -- adding audio files -------------------------------------------------------------------------------------------
     def entry_for(self, path, forced):
         t = audio.tags_with_fallback(path)
-        kind = (
-            forced
-            if forced in ("music", "audiobook")
-            else ("audiobook" if audio.is_audiobook(t, path) else "music")
-        )
-        authors = (
-            split_artists(t["artist"])
-            or split_artists(t["album_artist"])
-            or ["Unknown"]
-        )
+        kind = forced if forced in ("music", "audiobook") else ("audiobook" if audio.is_audiobook(t, path) else "music")
+        authors = split_artists(t["artist"]) or split_artists(t["album_artist"]) or ["Unknown"]
         return {
             "path": path,
             "tags": t,
@@ -797,9 +742,7 @@ class MediaMatcherAction(InterfaceAction):
             "ext": os.path.splitext(path)[1].lstrip(".").upper(),
         }
 
-    def add_entries(
-        self, entries, skip_existing, on_progress=lambda done, total: False
-    ):
+    def add_entries(self, entries, skip_existing, on_progress=lambda done, total: False):
         """Create one book per entry. Runs on the main thread, because Calibre's database events reach the window; on_progress
         keeps the window alive and returns True to stop. Returns (added ids, skipped count, errors)."""
         from calibre.ebooks.metadata.book.base import Metadata
@@ -887,23 +830,13 @@ class MediaMatcherAction(InterfaceAction):
         tree.setColumnWidth(3, 160)
         tree.setColumnWidth(4, 40)
         layout.addWidget(tree, 1)
-        skip = QCheckBox(
-            _(
-                "Skip files already in the library (same title, artist, album and format)"
-            )
-        )
+        skip = QCheckBox(_("Skip files already in the library (same title, artist, album and format)"))
         skip.setChecked(bool(prefs["skip_existing"]))
         layout.addWidget(skip)
-        lookup = QCheckBox(
-            _("When added, look the new books up on MusicBrainz / Open Library")
-        )
+        lookup = QCheckBox(_("When added, look the new books up on MusicBrainz / Open Library"))
         lookup.setChecked(bool(prefs["lookup_after_add"]))
         layout.addWidget(lookup)
-        status = QLabel(
-            _(
-                "Choose audio files (MP3, FLAC, Ogg, Opus, M4A, M4B) or a folder of them."
-            )
-        )
+        status = QLabel(_("Choose audio files (MP3, FLAC, Ogg, Opus, M4A, M4B) or a folder of them."))
         status.setWordWrap(True)
         layout.addWidget(status)
         buttons = QDialogButtonBox()
@@ -925,10 +858,7 @@ class MediaMatcherAction(InterfaceAction):
             task = run_task(
                 dialog,
                 _("Reading tags…"),
-                lambda t: [
-                    self.entry_for(p, forced) if not t.cancelled() else None
-                    for p in paths
-                ],
+                lambda t: [self.entry_for(p, forced) if not t.cancelled() else None for p in paths],
             )
             if task.error:
                 return error_dialog(dialog, "Media Matcher", str(task.error), show=True)
@@ -955,9 +885,9 @@ class MediaMatcherAction(InterfaceAction):
                 item.setData(0, Qt.ItemDataRole.UserRole, key)
             add_btn.setEnabled(tree.topLevelItemCount() > 0)
             status.setText(
-                _(
-                    "{count} file(s) ready. Untick any you do not want, then press Add."
-                ).format(count=tree.topLevelItemCount())
+                _("{count} file(s) ready. Untick any you do not want, then press Add.").format(
+                    count=tree.topLevelItemCount()
+                )
             )
             add_overlay.update_visibility(tree.topLevelItemCount())
 
@@ -972,9 +902,7 @@ class MediaMatcherAction(InterfaceAction):
             load(list(paths))
 
         def choose_folder():
-            folder = QFileDialog.getExistingDirectory(
-                dialog, _("Choose a folder of audio files")
-            )
+            folder = QFileDialog.getExistingDirectory(dialog, _("Choose a folder of audio files"))
             if not folder:
                 return
             task = run_task(
@@ -1003,9 +931,7 @@ class MediaMatcherAction(InterfaceAction):
                         e["kind"] = treat.currentData()
                     chosen.append(e)
             if not chosen:
-                return error_dialog(
-                    dialog, "Media Matcher", _("Nothing is ticked."), show=True
-                )
+                return error_dialog(dialog, "Media Matcher", _("Nothing is ticked."), show=True)
             prefs["add_kind"] = treat.currentData()
             prefs["skip_existing"] = skip.isChecked()
             prefs["lookup_after_add"] = lookup.isChecked()
@@ -1022,25 +948,17 @@ class MediaMatcherAction(InterfaceAction):
 
             def on_progress(done, total):
                 progress.setValue(done)
-                progress.setLabelText(
-                    _("Adding file {done} of {total}…").format(
-                        done=done + 1, total=total
-                    )
-                )
+                progress.setLabelText(_("Adding file {done} of {total}…").format(done=done + 1, total=total))
                 QApplication.processEvents()
                 return progress.wasCanceled()
 
-            added, skipped, errors = self.add_entries(
-                chosen, skip.isChecked(), on_progress
-            )
+            added, skipped, errors = self.add_entries(chosen, skip.isChecked(), on_progress)
             progress.blockSignals(True)
             progress.close()
             if added:
                 self.refresh(added, new=True)
             text = _("Added {count} book(s).").format(count=len(added)) + (
-                _(" Skipped {count} already in the library.").format(count=skipped)
-                if skipped
-                else ""
+                _(" Skipped {count} already in the library.").format(count=skipped) if skipped else ""
             )
             if errors:
                 text += "\n\n" + _("Problems:") + "\n" + "\n".join(errors[:10])
@@ -1083,12 +1001,8 @@ class MediaMatcherAction(InterfaceAction):
         note = QLabel(PRIVACY)
         note.setWordWrap(True)
         layout.addWidget(note)
-        scope_selected = QRadioButton(
-            _("Selected books ({count})").format(count=len(selected))
-        )
-        scope_all = QRadioButton(
-            _("Entire library (one lookup a second; start with a few books)")
-        )
+        scope_selected = QRadioButton(_("Selected books ({count})").format(count=len(selected)))
+        scope_all = QRadioButton(_("Entire library (one lookup a second; start with a few books)"))
         (scope_selected if selected else scope_all).setChecked(True)
         scope_selected.setEnabled(bool(selected))
         layout.addWidget(scope_selected)
@@ -1100,9 +1014,7 @@ class MediaMatcherAction(InterfaceAction):
         for value, label in KIND_CHOICES:
             kind.addItem(label, value)
         kind.setCurrentIndex(max(0, kind.findData(prefs["kind"])))
-        kind.setToolTip(
-            _("Music is matched on MusicBrainz; audiobooks and books on Open Library")
-        )
+        kind.setToolTip(_("Music is matched on MusicBrainz; audiobooks and books on Open Library"))
         row.addWidget(kind)
         row.addStretch(1)
         layout.addLayout(row)
@@ -1115,21 +1027,13 @@ class MediaMatcherAction(InterfaceAction):
             layout.addWidget(boxes[field])
 
         row = QHBoxLayout()
-        row.addWidget(
-            QLabel(_("Contact for MusicBrainz (optional email or web page):"))
-        )
+        row.addWidget(QLabel(_("Contact for MusicBrainz (optional email or web page):")))
         contact = QLineEdit(prefs["contact"])
-        contact.setPlaceholderText(
-            _(
-                "MusicBrainz asks apps to say who is calling; this is sent in the User-Agent"
-            )
-        )
+        contact.setPlaceholderText(_("MusicBrainz asks apps to say who is calling; this is sent in the User-Agent"))
         row.addWidget(contact, 1)
         layout.addLayout(row)
         fingerprint = QCheckBox(
-            _(
-                "Identify music by audio fingerprint (AcoustID; needs the free key below and Chromaprint's fpcalc)"
-            )
+            _("Identify music by audio fingerprint (AcoustID; needs the free key below and Chromaprint's fpcalc)")
         )
         fingerprint.setChecked(bool(prefs["fingerprint"]))
         layout.addWidget(fingerprint)
@@ -1137,9 +1041,7 @@ class MediaMatcherAction(InterfaceAction):
         row.addWidget(QLabel(_("AcoustID key:")))
         acoustid = QLineEdit(prefs["acoustid_key"])
         acoustid.setEchoMode(QLineEdit.EchoMode.Password)
-        acoustid.setPlaceholderText(
-            _("Free application key from https://acoustid.org/new-application")
-        )
+        acoustid.setPlaceholderText(_("Free application key from https://acoustid.org/new-application"))
         row.addWidget(acoustid, 1)
         row.addWidget(QLabel(_("fpcalc:")))
         fpcalc = QLineEdit(prefs["fpcalc"])
@@ -1162,11 +1064,7 @@ class MediaMatcherAction(InterfaceAction):
         activity = QPlainTextEdit()
         activity.setReadOnly(True)
         activity.setMaximumBlockCount(5000)
-        activity.setPlaceholderText(
-            _(
-                "Each book as it is looked up, what was searched for, and what came back."
-            )
-        )
+        activity.setPlaceholderText(_("Each book as it is looked up, what was searched for, and what came back."))
         layout.addWidget(activity, 2)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         left_widget = QWidget()
@@ -1243,11 +1141,7 @@ class MediaMatcherAction(InterfaceAction):
         splitter.addWidget(preview_panel)
         splitter.setSizes([500, 360])
         layout.addWidget(splitter, 3)
-        status = QLabel(
-            _(
-                "Press Look up. Weak matches are not offered; uncertain ones are left unticked."
-            )
-        )
+        status = QLabel(_("Press Look up. Weak matches are not offered; uncertain ones are left unticked."))
         status.setWordWrap(True)
         layout.addWidget(status)
 
@@ -1317,9 +1211,7 @@ class MediaMatcherAction(InterfaceAction):
                 return
 
             s = suggestions[book_id]
-            preview_info.setText(
-                f"{s['title'] or _('Book ' + str(book_id))} — {s['candidate']['title']}"
-            )
+            preview_info.setText(f"{s['title'] or _('Book ' + str(book_id))} — {s['candidate']['title']}")
 
             db = self.gui.current_db.new_api
             old_bytes = db.cover(book_id) if hasattr(db, "cover") else None
@@ -1391,9 +1283,7 @@ class MediaMatcherAction(InterfaceAction):
                 log(_("Cancel pressed; stopping after the current lookup.")),
             )
         )
-        dialog.finished.connect(
-            lambda _result: (cancel_flag.set(), prefetch_timer.stop(), save_prefs())
-        )
+        dialog.finished.connect(lambda _result: (cancel_flag.set(), prefetch_timer.stop(), save_prefs()))
 
         def options():
             return {
@@ -1415,9 +1305,7 @@ class MediaMatcherAction(InterfaceAction):
                     show=True,
                 )
             opts = options()
-            if fingerprint.isChecked() and not (
-                opts["acoustid_key"] and opts["fpcalc"]
-            ):
+            if fingerprint.isChecked() and not (opts["acoustid_key"] and opts["fpcalc"]):
                 return error_dialog(
                     dialog,
                     "Media Matcher",
@@ -1427,11 +1315,7 @@ class MediaMatcherAction(InterfaceAction):
                     ),
                     show=True,
                 )
-            book_ids = (
-                selected
-                if scope_selected.isChecked()
-                else sorted(self.gui.current_db.new_api.all_book_ids())
-            )
+            book_ids = selected if scope_selected.isChecked() else sorted(self.gui.current_db.new_api.all_book_ids())
             if len(book_ids) > 50 and not question_dialog(
                 dialog,
                 "Media Matcher",
@@ -1455,11 +1339,7 @@ class MediaMatcherAction(InterfaceAction):
             cancel_flag.clear()
             set_busy(True)
             try:
-                log(
-                    _("Reading {count} book(s) from your library…").format(
-                        count=len(book_ids)
-                    )
-                )
+                log(_("Reading {count} book(s) from your library…").format(count=len(book_ids)))
                 books = self.books_for(book_ids)
                 result = run_lookups(books, opts)
             finally:
@@ -1474,9 +1354,7 @@ class MediaMatcherAction(InterfaceAction):
             http = sources.Http(
                 contact=contact.text().strip(),
                 cancelled=cancel_flag.is_set,
-                on_wait=lambda seconds, why: messages.put(
-                    ("wait", {"seconds": seconds, "why": why})
-                ),
+                on_wait=lambda seconds, why: messages.put(("wait", {"seconds": seconds, "why": why})),
             )
 
             def work():
@@ -1510,36 +1388,19 @@ class MediaMatcherAction(InterfaceAction):
                 elif event == "match":
                     c = info["candidate"]
                     who = SOURCE_NAMES[c["source"]]
-                    what = f"{c['title']} — {', '.join(c['authors'])}" + (
-                        f" / {c['album']}" if c.get("album") else ""
-                    )
-                    extra = (
-                        f" (ambiguous: {c['rivals']} similar)"
-                        if c.get("ambiguous")
-                        else ""
-                    )
+                    what = f"{c['title']} — {', '.join(c['authors'])}" + (f" / {c['album']}" if c.get("album") else "")
+                    extra = f" (ambiguous: {c['rivals']} similar)" if c.get("ambiguous") else ""
                     log(
                         f"   ✔ {who} {c['score']:.0%}: {what}{extra}"
                         + ("" if info["changes"] else " — nothing to change")
                     )
                 elif event == "nomatch":
-                    log(
-                        "   – no confident match"
-                        + (f" (best {info['best']:.0%})" if info.get("best") else "")
-                    )
+                    log("   – no confident match" + (f" (best {info['best']:.0%})" if info.get("best") else ""))
                 elif event in ("error", "stopped", "notice"):
                     log(f"   ⚠ {info.get('text')}")
                 elif event == "wait":
-                    log(
-                        _("   waiting {seconds:.0f}s: {why}").format(
-                            seconds=info["seconds"], why=info["why"]
-                        )
-                    )
-                    phase.setText(
-                        _("Waiting {seconds:.0f}s: {why}").format(
-                            seconds=info["seconds"], why=info["why"]
-                        )
-                    )
+                    log(_("   waiting {seconds:.0f}s: {why}").format(seconds=info["seconds"], why=info["why"]))
+                    phase.setText(_("Waiting {seconds:.0f}s: {why}").format(seconds=info["seconds"], why=info["why"]))
 
             while worker.is_alive() or not messages.empty():
                 while not messages.empty():
@@ -1553,14 +1414,10 @@ class MediaMatcherAction(InterfaceAction):
             c = s["candidate"]
             flags = ""
             if s["ambiguous"]:
-                flags += _("; {rivals} similar recording(s), check this one").format(
-                    rivals=c.get("rivals", 0)
-                )
+                flags += _("; {rivals} similar recording(s), check this one").format(rivals=c.get("rivals", 0))
             if s["big"]:
                 flags += _("; BIG TITLE CHANGE")
-            match_info = (
-                f"{c['score']:.0%} {SOURCE_NAMES.get(c['source'], c['source'])}" + flags
-            )
+            match_info = f"{c['score']:.0%} {SOURCE_NAMES.get(c['source'], c['source'])}" + flags
             proposed_summary = f"{c['title']} — {', '.join(c['authors'])}" + (
                 f" / {c['album']}" if c.get("album") else ""
             )
@@ -1573,19 +1430,13 @@ class MediaMatcherAction(InterfaceAction):
             while top.childCount() > 0:
                 top.removeChild(top.child(0))
 
-            sure = (
-                c["score"] >= matching.TICK_SCORE
-                and not s["ambiguous"]
-                and not s["big"]
-            )
+            sure = c["score"] >= matching.TICK_SCORE and not s["ambiguous"] and not s["big"]
             want = Qt.CheckState.Checked if sure else Qt.CheckState.Unchecked
 
             for field, (old, new) in s["changes"].items():
                 cur_val = show_value(field, old)
                 prop_val = show_value(field, new)
-                child = QTreeWidgetItem(
-                    top, [SHOW.get(field, field), cur_val, prop_val, ""]
-                )
+                child = QTreeWidgetItem(top, [SHOW.get(field, field), cur_val, prop_val, ""])
                 child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 child.setCheckState(0, want)
                 child.setData(0, Qt.ItemDataRole.UserRole, field)
@@ -1626,11 +1477,7 @@ class MediaMatcherAction(InterfaceAction):
             for s in found:
                 suggestions[s["id"]] = s
                 top = QTreeWidgetItem(tree)
-                top.setFlags(
-                    top.flags()
-                    | Qt.ItemFlag.ItemIsUserCheckable
-                    | Qt.ItemFlag.ItemIsAutoTristate
-                )
+                top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
                 top.setData(0, Qt.ItemDataRole.UserRole, s["id"])
                 refresh_tree_item(top, s)
 
@@ -1646,9 +1493,7 @@ class MediaMatcherAction(InterfaceAction):
                     return
 
                 def fetch_worker():
-                    http = sources.Http(
-                        contact=contact.text().strip(), cancelled=cancel_flag.is_set
-                    )
+                    http = sources.Http(contact=contact.text().strip(), cancelled=cancel_flag.is_set)
                     for book_id, urls in targets:
                         if cancel_flag.is_set():
                             break
@@ -1682,9 +1527,7 @@ class MediaMatcherAction(InterfaceAction):
                                 if cur:
                                     sel_id = cur.data(0, Qt.ItemDataRole.UserRole)
                                     if sel_id is None and cur.parent():
-                                        sel_id = cur.parent().data(
-                                            0, Qt.ItemDataRole.UserRole
-                                        )
+                                        sel_id = cur.parent().data(0, Qt.ItemDataRole.UserRole)
                                     if sel_id == b_id:
                                         update_preview(cur)
                             except RuntimeError:
@@ -1696,15 +1539,11 @@ class MediaMatcherAction(InterfaceAction):
                 worker_thread.start()
 
             start_background_prefetch()
-            text = _(
-                "{found} of {count} book(s) have suggested changes{cancel}."
-            ).format(found=len(found), count=count, cancel=note_cancel)
+            text = _("{found} of {count} book(s) have suggested changes{cancel}.").format(
+                found=len(found), count=count, cancel=note_cancel
+            )
             if skipped:
-                text += (
-                    f" {len(skipped)} problem(s): "
-                    + "; ".join(skipped[:3])
-                    + (" …" if len(skipped) > 3 else "")
-                )
+                text += f" {len(skipped)} problem(s): " + "; ".join(skipped[:3]) + (" …" if len(skipped) > 3 else "")
             status.setText(text)
             if found:
                 match_overlay.hide_empty()
@@ -1733,17 +1572,14 @@ class MediaMatcherAction(InterfaceAction):
             book = book_list[0]
             http_client = sources.Http(contact=contact.text().strip())
 
-            dlg = MatchInspectorDialog(
-                dialog, book, s, http_client, options(), chosen_fields()
-            )
+            dlg = MatchInspectorDialog(dialog, book, s, http_client, options(), chosen_fields())
             if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_candidate:
                 cand = dlg.selected_candidate
                 k = s.get("kind", matching.classify(book, kind.currentData()))
                 chgs = matching.plan_changes(book, k, cand, chosen_fields())
                 big = (
                     bool(chgs.get("title"))
-                    and matching.similarity(book.get("title", ""), cand["title"])
-                    < matching.MIN_SIMILAR_TITLE
+                    and matching.similarity(book.get("title", ""), cand["title"]) < matching.MIN_SIMILAR_TITLE
                 )
                 s["candidate"] = cand
                 s["candidates"] = dlg.candidates
@@ -1756,9 +1592,7 @@ class MediaMatcherAction(InterfaceAction):
 
         inspect_btn.clicked.connect(inspect_selected)
         tree.itemDoubleClicked.connect(lambda item, col: inspect_selected())
-        tree.currentItemChanged.connect(
-            lambda cur, prev: inspect_btn.setEnabled(cur is not None)
-        )
+        tree.currentItemChanged.connect(lambda cur, prev: inspect_btn.setEnabled(cur is not None))
 
         def collect():
             return collect_tree_changes(tree)
@@ -1766,15 +1600,9 @@ class MediaMatcherAction(InterfaceAction):
         def do_apply():
             items = collect()
             if not items:
-                return error_dialog(
-                    dialog, "Media Matcher", _("Nothing is ticked."), show=True
-                )
+                return error_dialog(dialog, "Media Matcher", _("Nothing is ticked."), show=True)
             covers = {}
-            wanted = {
-                book_id: changes["cover"][1]
-                for book_id, changes in items
-                if "cover" in changes
-            }
+            wanted = {book_id: changes["cover"][1] for book_id, changes in items if "cover" in changes}
             cover_errors = []
             if wanted:
                 uncached = {}
@@ -1788,15 +1616,13 @@ class MediaMatcherAction(InterfaceAction):
                     cache = {}
 
                     def download(task):
-                        http = sources.Http(
-                            contact=contact.text().strip(), cancelled=task.cancelled
-                        )
+                        http = sources.Http(contact=contact.text().strip(), cancelled=task.cancelled)
                         for book_id, urls in uncached.items():
                             if task.cancelled():
                                 break
-                            task.status = _(
-                                "Downloading cover art ({done} of {total})…"
-                            ).format(done=len(covers) + 1, total=len(wanted))
+                            task.status = _("Downloading cover art ({done} of {total})…").format(
+                                done=len(covers) + 1, total=len(wanted)
+                            )
                             key = tuple(urls)
                             if key not in cache:
                                 try:
@@ -1810,16 +1636,12 @@ class MediaMatcherAction(InterfaceAction):
                             if img:
                                 covers[book_id] = img
                             elif err:
-                                cover_errors.append(
-                                    f"book {book_id}: cover download failed ({err})"
-                                )
+                                cover_errors.append(f"book {book_id}: cover download failed ({err})")
 
                     task = run_task(dialog, _("Downloading cover art…"), download)
                     if task.error:
                         cover_errors.append(f"Cover download error: {task.error}")
-                    if task.cancelled() and not any(
-                        "cancelled" in e for e in cover_errors
-                    ):
+                    if task.cancelled() and not any("cancelled" in e for e in cover_errors):
                         cover_errors.append("Cover download cancelled by user")
             done, errors, undo = self.write_changes(items, covers)
             if undo:
@@ -1830,11 +1652,7 @@ class MediaMatcherAction(InterfaceAction):
             missing = len(wanted) - len(covers)
             text = (
                 _("Updated {done} book(s)").format(done=len(done))
-                + (
-                    _(" and {covers} cover(s)").format(covers=len(covers))
-                    if wanted
-                    else ""
-                )
+                + (_(" and {covers} cover(s)").format(covers=len(covers)) if wanted else "")
                 + _('. "Undo last run" can put the old values back.')
             )
             if missing:
@@ -1859,9 +1677,7 @@ class MediaMatcherAction(InterfaceAction):
             if not undo or not question_dialog(
                 dialog,
                 "Media Matcher",
-                _(
-                    "Put back the old values for {count} book(s) changed in the last run?"
-                ).format(count=len(undo)),
+                _("Put back the old values for {count} book(s) changed in the last run?").format(count=len(undo)),
             ):
                 return
             done, errors = self.restore(undo)
@@ -1870,9 +1686,7 @@ class MediaMatcherAction(InterfaceAction):
                 prefs["undo"] = {}
                 undo_btn.setEnabled(False)
             text = _("Restored {count} book(s).").format(count=len(done)) + (
-                "\n\n" + _("Problems:") + "\n" + "\n".join(errors[:10])
-                if errors
-                else ""
+                "\n\n" + _("Problems:") + "\n" + "\n".join(errors[:10]) if errors else ""
             )
             info_dialog(self.gui, "Media Matcher", text, show=True)
 
@@ -1901,9 +1715,7 @@ class MediaMatcherAction(InterfaceAction):
             http = sources.Http(contact=contact.text().strip())
             opts = options()
 
-            dlg = ManualSearchDialog(
-                dialog, initial_metadata=book, http=http, options=opts
-            )
+            dlg = ManualSearchDialog(dialog, initial_metadata=book, http=http, options=opts)
             dlg.exec()
             if dlg.accepted_candidate:
                 cand = dlg.accepted_candidate
@@ -1941,11 +1753,7 @@ class MediaMatcherAction(InterfaceAction):
                     f"{cand['title']} — {', '.join(cand['authors'])}"
                     + (f" / {cand['album']}" if cand.get("album") else ""),
                 )
-                top.setFlags(
-                    top.flags()
-                    | Qt.ItemFlag.ItemIsUserCheckable
-                    | Qt.ItemFlag.ItemIsAutoTristate
-                )
+                top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
                 top.setData(0, Qt.ItemDataRole.UserRole, book_id)
 
                 for field, (old, new) in chg.items():
@@ -1968,21 +1776,15 @@ class MediaMatcherAction(InterfaceAction):
             item = tree.itemAt(pos)
             menu = QMenu(tree)
             act = menu.addAction(_("Manual Search / Lookup by ID…"))
-            act.triggered.connect(
-                lambda: do_manual_search_for_item(item or tree.currentItem())
-            )
+            act.triggered.connect(lambda: do_manual_search_for_item(item or tree.currentItem()))
             menu.exec(tree.mapToGlobal(pos))
 
         tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         tree.customContextMenuRequested.connect(show_tree_context_menu)
-        tree_manual_btn.clicked.connect(
-            lambda: do_manual_search_for_item(tree.currentItem())
-        )
+        tree_manual_btn.clicked.connect(lambda: do_manual_search_for_item(tree.currentItem()))
 
         for edit in (contact, acoustid, fpcalc):
-            edit.editingFinished.connect(
-                save_prefs
-            )  # remembered as soon as typed, not only after a lookup
+            edit.editingFinished.connect(save_prefs)  # remembered as soon as typed, not only after a lookup
         dialog.finished.connect(lambda _result: save_prefs())
         check_btn.clicked.connect(do_check)
         apply_btn.clicked.connect(do_apply)
@@ -2014,9 +1816,7 @@ class MediaMatcherAction(InterfaceAction):
         http = sources.Http(contact=prefs["contact"])
         opts = {"kind": prefs["kind"], "fields": tuple(prefs["fields"])}
 
-        dlg = ManualSearchDialog(
-            self.gui, initial_metadata=book, http=http, options=opts
-        )
+        dlg = ManualSearchDialog(self.gui, initial_metadata=book, http=http, options=opts)
         dlg.exec()
         if dlg.accepted_candidate:
             cand = dlg.accepted_candidate
@@ -2026,9 +1826,7 @@ class MediaMatcherAction(InterfaceAction):
                 return info_dialog(
                     self.gui,
                     "Media Matcher",
-                    _(
-                        "The selected candidate matches current metadata; nothing to change."
-                    ),
+                    _("The selected candidate matches current metadata; nothing to change."),
                     show=True,
                 )
 
@@ -2043,9 +1841,7 @@ class MediaMatcherAction(InterfaceAction):
                 prefs["undo"] = undo
             self.refresh(done)
 
-            text = _("Updated book metadata successfully.") + _(
-                ' "Undo last run" can put the old values back.'
-            )
+            text = _("Updated book metadata successfully.") + _(' "Undo last run" can put the old values back.')
             if errors:
                 text += "\n\n" + _("Problems:") + "\n" + "\n".join(errors[:10])
             info_dialog(self.gui, "Media Matcher", text, show=True)

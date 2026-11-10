@@ -104,6 +104,7 @@ class CalibreLinkUITests(unittest.TestCase):
         cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
     def setUp(self):
+        _setup_shims()
         self.action = CalibreLinkAction(None, "Calibre Link")
         self.action.genesis()
         # Suppress real file writing during unit tests
@@ -142,9 +143,7 @@ class CalibreLinkUITests(unittest.TestCase):
             "qt.core.QTimer.singleShot",
             side_effect=lambda delay, cb: timer_calls.append((delay, cb)),
         ):
-            self.action._sidecar_line(
-                f"tsnet: To authenticate, visit: go to: {test_url}"
-            )
+            self.action._sidecar_line(f"tsnet: To authenticate, visit: go to: {test_url}")
 
         self.assertEqual(self.action.ts_status["state"], "auth")
         self.assertEqual(self.action.ts_status["auth_url"], test_url)
@@ -167,9 +166,7 @@ class CalibreLinkUITests(unittest.TestCase):
 
     def test_auth_prompted_resets_on_connected_state(self):
         self.action._auth_prompted = True
-        self.action._sidecar_line(
-            "CALIBRE_TSNET ip=100.64.0.1 dns=calibre-link.tailnet"
-        )
+        self.action._sidecar_line("CALIBRE_TSNET ip=100.64.0.1 dns=calibre-link.tailnet")
         self.assertEqual(self.action.ts_status["state"], "up")
         self.assertFalse(self.action._auth_prompted)
 
@@ -211,9 +208,7 @@ class CalibreLinkUITests(unittest.TestCase):
         with patch.object(QtWidgets.QDialog, "exec", return_value=0):
             dlg = self.action._prompt_tailscale_auth(test_url)
 
-        with patch.object(
-            QtWidgets.QApplication.clipboard(), "setText"
-        ) as mock_set_text:
+        with patch.object(QtWidgets.QApplication.clipboard(), "setText") as mock_set_text:
             dlg.copy_button.click()
             mock_set_text.assert_called_once_with(test_url)
 

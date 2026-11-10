@@ -136,6 +136,7 @@ class QtCase(unittest.TestCase):
         sys.modules["calibre.ebooks.metadata.book.base"] = base
         config = types.ModuleType("calibre.utils.config")
         config.JSONConfig = lambda name: StubPrefs()
+        config.config_dir = self.tmp.name
         sys.modules["calibre.utils.config"] = config
         sys.modules["calibre_plugins"] = types.ModuleType("calibre_plugins")
         sys.modules["calibre_plugins"].__path__ = []

@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -19,6 +20,7 @@ _QT_CORE = None
 
 try:
     import types
+
     from PyQt6 import QtCore, QtGui, QtWidgets
 
     _GLOBAL_TEST_APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -44,8 +46,9 @@ except Exception:
     _REAL_LXML = None
     _REAL_LXML_ETREE = None
 
-import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock  # noqa: E402
+
+import pytest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +58,11 @@ def restore_real_modules():
         sys.modules["lxml"] = _REAL_LXML
     if _REAL_LXML_ETREE is not None and isinstance(sys.modules.get("lxml.etree"), MagicMock):
         sys.modules["lxml.etree"] = _REAL_LXML_ETREE
-    if _QT_MOD is not None and "qt" not in sys.modules:
+    if _QT_MOD is not None:
+        _QT_MOD.core = _QT_CORE
         sys.modules["qt"] = _QT_MOD
-    if _QT_CORE is not None and "qt.core" not in sys.modules:
+    if _QT_CORE is not None:
         sys.modules["qt.core"] = _QT_CORE
+    magic_dir = ROOT / "MagicMock"
+    if magic_dir.exists():
+        shutil.rmtree(magic_dir, ignore_errors=True)

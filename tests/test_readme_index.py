@@ -36,9 +36,7 @@ def rows():
 class ReadmeIndexTests(unittest.TestCase):
     def test_every_plugin_folder_is_listed(self):
         folders = {
-            p.parent.name
-            for p in ROOT.glob("*/__init__.py")
-            if "actual_plugin" in p.read_text(encoding="utf-8")
+            p.parent.name for p in ROOT.glob("*/__init__.py") if "actual_plugin" in p.read_text(encoding="utf-8")
         }
         self.assertEqual(
             {r["folder"] for r in rows()},
@@ -49,9 +47,7 @@ class ReadmeIndexTests(unittest.TestCase):
     def test_versions_match_the_plugins(self):
         for row in rows():
             init = (ROOT / row["folder"] / "__init__.py").read_text(encoding="utf-8")
-            major, minor, patch = re.search(
-                r"version\s*=\s*\((\d+),\s*(\d+),\s*(\d+)\)", init
-            ).groups()
+            major, minor, patch = re.search(r"version\s*=\s*\((\d+),\s*(\d+),\s*(\d+)\)", init).groups()
             self.assertEqual(row["version"], f"{major}.{minor}.{patch}", row["name"])
 
     def test_download_links_point_at_files_in_dist(self):
@@ -69,17 +65,13 @@ class ReadmeIndexTests(unittest.TestCase):
                     build_plugins.build_all(ROOT / "dist")
                 except ImportError as exc:
                     raise unittest.SkipTest(str(exc))
-            self.assertTrue(
-                target.is_file(), f"{row['name']}: dist/{row['zips'][0]} is missing"
-            )
+            self.assertTrue(target.is_file(), f"{row['name']}: dist/{row['zips'][0]} is missing")
 
     def test_relative_links_resolve(self):
         for readme in ROOT.rglob("README.md"):
             if any(part in ("third_party", "__pycache__") for part in readme.parts):
                 continue
-            for target in re.findall(
-                r"\]\(([^)\s]+)\)", readme.read_text(encoding="utf-8")
-            ):
+            for target in re.findall(r"\]\(([^)\s]+)\)", readme.read_text(encoding="utf-8")):
                 if target.startswith(("http", "#", "mailto")):
                     continue
                 path = (readme.parent / target.split("#")[0]).resolve()
