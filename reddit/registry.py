@@ -53,9 +53,7 @@ class SeriesRegistry:
         except sqlite3.OperationalError:
             pass
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='series';"
-        )
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='series';")
         if not cursor.fetchone():
             self._create_tables(conn)
         return ConnectionWrapper(conn)
@@ -150,15 +148,11 @@ class SeriesRegistry:
         );
         """)
         try:
-            cursor.execute(
-                "ALTER TABLE manifests ADD COLUMN is_excluded INTEGER DEFAULT 0;"
-            )
+            cursor.execute("ALTER TABLE manifests ADD COLUMN is_excluded INTEGER DEFAULT 0;")
         except Exception:
             pass
         try:
-            cursor.execute(
-                "ALTER TABLE manifests ADD COLUMN is_custom_order INTEGER DEFAULT 0;"
-            )
+            cursor.execute("ALTER TABLE manifests ADD COLUMN is_custom_order INTEGER DEFAULT 0;")
         except Exception:
             pass
 
@@ -179,9 +173,7 @@ class SeriesRegistry:
                 s_id = s_dict["id"]
 
                 # Fetch feed sources
-                cursor.execute(
-                    "SELECT * FROM feed_sources WHERE series_id = ?", (s_id,)
-                )
+                cursor.execute("SELECT * FROM feed_sources WHERE series_id = ?", (s_id,))
                 s_dict["sources"] = [dict(src) for src in cursor.fetchall()]
 
                 # Fetch authors
@@ -426,9 +418,7 @@ class SeriesRegistry:
             (series_id,),
         )
         existing_manifests = {r["post_id"]: dict(r) for r in cursor.fetchall()}
-        has_custom_order = any(
-            r.get("is_custom_order") for r in existing_manifests.values()
-        )
+        has_custom_order = any(r.get("is_custom_order") for r in existing_manifests.values())
 
         cursor.execute(
             "SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC",
@@ -438,9 +428,7 @@ class SeriesRegistry:
 
         # Deduplicate and calculate sequence
         seen_canonical = {}
-        max_seq = max(
-            (r.get("sequence_order", 0) for r in existing_manifests.values()), default=0
-        )
+        max_seq = max((r.get("sequence_order", 0) for r in existing_manifests.values()), default=0)
 
         for idx, ch in enumerate(chapters, start=1):
             pid = ch["id"]
@@ -530,9 +518,7 @@ class SeriesRegistry:
                     (seq, is_excluded, is_duplicate, series_id, pid),
                 )
                 if cursor.rowcount == 0:
-                    cursor.execute(
-                        "SELECT title, author FROM chapters WHERE id = ?", (pid,)
-                    )
+                    cursor.execute("SELECT title, author FROM chapters WHERE id = ?", (pid,))
                     ch = cursor.fetchone()
                     title = ch["title"] if ch else ""
                     author = ch["author"] if ch else ""

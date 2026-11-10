@@ -13,15 +13,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "reddit"))
 
-spec_reg = importlib.util.spec_from_file_location(
-    "rreg", Path(__file__).resolve().parents[1] / "reddit/registry.py"
-)
+spec_reg = importlib.util.spec_from_file_location("rreg", Path(__file__).resolve().parents[1] / "reddit/registry.py")
 registry_mod = importlib.util.module_from_spec(spec_reg)
 spec_reg.loader.exec_module(registry_mod)
 
-spec_core = importlib.util.spec_from_file_location(
-    "rcore", Path(__file__).resolve().parents[1] / "reddit/core.py"
-)
+spec_core = importlib.util.spec_from_file_location("rcore", Path(__file__).resolve().parents[1] / "reddit/core.py")
 core = importlib.util.module_from_spec(spec_core)
 spec_core.loader.exec_module(core)
 
@@ -35,9 +31,7 @@ def ensure_qt():
             os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
             from PyQt6 import QtCore, QtGui, QtWidgets
 
-            _GLOBAL_QT_APP = (
-                QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-            )
+            _GLOBAL_QT_APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
             qtcore = types.ModuleType("qt.core")
             for module in (QtWidgets, QtGui, QtCore):
                 for name in dir(module):
@@ -66,13 +60,9 @@ def ensure_qt():
         sys.modules["calibre.utils.config"].JSONConfig = lambda name: StubPrefs()
         sys.modules["calibre.customize"] = MagicMock()
 
-    calibre_plugins_mod = sys.modules.get("calibre_plugins") or types.ModuleType(
-        "calibre_plugins"
-    )
+    calibre_plugins_mod = sys.modules.get("calibre_plugins") or types.ModuleType("calibre_plugins")
     sys.modules["calibre_plugins"] = calibre_plugins_mod
-    pkg = sys.modules.get("calibre_plugins.reddit_follower") or types.ModuleType(
-        "calibre_plugins.reddit_follower"
-    )
+    pkg = sys.modules.get("calibre_plugins.reddit_follower") or types.ModuleType("calibre_plugins.reddit_follower")
     pkg.core = core
     setattr(calibre_plugins_mod, "reddit_follower", pkg)
     sys.modules["calibre_plugins.reddit_follower"] = pkg
@@ -158,9 +148,7 @@ class ManifestReorderingAndExclusionTests(unittest.TestCase):
 
         initial = self.reg.get_manifest(self.series_id, include_excluded=True)
         self.assertEqual(len(initial), 3)
-        self.assertEqual(
-            [m["post_id"] for m in initial], ["t3_ch1", "t3_ch2", "t3_ch3"]
-        )
+        self.assertEqual([m["post_id"] for m in initial], ["t3_ch1", "t3_ch2", "t3_ch3"])
 
         # Custom reorder: move Chapter 2 first, Chapter 1 second, and exclude Chapter 3
         reordered_items = [
@@ -331,9 +319,7 @@ class ManifestReorderingAndExclusionTests(unittest.TestCase):
 
     def test_manifest_dialog_ui_interactions(self):
         """ManifestDialog UI supports Move Up/Down, drag/drop, toggle exclude/duplicate, and Save & Rebuild."""
-        spec_ui = importlib.util.spec_from_file_location(
-            "rui", Path(__file__).resolve().parents[1] / "reddit/ui.py"
-        )
+        spec_ui = importlib.util.spec_from_file_location("rui", Path(__file__).resolve().parents[1] / "reddit/ui.py")
         ui = importlib.util.module_from_spec(spec_ui)
         spec_ui.loader.exec_module(ui)
 
@@ -408,9 +394,7 @@ class ManifestReorderingAndExclusionTests(unittest.TestCase):
 
         # 6. Test Save & Rebuild
         dialog.save_and_rebuild()
-        self.assertTrue(
-            mock_action.rebuild_book.called or mock_action.update_library.called
-        )
+        self.assertTrue(mock_action.rebuild_book.called or mock_action.update_library.called)
 
         # Verify saved in registry
         persisted = self.reg.get_manifest(self.series_id, include_excluded=True)

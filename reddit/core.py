@@ -93,9 +93,7 @@ def parse_source(text):
     https://www.reddit.com/r/HFY/search/?q=Out+of+Cruel+Space&restrict_sr=1."""
     raw = (text or "").strip()
     if not raw:
-        raise SourceError(
-            "Enter a subreddit (r/HFY), a user (u/name) or a Reddit search address."
-        )
+        raise SourceError("Enter a subreddit (r/HFY), a user (u/name) or a Reddit search address.")
     if "://" not in raw and not raw.startswith("/"):
         raw = ("/" + raw) if re.match(r"(?i)^(r|u|user)/", raw) else raw
     if re.match(r"(?i)^/(?:u|user)/", raw):
@@ -104,10 +102,7 @@ def parse_source(text):
         if "://" not in raw:
             raw = "https://" + raw
         parsed = urlparse(raw)
-        if not (
-            parsed.netloc.lower().endswith("reddit.com")
-            or parsed.netloc.lower() == "redd.it"
-        ):
+        if not (parsed.netloc.lower().endswith("reddit.com") or parsed.netloc.lower() == "redd.it"):
             raise SourceError("That is not a Reddit address.")
         path, query = parsed.path, parse_qs(parsed.query)
     else:
@@ -115,20 +110,14 @@ def parse_source(text):
     path = re.sub(r"\.(rss|json)$", "", path.rstrip("/"))
     m_sub = re.match(r"(?i)^/r/([A-Za-z0-9_\-+]{2,128})(/.*)?$", path)
     m_user = re.match(r"(?i)^/(?:u|user)/(.*)$", path)
-    if (
-        m_sub
-        and (m_sub.group(2) or "").lower().startswith("/search")
-        or (m_sub and query.get("q"))
-    ):
+    if m_sub and (m_sub.group(2) or "").lower().startswith("/search") or (m_sub and query.get("q")):
         q = (query.get("q") or [""])[0].strip()
         if not q:
             raise SourceError("That search address has no search words (q=...).")
         return {"kind": "search", "subreddit": m_sub.group(1), "user": "", "query": q}
     if m_sub:
         if (m_sub.group(2) or "").lower().startswith("/comments"):
-            raise SourceError(
-                "That is a single post. Follow the subreddit, the author, or a search instead."
-            )
+            raise SourceError("That is a single post. Follow the subreddit, the author, or a search instead.")
         return {
             "kind": "subreddit",
             "subreddit": m_sub.group(1),
@@ -136,9 +125,7 @@ def parse_source(text):
             "query": "",
         }
     if m_user:
-        raw_user_part = re.split(
-            r"(?i)/(?:submitted|search|comments)", m_user.group(1)
-        )[0]
+        raw_user_part = re.split(r"(?i)/(?:submitted|search|comments)", m_user.group(1))[0]
         user_names = parse_authors(raw_user_part)
         if user_names:
             user_str = "+".join(user_names)
@@ -150,9 +137,7 @@ def parse_source(text):
             "user": "",
             "query": query["q"][0].strip(),
         }
-    raise SourceError(
-        "Could not tell what to follow. Use r/NAME, u/NAME, or a Reddit search address."
-    )
+    raise SourceError("Could not tell what to follow. Use r/NAME, u/NAME, or a Reddit search address.")
 
 
 def describe_source(src):
@@ -160,9 +145,7 @@ def describe_source(src):
         return f"r/{src['subreddit']}"
     if src["kind"] == "user":
         return f"u/{src['user']}"
-    return f"search “{src['query']}”" + (
-        f" in r/{src['subreddit']}" if src["subreddit"] else ""
-    )
+    return f"search “{src['query']}”" + (f" in r/{src['subreddit']}" if src["subreddit"] else "")
 
 
 def describe_filters(follow):
@@ -177,9 +160,7 @@ def describe_filters(follow):
             for fragment in ("^\\s*", _LEAD_TAGS, "(?![A-Za-z0-9])", "\\b", ".*\\d"):
                 body = body.replace(fragment, "")
             body = re.sub(r"\\(.)", r"\1", body)
-            parts.append(
-                f"title {'starts with' if starts else 'matches'} \u201c{body}\u201d"
-            )
+            parts.append(f"title {'starts with' if starts else 'matches'} \u201c{body}\u201d")
         else:
             parts.append(f"title has \u201c{title}\u201d")
     if follow.get("author_filter"):
@@ -235,9 +216,7 @@ RETITLED_SERIES = [
 def retitled_series(author, stem_key):
     """The RETITLED_SERIES entry covering this author and title stem, or None."""
     for entry in RETITLED_SERIES:
-        if (author or "").strip().casefold() == entry[
-            "author"
-        ].casefold() and stem_key in entry["stems"]:
+        if (author or "").strip().casefold() == entry["author"].casefold() and stem_key in entry["stems"]:
             return entry
     return None
 
@@ -254,9 +233,7 @@ def source_text(src):
         return f"r/{src['subreddit']}"
     if src["kind"] == "user":
         return f"u/{src['user']}"
-    base = (
-        f"{WWW}/r/{src['subreddit']}/search/" if src["subreddit"] else f"{WWW}/search/"
-    )
+    base = f"{WWW}/r/{src['subreddit']}/search/" if src["subreddit"] else f"{WWW}/search/"
     params = {"q": src["query"]}
     if src["subreddit"]:
         params["restrict_sr"] = "1"
@@ -265,12 +242,8 @@ def source_text(src):
 
 def _listing_path(src):
     if src["kind"] == "subreddit":
-        sort = src.get(
-            "sort", "new"
-        )  # discovery browses the top of a subreddit; following always reads the newest
-        return f"/r/{src['subreddit']}/{sort}", (
-            {"t": src.get("t", "all")} if sort == "top" else {}
-        )
+        sort = src.get("sort", "new")  # discovery browses the top of a subreddit; following always reads the newest
+        return f"/r/{src['subreddit']}/{sort}", ({"t": src.get("t", "all")} if sort == "top" else {})
     if src["kind"] == "user":
         return f"/user/{src['user']}/submitted", {"sort": "new"}
     base = f"/r/{src['subreddit']}/search" if src["subreddit"] else "/search"
@@ -304,28 +277,16 @@ def api_path(src, limit=100, after=None):
 
 _MD = re.compile(r'<div class="md">(.*?)</div>\s*<!--\s*SC_ON\s*-->', re.S)
 _MD_LOOSE = re.compile(r'<div class="md">(.*)</div>', re.S)
-_NAV_ONLY = re.compile(
-    r"(?i)^[\s|/•·\-–—>»«\[\]()←→,.:]*(?:"
-    + NAV_WORDS
-    + r"[\s|/•·\-–—>»«\[\]()←→,.:\d]*)+$"
-)
+_NAV_ONLY = re.compile(r"(?i)^[\s|/•·\-–—>»«\[\]()←→,.:]*(?:" + NAV_WORDS + r"[\s|/•·\-–—>»«\[\]()←→,.:\d]*)+$")
 
 
 def main_html(content):
     """The post body from a feed entry or an API selftext_html: drops Reddit's wrapper and the 'submitted by ...' footer."""
-    content = (
-        html.unescape(content)
-        if "&lt;div" in content and "<div" not in content
-        else content
-    )
+    content = html.unescape(content) if "&lt;div" in content and "<div" not in content else content
     m = _MD.search(content) or _MD_LOOSE.search(content)
-    body = (
-        m.group(1) if m else re.split(r"(?i)(?:&#32;|\s)*submitted\s+by\b", content)[0]
-    )
+    body = m.group(1) if m else re.split(r"(?i)(?:&#32;|\s)*submitted\s+by\b", content)[0]
     cleaned = strip_navigation(clean_fragment(body))
-    return (
-        cleaned if strip_tags(cleaned).strip() else ""
-    )  # image and link posts leave only empty markup
+    return cleaned if strip_tags(cleaned).strip() else ""  # image and link posts leave only empty markup
 
 
 _BLOCK = re.compile(
@@ -341,9 +302,7 @@ def strip_navigation(xhtml):
     blocks, position = [], 0
     for m in _BLOCK.finditer(xhtml):
         if xhtml[position : m.start()].strip():
-            return (
-                xhtml.strip()
-            )  # loose text between blocks: not something we can split safely
+            return xhtml.strip()  # loose text between blocks: not something we can split safely
         blocks.append(m.group(0))
         position = m.end()
     if xhtml[position:].strip():
@@ -380,9 +339,7 @@ def parse_atom(xml_text):
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as exc:
-        raise ValueError(
-            f"The feed was not readable XML ({exc}). Reddit may have refused the request."
-        ) from exc
+        raise ValueError(f"The feed was not readable XML ({exc}). Reddit may have refused the request.") from exc
     entries = []
     for e in root.findall("a:entry", ns):
         raw_id = (e.findtext("a:id", namespaces=ns) or "").strip()
@@ -394,23 +351,12 @@ def parse_atom(xml_text):
         entries.append(
             {
                 "id": raw_id,
-                "title": html.unescape(
-                    (e.findtext("a:title", namespaces=ns) or "").strip()
-                ),
+                "title": html.unescape((e.findtext("a:title", namespaces=ns) or "").strip()),
                 "author": re.sub(r"^/?u/", "", author),
-                "created": _epoch(
-                    e.findtext("a:published", namespaces=ns)
-                    or e.findtext("a:updated", namespaces=ns)
-                ),
+                "created": _epoch(e.findtext("a:published", namespaces=ns) or e.findtext("a:updated", namespaces=ns)),
                 "link": link.get("href") if link is not None else "",
-                "html": main_html(content)
-                if '<div class="md">' in content or "submitted by" in content
-                else "",
-                "subreddit": (
-                    e.find("a:category", ns).get("term")
-                    if e.find("a:category", ns) is not None
-                    else ""
-                ),
+                "html": main_html(content) if '<div class="md">' in content or "submitted by" in content else "",
+                "subreddit": (e.find("a:category", ns).get("term") if e.find("a:category", ns) is not None else ""),
             }
         )
     return entries, (entries[-1]["id"] if entries else None)
@@ -486,22 +432,18 @@ class ApiSource:
         )
         self.token_url, self.base = token_url or TOKEN_URL, base or OAUTH
         self.refresh_token = (refresh_token or "").strip()
-        self.user_agent = f"calibre:reddit-follower:1.0 (by /u/{(username or 'unknown').strip().lstrip('/').replace('u/', '')})"
+        self.user_agent = (
+            f"calibre:reddit-follower:1.0 (by /u/{(username or 'unknown').strip().lstrip('/').replace('u/', '')})"
+        )
         self._token, self._expires = None, 0.0
         self._device = uuid.uuid4().hex
 
     def _authorize(self):
         if not self.client_id:
-            raise SourceError(
-                "Enter your Reddit app's client id in the settings to use the official API."
-            )
-        basic = base64.b64encode(
-            f"{self.client_id}:{self.client_secret}".encode()
-        ).decode()
+            raise SourceError("Enter your Reddit app's client id in the settings to use the official API.")
+        basic = base64.b64encode(f"{self.client_id}:{self.client_secret}".encode()).decode()
         if self.refresh_token:
-            body = urlencode(
-                {"grant_type": "refresh_token", "refresh_token": self.refresh_token}
-            )
+            body = urlencode({"grant_type": "refresh_token", "refresh_token": self.refresh_token})
         elif self.client_secret:
             body = urlencode({"grant_type": "client_credentials"})
         else:
@@ -527,9 +469,7 @@ class ApiSource:
                 raise SourceError(
                     "Reddit no longer accepts the saved login. Open Settings and log in with Reddit again."
                 )
-            raise OSError(
-                f"Reddit refused the credentials: {reply.get('error') or reply.get('message') or reply}"
-            )
+            raise OSError(f"Reddit refused the credentials: {reply.get('error') or reply.get('message') or reply}")
         self._token = reply["access_token"]
         self._expires = time.monotonic() + float(reply.get("expires_in", 3600)) - 60
 
@@ -545,11 +485,7 @@ class ApiSource:
                 },
             )
         except OSError as exc:
-            if (
-                "HTTP Error 403" in str(exc)
-                and "insufficient_scope" in str(exc)
-                and self.refresh_token
-            ):
+            if "HTTP Error 403" in str(exc) and "insufficient_scope" in str(exc) and self.refresh_token:
                 raise SourceError(
                     "Reddit says the saved login lacks permission for this page. Open Settings, Log out, then Log in with "
                     "Reddit again to grant it."
@@ -578,11 +514,7 @@ def top_level_author_comment(json_text, author):
         return ""
     for child in data[1].get("data", {}).get("children", []):
         d = child.get("data", {}) if child.get("kind") == "t1" else {}
-        if (
-            author
-            and d.get("author", "").casefold() == author.casefold()
-            and d.get("body_html")
-        ):
+        if author and d.get("author", "").casefold() == author.casefold() and d.get("body_html"):
             return main_html(d["body_html"])
     return ""
 
@@ -613,22 +545,16 @@ def series_parts(title):
     """('Why Humans Avoid War', 8) for 'Why Humans Avoid War VIII'; (title, None) when the title carries no part number.
     Reads trailing numbers (12, Part 12, Ch. 12, (12), #12) and capital Roman numerals, with an optional ': subtitle'."""
     title = title.strip()
-    bare = _LEAD_TAGS_RE.sub(
-        "", title
-    ).strip()  # [OC] and [Universe] tags in front do not name the series...
+    bare = _LEAD_TAGS_RE.sub("", title).strip()  # [OC] and [Universe] tags in front do not name the series...
     if bare != title:
         stem, number = _split_part(bare)
         if (
             re.search(r"[A-Za-z]{3}", stem)
             and not stem[0].isdigit()
-            and not re.fullmatch(
-                r"(?i)(?:part|pt|chapter|ch|book|episode|ep|volume|vol)\W*", stem
-            )
+            and not re.fullmatch(r"(?i)(?:part|pt|chapter|ch|book|episode|ep|volume|vol)\W*", stem)
         ):
             return stem, number
-    return _split_part(
-        title
-    )  # ...unless nothing but a number is left once they are removed
+    return _split_part(title)  # ...unless nothing but a number is left once they are removed
 
 
 def _split_part(title):
@@ -636,9 +562,7 @@ def _split_part(title):
     if not m:
         return title, None
     num = m.group("num")
-    return m.group("stem").strip(" ,:;-\u2013\u2014"), (
-        int(num) if num.isdigit() else _roman(num)
-    )
+    return m.group("stem").strip(" ,:;-\u2013\u2014"), (int(num) if num.isdigit() else _roman(num))
 
 
 def _stem_key(stem):
@@ -691,22 +615,16 @@ def group_series(entries, cross_author=False):
     for g in groups.values():
         g["posts"] = sorted(g["posts"].values(), key=lambda p: p["created"])
         g["is_series"] = (
-            len(g["numbers"]) >= 2
-            or any(re.search(r"(?i)series", f) for f in g["flairs"])
-            and len(g["posts"]) >= 2
+            len(g["numbers"]) >= 2 or any(re.search(r"(?i)series", f) for f in g["flairs"]) and len(g["posts"]) >= 2
         )
         g["author"] = ", ".join(g["authors"]) if g["authors"] else "Unknown"
         out.append(g)
-    return sorted(
-        out, key=lambda g: (-g["is_series"], -len(g["posts"]), g["name"].casefold())
-    )
+    return sorted(out, key=lambda g: (-g["is_series"], -len(g["posts"]), g["name"].casefold()))
 
 
 def rank_groups(groups, by="score"):
     """Series first, then by total rating of the posts found ('score') or by how many parts were found ('posts')."""
-    key = (
-        (lambda g: g.get("score", 0)) if by == "score" else (lambda g: len(g["posts"]))
-    )
+    key = (lambda g: g.get("score", 0)) if by == "score" else (lambda g: len(g["posts"]))
     return sorted(
         groups,
         key=lambda g: (
@@ -740,14 +658,8 @@ def top_series(groups, count=5, min_parts=3, follows=()):
         if not g["is_series"] or len(g["posts"]) < min_parts:
             continue
         g_stem = _stem_key(g["name"])
-        g_authors = [
-            a.casefold()
-            for a in (g.get("authors") or parse_authors(g.get("author", "")))
-        ]
-        if any(
-            (a, g_stem) in taken or (a, canonical_stem(a, g_stem)) in taken
-            for a in g_authors
-        ):
+        g_authors = [a.casefold() for a in (g.get("authors") or parse_authors(g.get("author", "")))]
+        if any((a, g_stem) in taken or (a, canonical_stem(a, g_stem)) in taken for a in g_authors):
             continue
         chosen.append(g)
     return chosen[:count]
@@ -789,9 +701,7 @@ def discover_source(subreddit, words="", browse="relevance"):
     return src
 
 
-def discover(
-    source, src, flair="", pages=3, cancelled=lambda: False, progress=lambda msg: None
-):
+def discover(source, src, flair="", pages=3, cancelled=lambda: False, progress=lambda msg: None):
     """Look through a few pages of a listing and group what is there into series and single stories."""
     entries, after = [], None
     for number in range(pages):
@@ -826,9 +736,7 @@ def series_follow(group, author_note=False):
                     title_from_body=bool(preset.get("title_from_body")),
                 )
     stem = group["name"]
-    name = re.escape(stem).replace(
-        "\\ ", " "
-    )  # spaces need no escaping here, and the pattern is shown to people
+    name = re.escape(stem).replace("\\ ", " ")  # spaces need no escaping here, and the pattern is shown to people
     authors = group.get("authors") or parse_authors(group.get("author", ""))
     author_str = ", ".join(authors) if authors else group.get("author", "")
     if len(authors) == 1:
@@ -857,9 +765,7 @@ def preview_series(
     Returns {'count', 'first', 'last', 'titles'} (titles: first and last few)."""
     posts, after = {}, None
     authors_label = (
-        follow.get("author_filter")
-        or (follow["source"].get("user") if follow.get("source") else "")
-        or "author"
+        follow.get("author_filter") or (follow["source"].get("user") if follow.get("source") else "") or "author"
     )
     for number in range(pages):
         if cancelled():
@@ -899,9 +805,7 @@ def sheet_csv_url(url):
     """The CSV export address for a public Google Sheets link (the tab in the link, if it names one)."""
     m = _SHEET.search(url or "")
     if not m:
-        raise SourceError(
-            "That is not a Google Sheets address (https://docs.google.com/spreadsheets/d/...)."
-        )
+        raise SourceError("That is not a Google Sheets address (https://docs.google.com/spreadsheets/d/...).")
     gid = re.search(r"[#&?]gid=(\d+)", url)
     return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv" + (
         f"&gid={gid.group(1)}" if gid else ""
@@ -921,12 +825,7 @@ def _index_ts(text):
         "%Y-%m-%d %H:%M:%S",
     ):
         try:
-            return (
-                datetime.strptime(text.replace("T", " "), fmt)
-                .replace(tzinfo=timezone.utc)
-                .timestamp()
-                - 2 * 3600
-            )
+            return datetime.strptime(text.replace("T", " "), fmt).replace(tzinfo=timezone.utc).timestamp() - 2 * 3600
         except ValueError:
             continue
     try:
@@ -958,9 +857,7 @@ def parse_index(csv_text, author=""):
         (
             i
             for i, r in enumerate(rows)
-            if len(r) > 2
-            and r[0].strip().lower().startswith("date")
-            and "chapter" in " ".join(r).lower()
+            if len(r) > 2 and r[0].strip().lower().startswith("date") and "chapter" in " ".join(r).lower()
         ),
         None,
     )
@@ -1001,9 +898,7 @@ def parse_index(csv_text, author=""):
                 "era": _label_era(label),
                 "suffix": label[lm.end() :].strip() if lm else "",
                 "seq": int(seq) if seq.isdigit() else None,
-                "ref": re.sub(r"\s+", " ", r[col_ref]).strip()
-                if col_ref is not None and len(r) > col_ref
-                else "",
+                "ref": re.sub(r"\s+", " ", r[col_ref]).strip() if col_ref is not None and len(r) > col_ref else "",
             }
         )
     return out
@@ -1011,9 +906,7 @@ def parse_index(csv_text, author=""):
 
 def _post_era(title):
     """The era a post title names, in _label_era form: 'into a wider galaxy' when the title says so, else ''."""
-    return (
-        "into a wider galaxy" if "into a wider galaxy" in _stem_key(title or "") else ""
-    )
+    return "into a wider galaxy" if "into a wider galaxy" in _stem_key(title or "") else ""
 
 
 def _suffix_rank(row, title):
@@ -1023,9 +916,7 @@ def _suffix_rank(row, title):
     names the suffix settles which post is which; posting time settles the rest."""
     distinctive = [
         w
-        for w in re.sub(
-            r"[^a-z0-9]+", " ", (row.get("suffix") or "").casefold()
-        ).split()
+        for w in re.sub(r"[^a-z0-9]+", " ", (row.get("suffix") or "").casefold()).split()
         if len(w) >= 3 and w not in ("nsfw", "sfw")
     ]
     if not distinctive:
@@ -1052,9 +943,7 @@ def match_index(posts, rows):
             if r["n"] in numbers
             and abs(r["ts"] - p["created"]) <= 3 * 86400
             and not (
-                era
-                and (r.get("era") or _label_era(r["label"]))
-                and (r.get("era") or _label_era(r["label"])) != era
+                era and (r.get("era") or _label_era(r["label"])) and (r.get("era") or _label_era(r["label"])) != era
             )
         ]
         if near:
@@ -1077,9 +966,7 @@ def match_index(posts, rows):
             for r in free
             if abs(r["ts"] - p["created"]) <= 36 * 3600
             and not (
-                era
-                and (r.get("era") or _label_era(r["label"]))
-                and (r.get("era") or _label_era(r["label"])) != era
+                era and (r.get("era") or _label_era(r["label"])) and (r.get("era") or _label_era(r["label"])) != era
             )
         ]
         if near:
@@ -1092,11 +979,7 @@ def match_index(posts, rows):
 
 
 def index_title(row, fallback, with_note=True):
-    return (
-        row["label"] + (f" \u2013 {row['note']}" if row["note"] and with_note else "")
-        if row
-        else fallback
-    )
+    return row["label"] + (f" \u2013 {row['note']}" if row["note"] and with_note else "") if row else fallback
 
 
 def refresh_index(source, follow, cache, now=time.time):
@@ -1105,16 +988,10 @@ def refresh_index(source, follow, cache, now=time.time):
     if not url:
         return
     data = cache.data.get("index") or {}
-    if (
-        data.get("url") == url
-        and now() - data.get("fetched", 0) < INDEX_REFRESH_HOURS * 3600
-        and data.get("rows")
-    ):
+    if data.get("url") == url and now() - data.get("fetched", 0) < INDEX_REFRESH_HOURS * 3600 and data.get("rows"):
         return
     try:
-        rows = parse_index(
-            source.fetcher.get(sheet_csv_url(url)), follow.get("author_filter", "")
-        )
+        rows = parse_index(source.fetcher.get(sheet_csv_url(url)), follow.get("author_filter", ""))
         cache.data["index"] = {"url": url, "fetched": now(), "rows": rows, "error": ""}
     except (OSError, ValueError, SourceError) as exc:
         cache.data["index"] = dict(
@@ -1130,9 +1007,7 @@ def index_report(follow, cache):
     """What the index says about the collected chapters: {'rows', 'matched', 'missing' (labels), 'unlisted' (post titles)}."""
     data = cache.data.get("index") or {}
     rows = data.get("rows") or []
-    matched, free, unlisted = (
-        match_index(list(cache.posts.values()), rows) if rows else ({}, [], [])
-    )
+    matched, free, unlisted = match_index(list(cache.posts.values()), rows) if rows else ({}, [], [])
     return {
         "rows": len(rows),
         "matched": len(matched),
@@ -1167,11 +1042,7 @@ def probe(source, src, follow=None, limit=25):
     try:
         entries, _ = source.page(src, None, limit)
     except RateLimited as exc:
-        wait = (
-            f" It asked for about {max(1, round(exc.retry_after / 60))} minute(s)."
-            if exc.retry_after
-            else ""
-        )
+        wait = f" It asked for about {max(1, round(exc.retry_after / 60))} minute(s)." if exc.retry_after else ""
         return False, (
             "Reddit asked us to slow down (HTTP 429)."
             + wait
@@ -1237,28 +1108,18 @@ def new_follow(
             }
         ]
     else:
-        src = (
-            sources[0]
-            if sources
-            else {"kind": "subreddit", "subreddit": "", "user": "", "query": ""}
-        )
+        src = sources[0] if sources else {"kind": "subreddit", "subreddit": "", "user": "", "query": ""}
 
     return {
         "id": uuid.uuid4().hex[:10],
         "name": name.strip() or describe_source(src),
         "source": src,
         "sources": sources,
-        "title_filter": title_filter.strip()
-        if title_filter
-        else sources[0].get("title_filter", ""),
-        "author_filter": fmt_authors
-        if author_filter
-        else sources[0].get("author_filter", ""),
+        "title_filter": title_filter.strip() if title_filter else sources[0].get("title_filter", ""),
+        "author_filter": fmt_authors if author_filter else sources[0].get("author_filter", ""),
         "author_note": bool(author_note),
         "layout": "each" if layout == "each" else "series",
-        "flair_filter": flair_filter.strip()
-        if flair_filter
-        else sources[0].get("flair_filter", ""),
+        "flair_filter": flair_filter.strip() if flair_filter else sources[0].get("flair_filter", ""),
         "index_url": index_url.strip(),
         "title_from_body": bool(title_from_body),
         "last_checked": 0.0,
@@ -1305,12 +1166,9 @@ def matches(entry, follow):
                     "subreddit": s.get("subreddit", ""),
                     "user": s.get("user", ""),
                     "query": s.get("query", ""),
-                    "title_filter": s.get("title_filter")
-                    or follow.get("title_filter", ""),
-                    "author_filter": s.get("author_filter")
-                    or follow.get("author_filter", ""),
-                    "flair_filter": s.get("flair_filter")
-                    or follow.get("flair_filter", ""),
+                    "title_filter": s.get("title_filter") or follow.get("title_filter", ""),
+                    "author_filter": s.get("author_filter") or follow.get("author_filter", ""),
+                    "flair_filter": s.get("flair_filter") or follow.get("flair_filter", ""),
                 },
                 layout,
             )
@@ -1395,9 +1253,7 @@ class ChapterCache:
             except Exception:
                 pass
 
-        cached_chapters = {
-            c["id"]: c for c in self.registry.get_chapters(self.follow_id)
-        }
+        cached_chapters = {c["id"]: c for c in self.registry.get_chapters(self.follow_id)}
         self.data = {
             "posts": cached_chapters,
             "newest_created": float(self._series.get("newest_created") or 0.0),
@@ -1448,13 +1304,9 @@ class ChapterCache:
 
     def ordered(self):
         if hasattr(self, "registry") and self.registry:
-            all_entries = self.registry.get_manifest(
-                self.follow_id, include_excluded=True
-            )
+            all_entries = self.registry.get_manifest(self.follow_id, include_excluded=True)
             if all_entries:
-                manifest = self.registry.get_manifest(
-                    self.follow_id, include_excluded=False
-                )
+                manifest = self.registry.get_manifest(self.follow_id, include_excluded=False)
                 p_map = self.posts
                 out = []
                 for m in manifest:
@@ -1512,9 +1364,7 @@ def check_follow(
 
     first_run = not cache.data.get("complete")
     each = follow.get("layout") == "each"
-    max_pages = max_pages or (
-        (EACH_FIRST_PAGES if each else FIRST_RUN_PAGES) if first_run else 3
-    )
+    max_pages = max_pages or ((EACH_FIRST_PAGES if each else FIRST_RUN_PAGES) if first_run else 3)
     known_newest, known_id = cache.data["newest_created"], cache.data["newest_id"]
     new, changed, newest = [], [], (0.0, "")
     total_pages = 0
@@ -1527,9 +1377,7 @@ def check_follow(
             while pages < max_pages:
                 if cancelled():
                     raise Cancelled()
-                progress(
-                    f"{follow['name']}: reading {describe_source(src_rule)} page {pages + 1}"
-                )
+                progress(f"{follow['name']}: reading {describe_source(src_rule)} page {pages + 1}")
                 entries, after = source.page(src_rule, after)
                 pages += 1
                 total_pages += 1
@@ -1537,10 +1385,7 @@ def check_follow(
                 for e in entries:
                     if (e["created"], e["id"]) > newest:
                         newest = (e["created"], e["id"])
-                    if not first_run and (
-                        e["id"] == known_id
-                        or (known_newest and e["created"] < known_newest - 1)
-                    ):
+                    if not first_run and (e["id"] == known_id or (known_newest and e["created"] < known_newest - 1)):
                         reached_known = True
                     if (
                         not first_run
@@ -1582,10 +1427,7 @@ def check_follow(
         if each and first_run:
             cache.data["complete"] = True
             keep = {
-                p["id"]
-                for p in sorted(
-                    cache.posts.values(), key=lambda p: p["created"], reverse=True
-                )[:EACH_FIRST_RUN]
+                p["id"] for p in sorted(cache.posts.values(), key=lambda p: p["created"], reverse=True)[:EACH_FIRST_RUN]
             }
             for post_id in [i for i in cache.posts if i not in keep]:
                 del cache.posts[post_id]
@@ -1622,19 +1464,13 @@ def fetch_notes(
     """Fetch the author's own comment for cached chapters that lack one."""
     if not follow.get("author_note") or not hasattr(source, "author_comment"):
         return 0
-    todo = [
-        p
-        for p in sorted(cache.posts.values(), key=lambda p: p["created"], reverse=True)
-        if "note" not in p
-    ]
+    todo = [p for p in sorted(cache.posts.values(), key=lambda p: p["created"], reverse=True) if "note" not in p]
     done = 0
     try:
         for post in todo[: batch or NOTE_BATCH]:
             if cancelled():
                 raise Cancelled()
-            progress(
-                f"{follow['name']}: author comment {done + 1} of {min(len(todo), batch or NOTE_BATCH)}"
-            )
+            progress(f"{follow['name']}: author comment {done + 1} of {min(len(todo), batch or NOTE_BATCH)}")
             post["note"] = source.author_comment(post)
             done += 1
     finally:
@@ -1644,19 +1480,13 @@ def fetch_notes(
 
 
 _ZERO_WIDTH = "\u200b\u200c\u200d\ufeff"
-_BLANK_PARA = re.compile(
-    r"<p>(?:\s|&nbsp;|&#8203;|&#x200[bB];|[" + _ZERO_WIDTH + r"])*</p>"
-)
+_BLANK_PARA = re.compile(r"<p>(?:\s|&nbsp;|&#8203;|&#x200[bB];|[" + _ZERO_WIDTH + r"])*</p>")
 _PARA = re.compile(r"<p>(.*?)</p>", re.S)
-_MARKER = re.compile(
-    r"(?i)^[~*\[(]*\s*(?:first|second|third|early|1st)\s*[~*\])]*[.!]*$"
-)
+_MARKER = re.compile(r"(?i)^[~*\[(]*\s*(?:first|second|third|early|1st)\s*[~*\])]*[.!]*$")
 
 
 def _plain(fragment):
-    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", fragment))).strip(
-        " " + _ZERO_WIDTH
-    )
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", fragment))).strip(" " + _ZERO_WIDTH)
 
 
 def _looks_like_title(text):
@@ -1709,10 +1539,7 @@ def split_body_title(body_html):
 def author_aside(label, parts):
     return (
         f'<div class="author-note"><p class="author-note-label">{label}</p>'
-        + "".join(
-            part if part.lstrip().startswith("<") else f"<p>{part}</p>"
-            for part in parts
-        )
+        + "".join(part if part.lstrip().startswith("<") else f"<p>{part}</p>" for part in parts)
         + "</div>"
     )
 
@@ -1737,10 +1564,7 @@ def build_story(follow, cache):
     titles, from_body = {}, follow.get("title_from_body")
     if (cache.data.get("index") or {}).get("rows"):
         matched, _, _ = match_index(posts, cache.data["index"]["rows"])
-        titles = {
-            pid: index_title(row, None, with_note=not from_body)
-            for pid, row in matched.items()
-        }
+        titles = {pid: index_title(row, None, with_note=not from_body) for pid, row in matched.items()}
 
     # Collect distinct contributing authors
     authors_list = []
@@ -1788,9 +1612,7 @@ def build_story(follow, cache):
     }
 
 
-_PART = re.compile(
-    r"(?i)^(?P<stem>.*?)[\s,:;\-\u2013\u2014(\[]*\b(?:part|pt\.?|chapter|ch\.?)\s*(?P<n>\d+)\b"
-)
+_PART = re.compile(r"(?i)^(?P<stem>.*?)[\s,:;\-\u2013\u2014(\[]*\b(?:part|pt\.?|chapter|ch\.?)\s*(?P<n>\d+)\b")
 
 
 def build_each(follow, post):
@@ -1811,9 +1633,7 @@ def build_each(follow, post):
         "categories": [],
         "summary": "",
         "publisher": PUBLISHER,
-        "pubdate": datetime.fromtimestamp(post["created"], timezone.utc)
-        .date()
-        .isoformat(),
+        "pubdate": datetime.fromtimestamp(post["created"], timezone.utc).date().isoformat(),
     }
     part = _PART.match(post["title"])
     if part and len(re.sub(r"\W", "", part.group("stem"))) >= 4:
@@ -1873,41 +1693,27 @@ def run_follows(
         }
         cache = ChapterCache(cache_dir, follow["id"])
         try:
-            outcome = check_follow(
-                source, follow, cache, cancelled=cancelled, progress=progress
-            )
+            outcome = check_follow(source, follow, cache, cancelled=cancelled, progress=progress)
             result["new"], result["changed"] = outcome["new"], outcome["changed"]
             if outcome.get("warning"):
                 result["warning"] = outcome["warning"]
             follow["last_checked"] = now()
             follow["notes_pending"] = bool(outcome["notes_pending"])
-            follow["last_status"] = (
-                f"{len(outcome['new'])} new chapter(s)"
-                if outcome["new"]
-                else "up to date"
-            )
+            follow["last_status"] = f"{len(outcome['new'])} new chapter(s)" if outcome["new"] else "up to date"
             if outcome["notes_pending"]:
-                follow["last_status"] += (
-                    f"; {outcome['notes_pending']} author comment(s) still to fetch"
-                )
+                follow["last_status"] += f"; {outcome['notes_pending']} author comment(s) still to fetch"
             elif outcome.get("warning"):
                 follow["last_status"] += f"; {outcome['warning']}"
             if follow.get("index_url"):
                 report = index_report(follow, cache)
                 if report["error"]:
-                    follow["last_status"] += (
-                        f"; chapter index not read ({report['error'][:60]})"
-                    )
+                    follow["last_status"] += f"; chapter index not read ({report['error'][:60]})"
                 elif report["missing"]:
-                    follow["last_status"] += (
-                        f"; {len(report['missing'])} chapter(s) in the index have no Reddit post"
-                    )
+                    follow["last_status"] += f"; {len(report['missing'])} chapter(s) in the index have no Reddit post"
                 elif report["rows"]:
                     follow["last_status"] += "; matches the chapter index"
         except RateLimited as exc:
-            result.update(
-                rate_limited=True, retry_after=exc.retry_after, error=str(exc)
-            )
+            result.update(rate_limited=True, retry_after=exc.retry_after, error=str(exc))
             follow["last_status"] = "Reddit asked us to slow down; will try again later"
             results.append(result)
             results.extend(
@@ -2030,9 +1836,7 @@ def import_opml(target, existing=None):
             raise ValueError("Invalid target for OPML import")
 
         if root.tag.lower() != "opml":
-            raise ValueError(
-                f"Not a valid OPML file (root element is <{root.tag}> instead of <opml>)."
-            )
+            raise ValueError(f"Not a valid OPML file (root element is <{root.tag}> instead of <opml>).")
     except ET.ParseError as exc:
         raise ValueError(f"Invalid OPML XML document: {exc}") from exc
     except Exception as exc:
@@ -2041,12 +1845,7 @@ def import_opml(target, existing=None):
         raise ValueError(f"Could not read OPML file: {exc}") from exc
 
     def _get_attr(elem, name):
-        return (
-            elem.attrib.get(f"{{{NS}}}{name}")
-            or elem.attrib.get(f"reddit:{name}")
-            or elem.attrib.get(name)
-            or ""
-        )
+        return elem.attrib.get(f"{{{NS}}}{name}") or elem.attrib.get(f"reddit:{name}") or elem.attrib.get(name) or ""
 
     outlines = root.findall(".//outline")
     imported = []
