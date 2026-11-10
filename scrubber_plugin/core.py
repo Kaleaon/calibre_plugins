@@ -1078,7 +1078,7 @@ def scrub_files(
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     paths = [source] if source.is_file() else sorted(source.rglob("*.epub"))
-    paths = [p for p in paths if not p.name.endswith(".original.epub")]
+    paths = [p for p in paths if not p.name.endswith(".original.epub") and ".bak" not in p.parts]
     rows = []
     for path in paths:
         row = {"input": str(path)}
@@ -1098,6 +1098,10 @@ def scrub_files(
                 sidecar = path.with_name(path.stem + ".original.epub")
                 if not sidecar.exists():
                     shutil.copy2(path, sidecar)
+                bak_dir = output / ".bak"
+                bak_file = bak_dir / (path.relative_to(output) if path.is_relative_to(output) else path.name)
+                bak_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, bak_file)
                 tmp = path.with_name(path.name + ".scrub-tmp")
                 tmp.write_bytes(data)
                 os.replace(tmp, path)
