@@ -12,8 +12,6 @@ import time
 
 
 class _ConnectionContext:
-    """Wrapper that supports both context manager usage and direct connection attribute access."""
-
     def __init__(self, conn):
         self._conn = conn
 
@@ -27,8 +25,6 @@ class _ConnectionContext:
         finally:
             self._conn.close()
 
-    def close(self):
-        return self._conn.close()
     def __getattr__(self, name):
         return getattr(self._conn, name)
 
