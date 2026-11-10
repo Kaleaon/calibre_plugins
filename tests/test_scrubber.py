@@ -4,6 +4,7 @@ import os
 import struct
 import sys
 import tempfile
+import types
 import unittest
 import zipfile
 from pathlib import Path
@@ -16,6 +17,25 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 if str(ROOT / "common") not in sys.path:
     sys.path.insert(0, str(ROOT / "common"))
+if str(ROOT / "scrubber_plugin") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scrubber_plugin"))
+
+for stub_name in ["calibre", "calibre.customize", "calibre.gui2", "calibre.gui2.actions"]:
+    if stub_name not in sys.modules:
+        sys.modules[stub_name] = MagicMock()
+
+if "calibre_plugins" not in sys.modules:
+    cp = types.ModuleType("calibre_plugins")
+    cp.__path__ = []
+    sys.modules["calibre_plugins"] = cp
+else:
+    cp = sys.modules["calibre_plugins"]
+
+if "calibre_plugins.epub_promo_scrubber" not in sys.modules:
+    scrubber_pkg = types.ModuleType("calibre_plugins.epub_promo_scrubber")
+    scrubber_pkg.__path__ = [str(ROOT / "scrubber_plugin"), str(ROOT / "common")]
+    sys.modules["calibre_plugins.epub_promo_scrubber"] = scrubber_pkg
+    setattr(cp, "epub_promo_scrubber", scrubber_pkg)
 
 from scrubber_plugin.image_classifier import (  # noqa: E402
     classify_image_context,
@@ -204,6 +224,7 @@ class ScrubActionTests(unittest.TestCase):
             str(root_dir / "common"),
         ]
         sys.modules["calibre_plugins.epub_promo_scrubber"] = scrubber_pkg
+        setattr(calibre_plugins, "epub_promo_scrubber", scrubber_pkg)
 
     def tearDown(self):
         for k in list(sys.modules):
