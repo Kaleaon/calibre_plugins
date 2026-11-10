@@ -81,6 +81,11 @@ python calibre_link/build_zip.py
 QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest
 ```
 
+When targeting a specific plugin's tests (as done in CI for pull requests):
+```bash
+QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest tests/test_reddit.py tests/test_reddit_login.py tests/test_reddit_registry.py
+```
+
 ### Test Suite Execution with `unittest` (CI Alignment)
 To run the exact unit test suite command executed in CI:
 ```bash
@@ -104,6 +109,11 @@ go vet ./...
 ## 5. Code Quality & Formatting
 
 ### Linting with Ruff
+To run the Ruff linter across modified files (as in PR CI):
+```bash
+ruff check <modified_files>
+```
+
 To run the Ruff linter across the codebase:
 ```bash
 ruff check .
@@ -115,6 +125,11 @@ ruff check . --fix
 ```
 
 ### Code Formatting with Ruff
+To check code formatting on modified files:
+```bash
+ruff format --check <modified_files>
+```
+
 To check code formatting:
 ```bash
 ruff format --check .
