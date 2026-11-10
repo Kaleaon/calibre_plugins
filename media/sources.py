@@ -184,7 +184,7 @@ ISBN_CLEAN_REGEX = re.compile(r"[^0-9X]", re.IGNORECASE)
 
 def sanitize_identifier(raw_id):
     """Sanitize and classify a direct ID string.
-    Returns (id_type, cleaned_value) where id_type is 'mb_recording', 'mb_release', 'olid', 'isbn', or 'invalid'.
+    Returns (id_type, cleaned_value) where id_type is 'mb_recording', 'mb_release', 'olid', 'isbn', 'barcode', or 'invalid'.
     """
     if not raw_id:
         return "invalid", ""
@@ -212,6 +212,11 @@ def sanitize_identifier(raw_id):
         cleaned = ISBN_CLEAN_REGEX.sub("", val)
         if len(cleaned) in (10, 13):
             return "isbn", cleaned.upper()
+    elif low.startswith("barcode:") or low.startswith("upc:") or low.startswith("ean:"):
+        val = text.split(":", 1)[1].strip()
+        cleaned = re.sub(r"\D", "", val)
+        if cleaned:
+            return "barcode", cleaned
 
     if UUID_REGEX.match(text):
         return "mb_recording", text.lower()
@@ -224,7 +229,16 @@ def sanitize_identifier(raw_id):
         cleaned_isbn[:-1].isdigit()
         and (cleaned_isbn[-1].isdigit() or cleaned_isbn[-1].upper() == "X")
     ):
+        if (
+            len(cleaned_isbn) == 13
+            and not cleaned_isbn.startswith(("978", "979"))
+            and cleaned_isbn.isdigit()
+        ):
+            return "barcode", cleaned_isbn
         return "isbn", cleaned_isbn.upper()
+
+    if len(cleaned_isbn) == 12 and cleaned_isbn.isdigit():
+        return "barcode", cleaned_isbn
 
     return "invalid", ""
 
@@ -243,10 +257,13 @@ def mb_search_recordings(
     release_id="",
     limit=25,
     recording_ids=None,
+    barcode="",
 ):
     """Recording search results (each with its releases and the track's place on them). Searches the more specific
     title+artist+album first; the caller decides whether to broaden."""
-    if release_id:
+    if barcode:
+        query = f"barcode:{str(barcode).strip()}"
+    elif release_id:
         query = f"reid:{release_id}"
     else:
         raw_ids = recording_ids if recording_ids is not None else recording_id
