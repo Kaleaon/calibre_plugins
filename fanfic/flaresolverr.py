@@ -16,6 +16,8 @@ import time
 import urllib.error
 import urllib.request
 
+SIGKILL = getattr(signal, "SIGKILL", getattr(signal, "SIGTERM", 9))
+
 SECTION = "www.royalroad.com"
 KEY = "use_flaresolverr_proxy"
 TEST_URL = "https://www.royalroad.com/"
@@ -237,6 +239,62 @@ def _log_tail(path, lines=12):
         return ""
 
 
+def _get_child_pids(parent_pid):
+    """Collect descendant process IDs of parent_pid using /proc or system process utilities."""
+    if parent_pid is None or parent_pid <= 0:
+        return []
+    ppid_map = {}
+    if os.path.isdir("/proc"):
+        try:
+            for entry in os.listdir("/proc"):
+                if not entry.isdigit():
+                    continue
+                pid = int(entry)
+                try:
+                    with open(f"/proc/{pid}/stat") as f:
+                        stat_line = f.read()
+                    rparen = stat_line.rfind(")")
+                    if rparen != -1:
+                        ppid = int(stat_line[rparen + 1 :].split()[1])
+                        ppid_map.setdefault(ppid, []).append(pid)
+                except (OSError, IndexError, ValueError):
+                    continue
+        except OSError:
+            pass
+
+    if not ppid_map:
+        try:
+            res = subprocess.run(
+                ["ps", "-A", "-o", "pid,ppid"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if res.returncode == 0:
+                for line in res.stdout.splitlines():
+                    parts = line.strip().split()
+                    if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+                        pid, ppid = int(parts[0]), int(parts[1])
+                        ppid_map.setdefault(ppid, []).append(pid)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+    if not ppid_map:
+        return []
+
+    descendants = []
+    queue = [parent_pid]
+    visited = {parent_pid}
+    while queue:
+        current = queue.pop(0)
+        for child in ppid_map.get(current, []):
+            if child not in visited:
+                visited.add(child)
+                descendants.append(child)
+                queue.append(child)
+    return descendants
+
+
 class Launcher:
     """Starts and stops one FlareSolverr process on this computer. Only ever runs the file it is given."""
 
@@ -340,6 +398,7 @@ class Launcher:
         process, self.process = self.process, None
         if process is None or process.poll() is not None:
             return "This plugin has no running FlareSolverr to stop (one started another way is left alone)."
+        children = []
         try:
             if sys.platform.startswith("win"):
                 subprocess.run(
@@ -348,14 +407,59 @@ class Launcher:
                     timeout=20,
                 )
             else:
-                os.killpg(process.pid, signal.SIGTERM)
+                children = _get_child_pids(process.pid)
+                for cpid in reversed(children):
+                    try:
+                        os.kill(cpid, signal.SIGTERM)
+                    except OSError:
+                        pass
+                    try:
+                        os.kill(cpid, SIGKILL)
+                    except OSError:
+                        pass
+                try:
+                    if hasattr(os, "killpg"):
+                        os.killpg(process.pid, signal.SIGTERM)
+                    else:
+                        os.kill(process.pid, signal.SIGTERM)
+                except OSError:
+                    try:
+                        os.kill(process.pid, signal.SIGTERM)
+                    except OSError:
+                        pass
                 try:
                     process.wait(timeout=10)
                 except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
+                    for cpid in reversed(children):
+                        try:
+                            os.kill(cpid, SIGKILL)
+                        except OSError:
+                            pass
+                    try:
+                        if hasattr(os, "killpg"):
+                            os.killpg(process.pid, SIGKILL)
+                        else:
+                            os.kill(process.pid, SIGKILL)
+                    except OSError:
+                        try:
+                            os.kill(process.pid, SIGKILL)
+                        except OSError:
+                            pass
             process.wait(timeout=10)
         except (OSError, subprocess.SubprocessError):
-            process.kill()
+            for cpid in reversed(children):
+                try:
+                    os.kill(cpid, SIGKILL)
+                except OSError:
+                    pass
+            try:
+                process.kill()
+            except OSError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except (OSError, subprocess.SubprocessError):
+                pass
         return "FlareSolverr stopped."
 
 
