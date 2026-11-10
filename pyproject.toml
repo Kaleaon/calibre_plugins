@@ -8,6 +8,12 @@ include = [
     "scrubber_plugin/ui.py",
     "tests/test_scrubber.py",
     "tests/test_scrubber_restore.py",
+    "common/guikit.py",
+    "common/log_utils.py",
+    "common/tree_utils.py",
+    "build.py",
+    "build_plugins.py",
+    "tests/test_guikit.py",
 ]
 extend-exclude = [
     "dist",
