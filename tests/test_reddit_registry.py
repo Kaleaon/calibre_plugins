@@ -24,9 +24,7 @@ spec_mig = importlib.util.spec_from_file_location(
 migration_mod = importlib.util.module_from_spec(spec_mig)
 spec_mig.loader.exec_module(migration_mod)
 
-spec_core = importlib.util.spec_from_file_location(
-    "rcore", Path(__file__).resolve().parents[1] / "reddit/core.py"
-)
+spec_core = importlib.util.spec_from_file_location("rcore", Path(__file__).resolve().parents[1] / "reddit/core.py")
 core = importlib.util.module_from_spec(spec_core)
 spec_core.loader.exec_module(core)
 
@@ -63,9 +61,7 @@ class SQLiteRegistryTests(unittest.TestCase):
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
             tables = {row["name"] for row in cursor.fetchall()}
             expected = {"series", "feed_sources", "authors", "chapters", "manifests"}
-            self.assertTrue(
-                expected.issubset(tables), f"Missing tables. Found: {tables}"
-            )
+            self.assertTrue(expected.issubset(tables), f"Missing tables. Found: {tables}")
 
     def test_crud_multi_source_series(self):
         s_dict = {

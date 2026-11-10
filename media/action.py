@@ -26,7 +26,6 @@ from qt.core import (
     QProgressDialog,
     QPushButton,
     QRadioButton,
-    QSize,
     QSplitter,
     Qt,
     QTimer,
@@ -40,7 +39,10 @@ from qt.core import (
 try:
     from qt.core import _
 except ImportError:
-    _ = lambda s: s
+
+    def _(s):
+        return s
+
 
 from calibre_plugins.media_matcher import matching, sources
 from calibre_plugins.media_matcher import tags as audio
@@ -329,7 +331,7 @@ class MatchInspectorDialog(QDialog):
                     old = ""
                     new = ""
                 status = "Unchanged"
-            item = QTreeWidgetItem(
+            QTreeWidgetItem(
                 self.diff_tree,
                 [
                     SHOW.get(field, field),
@@ -387,7 +389,7 @@ class ManualSearchDialog(QDialog):
         album = initial.get("series") or initial.get("album", "")
         identifiers = initial.get("identifiers") or {}
         direct_id = ""
-        for key in ("mb_recording", "mb_release", "olid", "isbn"):
+        for key in ("mb_recording", "mb_release", "olid", "isbn", "barcode", "upc"):
             if key in identifiers and identifiers[key]:
                 direct_id = f"{key}:{identifiers[key]}"
                 break
@@ -414,7 +416,9 @@ class ManualSearchDialog(QDialog):
         r2.addWidget(QLabel(_("Direct Identifier:")))
         self.id_edit = QLineEdit(direct_id)
         self.id_edit.setPlaceholderText(
-            _("MusicBrainz MBID, Open Library OLID, or ISBN")
+            _(
+                "MusicBrainz MBID, Open Library OLID, ISBN, or Barcode (e.g. barcode:..., upc:...)"
+            )
         )
         r2.addWidget(self.id_edit, 1)
         fields_layout.addLayout(r2)
@@ -959,7 +963,7 @@ class MediaMatcherAction(InterfaceAction):
 
         def choose_files():
             exts = " ".join(f"*.{e}" for e in sorted(audio.AUDIO_EXTENSIONS))
-            paths, _filter = QFileDialog.getOpenFileNames(
+            paths, _selected_filter = QFileDialog.getOpenFileNames(
                 dialog,
                 _("Choose audio files"),
                 "",

@@ -9,7 +9,7 @@ shows it, and weak matches are not offered at all.
 import difflib
 import re
 import unicodedata
-from datetime import UTC, datetime, timezone
+from datetime import datetime, timezone
 
 from . import sources
 from . import tags as audio
@@ -261,7 +261,10 @@ def top_music_candidates(recordings, want, acoustid_scores=None, exact_ids=(), l
         key=lambda c: (-round(c["score"], 3), -round(c["rank"], 2), c["year"] or 9999)
     )  # ties: the better-fitting, then the earliest, release
     best = scored[0]
-    outcome = lambda c: (norm(c["title"]), norm(c["artist_credit"]), norm(c["album"]))
+
+    def outcome(c):
+        return (norm(c["title"]), norm(c["artist_credit"]), norm(c["album"]))
+
     rivals = [
         c
         for c in scored[1:]
@@ -338,7 +341,10 @@ def parse_date(text):
         return None
     try:
         return datetime(
-            int(m.group(1)), int(m.group(2) or 1), int(m.group(3) or 1), tzinfo=UTC
+            int(m.group(1)),
+            int(m.group(2) or 1),
+            int(m.group(3) or 1),
+            tzinfo=timezone.utc,
         )
     except ValueError:
         return None
@@ -702,11 +708,12 @@ def manual_search(
     candidates = []
 
     if id_type != "invalid":
-        if id_type in ("mb_recording", "mb_release"):
+        if id_type in ("mb_recording", "mb_release", "barcode"):
             recs = sources.mb_search_recordings(
                 http,
                 recording_id=cleaned_id if id_type == "mb_recording" else "",
                 release_id=cleaned_id if id_type == "mb_release" else "",
+                barcode=cleaned_id if id_type == "barcode" else "",
                 limit=25,
             )
             for rec in recs:

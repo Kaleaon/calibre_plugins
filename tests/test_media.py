@@ -19,6 +19,7 @@ import unittest
 import urllib.error
 from email.message import Message
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "media_fixtures"
@@ -281,7 +282,7 @@ class Id3Tests(TempFiles):
         payload = id3_text(0, "Sync\xff\xfeTest")
         title = ("TIT2", payload)
         raw = id3_tag(3, [title])
-        head, body = raw[:10], raw[10:]
+        _head, body = raw[:10], raw[10:]
         unsynced = body.replace(b"\xff", b"\xff\x00")
         # a v2.3 tag-level unsync flag: sizes in the header count the escaped bytes, frame sizes the original ones
         data = (
@@ -843,6 +844,13 @@ class ServiceCallTests(unittest.TestCase):
         self.assertEqual(sources.mb_search_recordings(http), [])
         self.assertEqual(len(fetch.calls), 1, "nothing to ask, so nothing is sent")
 
+    def test_search_by_barcode_lucene_query(self):
+        http, fetch, _ = make_http({"recordings": []})
+        sources.mb_search_recordings(http, barcode="075678249725")
+        url = fetch.calls[0][0]
+        query = parse_qs(urlsplit(url).query)["query"][0]
+        self.assertEqual(query, "barcode:075678249725")
+
     def test_batched_recording_ids_lucene_or_query(self):
         http, fetch, _ = make_http({"recordings": [{"id": "id1"}, {"id": "id2"}]})
         out = sources.mb_search_recordings(http, recording_id=["id1", "id2", "id3"])
@@ -935,15 +943,21 @@ class ServiceCallTests(unittest.TestCase):
             sources.fingerprint("/m/a.mp3", "/bin/fpcalc", runner), (187, "AQADxx")
         )
         self.assertEqual(calls[0], ["/bin/fpcalc", "-json", "/m/a.mp3"])
-        bad = lambda cmd, **kw: types.SimpleNamespace(
-            returncode=2, stdout=b"", stderr=b"ERROR: could not open\n"
-        )
+
+        def bad(cmd, **kw):
+            return types.SimpleNamespace(
+                returncode=2, stdout=b"", stderr=b"ERROR: could not open\n"
+            )
+
         with self.assertRaises(sources.FingerprintError) as ctx:
             sources.fingerprint("/m/a.mp3", "/bin/fpcalc", bad)
         self.assertIn("could not open", str(ctx.exception))
-        garbled = lambda cmd, **kw: types.SimpleNamespace(
-            returncode=0, stdout=b"DURATION=1\nFINGERPRINT=x", stderr=b""
-        )
+
+        def garbled(cmd, **kw):
+            return types.SimpleNamespace(
+                returncode=0, stdout=b"DURATION=1\nFINGERPRINT=x", stderr=b""
+            )
+
         with self.assertRaises(sources.FingerprintError):
             sources.fingerprint("/m/a.mp3", "/bin/fpcalc", garbled)
 
@@ -1313,6 +1327,31 @@ class ChangePlanTests(unittest.TestCase):
             {},
             "already tagged",
         )
+
+    def test_parse_date(self):
+        from datetime import timezone
+
+        d1 = matching.parse_date("1965-08-06")
+        self.assertEqual(d1.year, 1965)
+        self.assertEqual(d1.month, 8)
+        self.assertEqual(d1.day, 6)
+        self.assertEqual(d1.tzinfo, timezone.utc)
+
+        d2 = matching.parse_date("1965-08")
+        self.assertEqual(d2.year, 1965)
+        self.assertEqual(d2.month, 8)
+        self.assertEqual(d2.day, 1)
+        self.assertEqual(d2.tzinfo, timezone.utc)
+
+        d3 = matching.parse_date("1965")
+        self.assertEqual(d3.year, 1965)
+        self.assertEqual(d3.month, 1)
+        self.assertEqual(d3.day, 1)
+        self.assertEqual(d3.tzinfo, timezone.utc)
+
+        self.assertIsNone(matching.parse_date("invalid"))
+        self.assertIsNone(matching.parse_date("999-01-01"))
+        self.assertIsNone(matching.parse_date(None))
 
 
 class BookMatchTests(unittest.TestCase):
@@ -1821,6 +1860,35 @@ class ManualSearchTests(unittest.TestCase):
         kind, val = sources.sanitize_identifier("isbn:978-0-14-032872-1")
         self.assertEqual((kind, val), ("isbn", "9780140328721"))
 
+        # Barcode prefix parsing (barcode:, upc:, ean:)
+        kind, val = sources.sanitize_identifier("barcode:07567-82497-25")
+        self.assertEqual((kind, val), ("barcode", "075678249725"))
+
+        kind, val = sources.sanitize_identifier("upc: 075678249725 ")
+        self.assertEqual((kind, val), ("barcode", "075678249725"))
+
+        kind, val = sources.sanitize_identifier("ean:5099909565522")
+        self.assertEqual((kind, val), ("barcode", "5099909565522"))
+
+        # Fallback raw 12-digit UPC-A
+        kind, val = sources.sanitize_identifier("075678249725")
+        self.assertEqual((kind, val), ("barcode", "075678249725"))
+
+        kind, val = sources.sanitize_identifier("0-7567-82497-25")
+        self.assertEqual((kind, val), ("barcode", "075678249725"))
+
+        # Fallback raw 13-digit non-ISBN EAN
+        kind, val = sources.sanitize_identifier("5099909565522")
+        self.assertEqual((kind, val), ("barcode", "5099909565522"))
+
+        # Raw 13-digit ISBN remains classified as isbn
+        kind, val = sources.sanitize_identifier("9780140328721")
+        self.assertEqual((kind, val), ("isbn", "9780140328721"))
+
+        # Explicit barcode prefix disambiguates ISBN overlap
+        kind, val = sources.sanitize_identifier("barcode:9780140328721")
+        self.assertEqual((kind, val), ("barcode", "9780140328721"))
+
         kind, val = sources.sanitize_identifier("invalid-text")
         self.assertEqual((kind, val), ("invalid", ""))
 
@@ -1843,6 +1911,18 @@ class ManualSearchTests(unittest.TestCase):
         )
         self.assertGreater(len(cands_ol), 0)
         self.assertTrue(cands_ol[0].get("by_id"))
+
+        cands_barcode = matching.manual_search(
+            http, direct_id="barcode:075678249725", media_kind="music"
+        )
+        self.assertGreater(len(cands_barcode), 0)
+        self.assertTrue(cands_barcode[0].get("by_id"))
+
+        cands_raw_upc = matching.manual_search(
+            http, direct_id="075678249725", media_kind="music"
+        )
+        self.assertGreater(len(cands_raw_upc), 0)
+        self.assertTrue(cands_raw_upc[0].get("by_id"))
 
     def test_manual_search_with_query_terms(self):
         http, fetch, _ = make_http(
