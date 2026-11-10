@@ -92,9 +92,7 @@ class MockBox:
 
 
 class MockTreeItem:
-    def __init__(
-        self, data_role_32=None, data_role_33=None, check_state=0, children=None
-    ):
+    def __init__(self, data_role_32=None, data_role_33=None, check_state=0, children=None):
         from qt.core import Qt
 
         role_user = getattr(Qt.ItemDataRole, "UserRole", 32)
@@ -171,12 +169,8 @@ class GuikitHelperTests(unittest.TestCase):
         self.assertIs(guikit.collect_checked_fields, tree_utils.collect_checked_fields)
         self.assertIs(guikit.collect_tree_changes, tree_utils.collect_tree_changes)
         self.assertIs(guikit.is_item_checked, tree_utils.is_item_checked)
-        self.assertIs(
-            guikit.set_children_check_state, tree_utils.set_children_check_state
-        )
-        self.assertIs(
-            guikit.update_parent_check_state, tree_utils.update_parent_check_state
-        )
+        self.assertIs(guikit.set_children_check_state, tree_utils.set_children_check_state)
+        self.assertIs(guikit.update_parent_check_state, tree_utils.update_parent_check_state)
 
     def test_direct_log_utils_submodule(self):
         """Verify direct import and functionality of common/log_utils.py."""
@@ -185,17 +179,13 @@ class GuikitHelperTests(unittest.TestCase):
         self.assertIn("direct log message", formatted)
         widget.appendPlainText.assert_called_once_with(formatted)
 
-        self.assertEqual(
-            direct_clean_lines("  line1  \n\n  line2  "), ["line1", "line2"]
-        )
+        self.assertEqual(direct_clean_lines("  line1  \n\n  line2  "), ["line1", "line2"])
         self.assertEqual(direct_parse_lines("item1\n\n  item2\n"), ["item1", "item2"])
         self.assertEqual(direct_parse_lines(None), [])
 
     def test_direct_tree_utils_submodule(self):
         """Verify direct import and functionality of common/tree_utils.py."""
-        child = MockTreeItem(
-            data_role_32="field1", data_role_33=("val1", "val2"), check_state=2
-        )
+        child = MockTreeItem(data_role_32="field1", data_role_33=("val1", "val2"), check_state=2)
         top = MockTreeItem(data_role_32=201, children=[child])
         tree = MockTreeWidget([top])
 
@@ -249,9 +239,7 @@ class GuikitHelperTests(unittest.TestCase):
         child1.setCheckState(0, 0)
         update_parent_check_state(child1)
         self.assertFalse(is_item_checked(parent))
-        self.assertIn(
-            parent.checkState(), (getattr(Qt.CheckState, "PartiallyChecked", 1), 1)
-        )
+        self.assertIn(parent.checkState(), (getattr(Qt.CheckState, "PartiallyChecked", 1), 1))
 
         # Uncheck both
         child2.setCheckState(0, 0)
@@ -282,9 +270,7 @@ class GuikitHelperTests(unittest.TestCase):
 
     def test_chosen_fields_with_plain_keys_and_booleans(self):
         boxes = {"title": True, "authors": False, "tags": True}
-        self.assertEqual(
-            chosen_fields(boxes, ["title", "authors", "tags"]), ("title", "tags")
-        )
+        self.assertEqual(chosen_fields(boxes, ["title", "authors", "tags"]), ("title", "tags"))
 
     def test_chosen_fields_without_labels(self):
         boxes = {"a": True, "b": False}
@@ -300,17 +286,11 @@ class GuikitHelperTests(unittest.TestCase):
 
     def test_collect_tree_changes(self):
         # 2 = Qt.CheckState.Checked
-        child1 = MockTreeItem(
-            data_role_32="title", data_role_33=("old_t", "new_t"), check_state=2
-        )
-        child2 = MockTreeItem(
-            data_role_32="tags", data_role_33=("old_tag", "new_tag"), check_state=0
-        )
+        child1 = MockTreeItem(data_role_32="title", data_role_33=("old_t", "new_t"), check_state=2)
+        child2 = MockTreeItem(data_role_32="tags", data_role_33=("old_tag", "new_tag"), check_state=0)
         top1 = MockTreeItem(data_role_32=101, children=[child1, child2])
 
-        child3 = MockTreeItem(
-            data_role_32="authors", data_role_33=("old_a", "new_a"), check_state=2
-        )
+        child3 = MockTreeItem(data_role_32="authors", data_role_33=("old_a", "new_a"), check_state=2)
         top2 = MockTreeItem(data_role_32=102, children=[child3])
 
         tree = MockTreeWidget([top1, top2])

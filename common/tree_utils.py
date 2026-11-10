@@ -12,11 +12,7 @@ except ImportError:
 def is_item_checked(item, column=0):
     """Check if a tree item's checkState is checked (either Qt.CheckState.Checked or integer 2)."""
     state = item.checkState(column)
-    if (
-        Qt is not None
-        and hasattr(Qt, "CheckState")
-        and hasattr(Qt.CheckState, "Checked")
-    ):
+    if Qt is not None and hasattr(Qt, "CheckState") and hasattr(Qt.CheckState, "Checked"):
         if state == Qt.CheckState.Checked:
             return True
     return state == 2
@@ -36,31 +32,15 @@ def update_parent_check_state(item, column=0):
     if parent is None:
         return
 
-    checked_state = (
-        getattr(Qt.CheckState, "Checked", 2)
-        if (Qt is not None and hasattr(Qt, "CheckState"))
-        else 2
-    )
-    unchecked_state = (
-        getattr(Qt.CheckState, "Unchecked", 0)
-        if (Qt is not None and hasattr(Qt, "CheckState"))
-        else 0
-    )
+    checked_state = getattr(Qt.CheckState, "Checked", 2) if (Qt is not None and hasattr(Qt, "CheckState")) else 2
+    unchecked_state = getattr(Qt.CheckState, "Unchecked", 0) if (Qt is not None and hasattr(Qt, "CheckState")) else 0
     partially_state = (
-        getattr(Qt.CheckState, "PartiallyChecked", 1)
-        if (Qt is not None and hasattr(Qt, "CheckState"))
-        else 1
+        getattr(Qt.CheckState, "PartiallyChecked", 1) if (Qt is not None and hasattr(Qt, "CheckState")) else 1
     )
 
-    checked_count = sum(
-        1
-        for i in range(parent.childCount())
-        if is_item_checked(parent.child(i), column)
-    )
+    checked_count = sum(1 for i in range(parent.childCount()) if is_item_checked(parent.child(i), column))
     unchecked_count = sum(
-        1
-        for i in range(parent.childCount())
-        if parent.child(i).checkState(column) in (unchecked_state, 0)
+        1 for i in range(parent.childCount()) if parent.child(i).checkState(column) in (unchecked_state, 0)
     )
     total = parent.childCount()
 
@@ -79,11 +59,7 @@ def collect_tree_changes(tree):
 
     Returns list of (top_item_user_data, {child_user_data: child_user_data_plus_1}).
     """
-    role_user = (
-        getattr(Qt.ItemDataRole, "UserRole", 32)
-        if (Qt is not None and hasattr(Qt, "ItemDataRole"))
-        else 32
-    )
+    role_user = getattr(Qt.ItemDataRole, "UserRole", 32) if (Qt is not None and hasattr(Qt, "ItemDataRole")) else 32
     try:
         role_user_int = int(role_user)
     except (ValueError, TypeError):
@@ -134,10 +110,7 @@ def chosen_fields(boxes, field_labels=None):
         else:
             keys = []
     else:
-        keys = [
-            item[0] if isinstance(item, (tuple, list)) else item
-            for item in field_labels
-        ]
+        keys = [item[0] if isinstance(item, (tuple, list)) else item for item in field_labels]
 
     result = []
     for key in keys:
