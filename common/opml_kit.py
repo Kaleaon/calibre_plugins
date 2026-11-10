@@ -34,9 +34,7 @@ def normalize_strategy(strategy):
     """Normalize a strategy string into 'merge', 'skip', or 'overwrite'."""
     key = str(strategy or "merge").lower().strip()
     if key not in VALID_STRATEGIES:
-        raise ValueError(
-            f"Unknown import strategy '{strategy}'. Expected one of: merge, skip, overwrite."
-        )
+        raise ValueError(f"Unknown import strategy '{strategy}'. Expected one of: merge, skip, overwrite.")
     return VALID_STRATEGIES[key]
 
 
@@ -72,9 +70,7 @@ def infer_item_type(items, explicit_type=None):
 # -----------------------------------------------------------------------------
 
 
-def export_list_to_opml(
-    items, target=None, title="Calibre Plugin Export", item_type=None
-):
+def export_list_to_opml(items, target=None, title="Calibre Plugin Export", item_type=None):
     """Export items (Nifty categories or Metabods tags) to an OPML 2.0 XML document.
 
     :param items: list of category path strings or tag tuples [id, name] / dicts
@@ -116,9 +112,7 @@ def export_list_to_opml(
                 "tag_id": str(tid),
             }
             if tid:
-                outline_attrs["htmlUrl"] = (
-                    f"https://metabods.com/mbxy/site/archive.php?list=tag&id={tid}"
-                )
+                outline_attrs["htmlUrl"] = f"https://metabods.com/mbxy/site/archive.php?list=tag&id={tid}"
             ET.SubElement(body, "outline", outline_attrs)
     else:
         # Categories (e.g. Nifty)
@@ -138,9 +132,7 @@ def export_list_to_opml(
                 "category": str(path),
             }
             if path:
-                outline_attrs["htmlUrl"] = (
-                    f"https://www.nifty.org/nifty/{path.lstrip('/')}/"
-                )
+                outline_attrs["htmlUrl"] = f"https://www.nifty.org/nifty/{path.lstrip('/')}/"
             ET.SubElement(body, "outline", outline_attrs)
 
     if hasattr(ET, "indent"):
@@ -159,9 +151,7 @@ def export_list_to_opml(
     return xml_str
 
 
-def export_list_to_json(
-    items, target=None, title="Calibre Plugin Export", item_type=None, indent=2
-):
+def export_list_to_json(items, target=None, title="Calibre Plugin Export", item_type=None, indent=2):
     """Export items (Nifty categories or Metabods tags) to a JSON string or file.
 
     :param items: list of category path strings or tag tuples [id, name] / dicts
@@ -218,9 +208,7 @@ def export_list_to_json(
 # -----------------------------------------------------------------------------
 
 
-def resolve_conflicts(
-    existing, imported, item_type="categories", strategy=STRATEGY_MERGE
-):
+def resolve_conflicts(existing, imported, item_type="categories", strategy=STRATEGY_MERGE):
     """Merge imported items into existing items based on strategy.
 
     :param existing: list of existing items (strings for categories, [id, name] for tags)
@@ -345,9 +333,7 @@ def _read_source(source):
     raise ValueError(f"Unsupported source type: {type(source)}")
 
 
-def import_list_from_opml(
-    source, item_type=None, existing=None, strategy=STRATEGY_MERGE, return_stats=False
-):
+def import_list_from_opml(source, item_type=None, existing=None, strategy=STRATEGY_MERGE, return_stats=False):
     """Import items (Nifty categories or Metabods tags) from an OPML 2.0 XML document.
 
     :param source: file path, XML string/bytes, or file-like object
@@ -371,9 +357,7 @@ def import_list_from_opml(
         if opml_child is not None:
             root = opml_child
         else:
-            raise ValueError(
-                f"Invalid OPML file: root element is <{root.tag}> instead of <opml>."
-            )
+            raise ValueError(f"Invalid OPML file: root element is <{root.tag}> instead of <opml>.")
 
     body = root.find("body")
     if body is None:
@@ -394,12 +378,7 @@ def import_list_from_opml(
             path_attr = outline.get("path") or outline.get("category") or ""
             type_attr = (outline.get("type") or "").lower().strip()
             id_attr = outline.get("id") or outline.get("tag_id") or ""
-            html_url = (
-                outline.get("htmlUrl")
-                or outline.get("xmlUrl")
-                or outline.get("url")
-                or ""
-            )
+            html_url = outline.get("htmlUrl") or outline.get("xmlUrl") or outline.get("url") or ""
 
             # Check if this outline represents a tag
             if not id_attr and html_url:
@@ -453,17 +432,13 @@ def import_list_from_opml(
             imported_items = raw_categories
             resolved_type = "categories"
 
-    updated_list, stats = resolve_conflicts(
-        existing, imported_items, item_type=resolved_type, strategy=strategy
-    )
+    updated_list, stats = resolve_conflicts(existing, imported_items, item_type=resolved_type, strategy=strategy)
     if return_stats:
         return updated_list, stats
     return updated_list
 
 
-def import_list_from_json(
-    source, item_type=None, existing=None, strategy=STRATEGY_MERGE, return_stats=False
-):
+def import_list_from_json(source, item_type=None, existing=None, strategy=STRATEGY_MERGE, return_stats=False):
     """Import items (Nifty categories or Metabods tags) from a JSON string or file.
 
     :param source: file path, JSON string/bytes, or file-like object
@@ -496,18 +471,14 @@ def import_list_from_json(
             or data.get("favorite_tags")
         )
         if items_raw is None:
-            raise ValueError(
-                "Invalid JSON format: missing 'items', 'categories', or 'tags' array."
-            )
+            raise ValueError("Invalid JSON format: missing 'items', 'categories', or 'tags' array.")
     else:
         items_raw = data
 
     if not isinstance(items_raw, list):
         raise ValueError("Invalid JSON format: 'items' field must be a list/array.")
 
-    target_type = (
-        infer_item_type([], item_type or doc_type) if (item_type or doc_type) else None
-    )
+    target_type = infer_item_type([], item_type or doc_type) if (item_type or doc_type) else None
     if not target_type:
         target_type = infer_item_type(items_raw)
 
@@ -539,9 +510,7 @@ def import_list_from_json(
             if val:
                 imported_items.append(val)
 
-    updated_list, stats = resolve_conflicts(
-        existing, imported_items, item_type=target_type, strategy=strategy
-    )
+    updated_list, stats = resolve_conflicts(existing, imported_items, item_type=target_type, strategy=strategy)
     if return_stats:
         return updated_list, stats
     return updated_list
@@ -626,9 +595,7 @@ def ask_import_strategy(parent=None):
     rb_overwrite = QRadioButton("Overwrite: Replace current favorites completely")
     layout.addWidget(rb_overwrite)
 
-    button_box = QDialogButtonBox(
-        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-    )
+    button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
     button_box.accepted.connect(dialog.accept)
     button_box.rejected.connect(dialog.reject)
     layout.addWidget(button_box)

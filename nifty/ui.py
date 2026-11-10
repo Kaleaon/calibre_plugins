@@ -59,15 +59,11 @@ class LinksDialog(QDialog):
             )
         )
         self.text = QPlainTextEdit()
-        self.text.setPlaceholderText(
-            "https://www.nifty.org/nifty/gay/college/the-brotherhood/"
-        )
+        self.text.setPlaceholderText("https://www.nifty.org/nifty/gay/college/the-brotherhood/")
         layout.addWidget(self.text)
         self.options = DownloadOptions(self, prefs)
         layout.addWidget(self.options)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -137,9 +133,7 @@ class BrowseDialog(QDialog):
         layout.addLayout(row)
         self.options = DownloadOptions(self, prefs)
         layout.addWidget(self.options)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Download checked")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -169,33 +163,23 @@ class BrowseDialog(QDialog):
         cats = task.result or []
         if not cats and section in core.DIRECT_SECTIONS:
             path = section
-            self.category.addItem(
-                ("★ " if path in self.favorites else "") + "[All Stories]", path
-            )
+            self.category.addItem(("★ " if path in self.favorites else "") + "[All Stories]", path)
         else:
             for cat in cats:
                 path = f"{section}/{cat}"
-                self.category.addItem(
-                    ("★ " if path in self.favorites else "") + core.humanize(cat), path
-                )
+                self.category.addItem(("★ " if path in self.favorites else "") + core.humanize(cat), path)
 
     def refresh_favorites(self):
         self.favs.clear()
         self.favs.addItem("Favorite categories…", None)
         for path in self.favorites:
-            self.favs.addItem(
-                "★ " + " / ".join(core.humanize(p) for p in path.split("/")), path
-            )
+            self.favs.addItem("★ " + " / ".join(core.humanize(p) for p in path.split("/")), path)
 
     def toggle_favorite(self):
         path = self.current_path()
         if not path:
             return
-        self.favorites = (
-            [f for f in self.favorites if f != path]
-            if path in self.favorites
-            else self.favorites + [path]
-        )
+        self.favorites = [f for f in self.favorites if f != path] if path in self.favorites else self.favorites + [path]
         prefs["favorite_categories"] = self.favorites
         self.refresh_favorites()
         self.load_categories()
@@ -225,9 +209,7 @@ class BrowseDialog(QDialog):
         if not file_path:
             return
         try:
-            is_json = (
-                file_path.lower().endswith(".json") or "json" in selected_filter.lower()
-            )
+            is_json = file_path.lower().endswith(".json") or "json" in selected_filter.lower()
             if not os.path.splitext(file_path)[1]:
                 file_path += ".json" if is_json else ".opml"
             if is_json:
@@ -329,9 +311,7 @@ class BrowseDialog(QDialog):
         self.fill_stories()
 
     def in_library(self, ref):
-        return any(
-            e == ref["id"] or e.startswith(ref["id"] + "/") for e in self.existing
-        )
+        return any(e == ref["id"] or e.startswith(ref["id"] + "/") for e in self.existing)
 
     def fill_stories(self, *_):
         needle = self.filter.text().strip().casefold()
@@ -342,16 +322,11 @@ class BrowseDialog(QDialog):
                 continue
             have = self.in_library(ref)
             item = QListWidgetItem(
-                f"{ref['title']} — {ref['detail']}, {ref['date']}"
-                + ("   (already in library)" if have else "")
+                f"{ref['title']} — {ref['detail']}, {ref['date']}" + ("   (already in library)" if have else "")
             )
             item.setData(Qt.ItemDataRole.UserRole, ref["id"])
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(
-                Qt.CheckState.Checked
-                if ref["id"] in self.checked
-                else Qt.CheckState.Unchecked
-            )
+            item.setCheckState(Qt.CheckState.Checked if ref["id"] in self.checked else Qt.CheckState.Unchecked)
             self.story_list.addItem(item)
         self.story_list.blockSignals(False)
         in_lib = sum(self.in_library(r) for r in self.refs)
@@ -361,18 +336,12 @@ class BrowseDialog(QDialog):
 
     def story_toggled(self, item):
         rid = item.data(Qt.ItemDataRole.UserRole)
-        (
-            self.checked.add
-            if item.checkState() == Qt.CheckState.Checked
-            else self.checked.discard
-        )(rid)
+        (self.checked.add if item.checkState() == Qt.CheckState.Checked else self.checked.discard)(rid)
         self.summary.setText(f"{len(self.refs)} entries. {len(self.checked)} checked.")
 
     def set_shown(self, state):
         for i in range(self.story_list.count()):
-            self.story_list.item(i).setCheckState(
-                Qt.CheckState.Checked if state else Qt.CheckState.Unchecked
-            )
+            self.story_list.item(i).setCheckState(Qt.CheckState.Checked if state else Qt.CheckState.Unchecked)
 
     def selected_refs(self):
         return [r for r in self.refs if r["id"] in self.checked]
@@ -458,12 +427,8 @@ class AuthorDialog(QDialog):
         row.addWidget(self.combine_all)
         row.addWidget(self.combine_title, 1)
         layout.addLayout(row)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(
-            "Download ticked stories"
-        )
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Download ticked stories")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -501,9 +466,7 @@ class AuthorDialog(QDialog):
                 self.author_list.addItem(item)
         self.author_list.blockSignals(False)
         self.tree.clear()
-        self.summary.setText(
-            f"{self.author_list.count()} authors with stories in {self.section.currentText()}."
-        )
+        self.summary.setText(f"{self.author_list.count()} authors with stories in {self.section.currentText()}.")
 
     # -- one author's stories
     def current_author(self):
@@ -514,10 +477,7 @@ class AuthorDialog(QDialog):
         return next((a for a in self.authors if a["id"] == wanted), None)
 
     def in_library(self, story):
-        return any(
-            e == story["path"] or e.startswith(story["path"] + "/")
-            for e in self.existing
-        )
+        return any(e == story["path"] or e.startswith(story["path"] + "/") for e in self.existing)
 
     def story_item(self, story, ticked=False):
         folder = story["path"].split("/")[1:-1]
@@ -526,9 +486,7 @@ class AuthorDialog(QDialog):
         )
         item = QTreeWidgetItem([label])
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-        item.setCheckState(
-            0, Qt.CheckState.Checked if ticked else Qt.CheckState.Unchecked
-        )
+        item.setCheckState(0, Qt.CheckState.Checked if ticked else Qt.CheckState.Unchecked)
         item.setData(0, Qt.ItemDataRole.UserRole, story)
         return item
 
@@ -553,16 +511,12 @@ class AuthorDialog(QDialog):
             for entry in series:
                 folders = {core.story_folder(s) for s in entry["stories"]}
                 parent = QTreeWidgetItem(
-                    [
-                        f"Suggested set: {entry['name']}  ({len(entry['stories'])} stories in {len(folders)} folder(s))"
-                    ]
+                    [f"Suggested set: {entry['name']}  ({len(entry['stories'])} stories in {len(folders)} folder(s))"]
                 )
-                parent.setFlags(
-                    parent.flags()
-                    | Qt.ItemFlag.ItemIsUserCheckable
-                    | Qt.ItemFlag.ItemIsAutoTristate
+                parent.setFlags(parent.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
+                tip = (
+                    f"Suggested because of {entry['reason']}. Only a suggestion; untick anything that does not belong."
                 )
-                tip = f"Suggested because of {entry['reason']}. Only a suggestion; untick anything that does not belong."
                 if entry.get("evidence"):
                     tip += "\n\nFound in the stories:\n" + "\n".join(entry["evidence"])
                 parent.setToolTip(0, tip)
@@ -573,11 +527,7 @@ class AuthorDialog(QDialog):
                 parent.setExpanded(True)
             if rest:
                 parent = QTreeWidgetItem([f"Other stories ({len(rest)})"])
-                parent.setFlags(
-                    parent.flags()
-                    | Qt.ItemFlag.ItemIsUserCheckable
-                    | Qt.ItemFlag.ItemIsAutoTristate
-                )
+                parent.setFlags(parent.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
                 parent.setData(0, Qt.ItemDataRole.UserRole, ("rest", ""))
                 for story in sorted(rest, key=lambda s: s["title"].casefold()):
                     parent.addChild(self.story_item(story, story["path"] in keep))
@@ -598,9 +548,7 @@ class AuthorDialog(QDialog):
         stories = self.section_stories(author)
         todo = [s for s in stories if s["path"] not in self.texts]
         if not todo:
-            self.summary.setText(
-                "The contents of all these stories have already been read."
-            )
+            self.summary.setText("The contents of all these stories have already been read.")
             return
         requests = sum(3 if s.get("dir") else 2 for s in todo)
         if (
@@ -635,9 +583,7 @@ class AuthorDialog(QDialog):
 
     def check_all(self, state):
         for parent in self.top_items():
-            parent.setCheckState(
-                0, Qt.CheckState.Checked if state else Qt.CheckState.Unchecked
-            )
+            parent.setCheckState(0, Qt.CheckState.Checked if state else Qt.CheckState.Unchecked)
 
     def check_suggested(self):
         for parent in self.top_items():
@@ -729,17 +675,11 @@ class NiftyPreviewDialog(QDialog):
         self.summary = QLabel("")
         layout.addWidget(self.summary)
 
-        self.chk_bypass_single = QCheckBox(
-            "Bypass preview for single-chapter story downloads"
-        )
-        self.chk_bypass_single.setChecked(
-            bool(prefs.get("bypass_single_chapter_preview", True))
-        )
+        self.chk_bypass_single = QCheckBox("Bypass preview for single-chapter story downloads")
+        self.chk_bypass_single.setChecked(bool(prefs.get("bypass_single_chapter_preview", True)))
         layout.addWidget(self.chk_bypass_single)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Start Download")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -761,14 +701,8 @@ class NiftyPreviewDialog(QDialog):
 
             g_title = group.get("title") or group.get("name") or "Untitled Series"
             parent = QTreeWidgetItem([g_title, f"{len(chs)} chapter(s)"])
-            parent.setFlags(
-                parent.flags()
-                | Qt.ItemFlag.ItemIsUserCheckable
-                | Qt.ItemFlag.ItemIsAutoTristate
-            )
-            parent.setData(
-                0, Qt.ItemDataRole.UserRole, {"kind": "group", "g_idx": g_idx}
-            )
+            parent.setFlags(parent.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
+            parent.setData(0, Qt.ItemDataRole.UserRole, {"kind": "group", "g_idx": g_idx})
 
             if len(chs) > 0:
                 if grp_enabled == len(chs):
@@ -787,9 +721,7 @@ class NiftyPreviewDialog(QDialog):
                 child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 child.setCheckState(
                     0,
-                    Qt.CheckState.Checked
-                    if chapter.get("enabled", True)
-                    else Qt.CheckState.Unchecked,
+                    Qt.CheckState.Checked if chapter.get("enabled", True) else Qt.CheckState.Unchecked,
                 )
                 child.setData(
                     0,
@@ -802,9 +734,7 @@ class NiftyPreviewDialog(QDialog):
             parent.setExpanded(True)
 
         self.tree.blockSignals(False)
-        self.summary.setText(
-            f"{len(self.groups)} story group(s), {enabled_ch} of {total_ch} chapter(s) included."
-        )
+        self.summary.setText(f"{len(self.groups)} story group(s), {enabled_ch} of {total_ch} chapter(s) included.")
         self.update_buttons()
 
     def on_item_changed(self, item, column):
@@ -814,9 +744,7 @@ class NiftyPreviewDialog(QDialog):
         self.tree.blockSignals(True)
         if data["kind"] == "chapter":
             g_idx, c_idx = data["g_idx"], data["c_idx"]
-            if 0 <= g_idx < len(self.groups) and 0 <= c_idx < len(
-                self.groups[g_idx].get("chapters", [])
-            ):
+            if 0 <= g_idx < len(self.groups) and 0 <= c_idx < len(self.groups[g_idx].get("chapters", [])):
                 chapter = self.groups[g_idx]["chapters"][c_idx]
                 chapter["enabled"] = item.checkState(0) == Qt.CheckState.Checked
                 parent_item = item.parent()
@@ -836,18 +764,11 @@ class NiftyPreviewDialog(QDialog):
                 for ch in self.groups[g_idx].get("chapters", []):
                     ch["enabled"] = state
                 for i in range(item.childCount()):
-                    item.child(i).setCheckState(
-                        0, Qt.CheckState.Checked if state else Qt.CheckState.Unchecked
-                    )
+                    item.child(i).setCheckState(0, Qt.CheckState.Checked if state else Qt.CheckState.Unchecked)
 
         total_ch = sum(len(g.get("chapters", [])) for g in self.groups)
-        enabled_ch = sum(
-            sum(1 for c in g.get("chapters", []) if c.get("enabled", True))
-            for g in self.groups
-        )
-        self.summary.setText(
-            f"{len(self.groups)} story group(s), {enabled_ch} of {total_ch} chapter(s) included."
-        )
+        enabled_ch = sum(sum(1 for c in g.get("chapters", []) if c.get("enabled", True)) for g in self.groups)
+        self.summary.setText(f"{len(self.groups)} story group(s), {enabled_ch} of {total_ch} chapter(s) included.")
         self.tree.blockSignals(False)
 
     def update_buttons(self):
@@ -961,8 +882,7 @@ class NiftyPreviewDialog(QDialog):
             {
                 item.data(0, Qt.ItemDataRole.UserRole)["g_idx"]
                 for item in selected
-                if item.data(0, Qt.ItemDataRole.UserRole)
-                and "g_idx" in item.data(0, Qt.ItemDataRole.UserRole)
+                if item.data(0, Qt.ItemDataRole.UserRole) and "g_idx" in item.data(0, Qt.ItemDataRole.UserRole)
             }
         )
 
@@ -971,9 +891,7 @@ class NiftyPreviewDialog(QDialog):
 
         groups_to_merge = [self.groups[i] for i in groups_to_merge_indices]
         default_title = " & ".join(g["title"] for g in groups_to_merge[:2]) + " Omnibus"
-        title, ok = QInputDialog.getText(
-            self, "Merge Groups", "Title for merged omnibus:", text=default_title
-        )
+        title, ok = QInputDialog.getText(self, "Merge Groups", "Title for merged omnibus:", text=default_title)
         if not ok or not title.strip():
             title = default_title
 
@@ -1001,11 +919,7 @@ class NiftyPreviewDialog(QDialog):
         """Return approved list of story groups with enabled chapters in order."""
         out = []
         for group in self.groups:
-            enabled = [
-                ch for ch in group.get("chapters", []) if ch.get("enabled", True)
-            ]
+            enabled = [ch for ch in group.get("chapters", []) if ch.get("enabled", True)]
             if enabled:
-                out.append(
-                    {"id": group["id"], "title": group["title"], "chapters": enabled}
-                )
+                out.append({"id": group["id"], "title": group["title"], "chapters": enabled})
         return out

@@ -61,9 +61,7 @@ class DownloadDialog(QDialog):
         layout.addWidget(self.text)
         self.options = DownloadOptions(self, prefs)
         layout.addWidget(self.options)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -114,9 +112,7 @@ class TagSearchDialog(QDialog):
         clear.clicked.connect(self.clear_tags)
         row.addWidget(clear)
         self.mode = QComboBox()
-        self.mode.addItems(
-            ["Stories with ANY checked tag", "Stories with ALL checked tags"]
-        )
+        self.mode.addItems(["Stories with ANY checked tag", "Stories with ALL checked tags"])
         self.mode.setCurrentIndex(1 if prefs["match_all"] else 0)
         row.addWidget(self.mode)
         search = QPushButton("Search")
@@ -148,12 +144,8 @@ class TagSearchDialog(QDialog):
 
         self.options = DownloadOptions(self, prefs)
         layout.addWidget(self.options)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(
-            "Download checked stories"
-        )
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Download checked stories")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -168,11 +160,7 @@ class TagSearchDialog(QDialog):
         task = run_task(
             self,
             "Loading tag list…",
-            lambda t: core.parse_tag_index(
-                core.Fetcher(cancelled=t.cancelled).get(
-                    core.SITE + "archive.php?list=tag"
-                )
-            ),
+            lambda t: core.parse_tag_index(core.Fetcher(cancelled=t.cancelled).get(core.SITE + "archive.php?list=tag")),
         )
         if task.error:
             self.summary.setText(f"Could not load tags: {task.error}")
@@ -184,11 +172,7 @@ class TagSearchDialog(QDialog):
     def fill_tags(self, *_):
         needle = self.filter.text().strip().casefold()
         favs_only = self.fav_only.isChecked()
-        shown = [
-            t
-            for t in self.tags
-            if needle in t[1].casefold() and (not favs_only or t[0] in self.favorites)
-        ]
+        shown = [t for t in self.tags if needle in t[1].casefold() and (not favs_only or t[0] in self.favorites)]
         shown.sort(key=lambda t: (t[0] not in self.favorites, t[1].casefold()))
         self.tag_list.blockSignals(True)
         self.tag_list.clear()
@@ -196,21 +180,13 @@ class TagSearchDialog(QDialog):
             item = QListWidgetItem(("★ " if tid in self.favorites else "") + name)
             item.setData(Qt.ItemDataRole.UserRole, tid)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(
-                Qt.CheckState.Checked
-                if tid in self.checked_tags
-                else Qt.CheckState.Unchecked
-            )
+            item.setCheckState(Qt.CheckState.Checked if tid in self.checked_tags else Qt.CheckState.Unchecked)
             self.tag_list.addItem(item)
         self.tag_list.blockSignals(False)
 
     def tag_toggled(self, item):
         tid = item.data(Qt.ItemDataRole.UserRole)
-        (
-            self.checked_tags.add
-            if item.checkState() == Qt.CheckState.Checked
-            else self.checked_tags.discard
-        )(tid)
+        (self.checked_tags.add if item.checkState() == Qt.CheckState.Checked else self.checked_tags.discard)(tid)
 
     def toggle_favorite(self):
         item = self.tag_list.currentItem()
@@ -243,9 +219,7 @@ class TagSearchDialog(QDialog):
         if not file_path:
             return
         try:
-            is_json = (
-                file_path.lower().endswith(".json") or "json" in selected_filter.lower()
-            )
+            is_json = file_path.lower().endswith(".json") or "json" in selected_filter.lower()
             if not os.path.splitext(file_path)[1]:
                 file_path += ".json" if is_json else ".opml"
             items = [[k, v] for k, v in self.favorites.items()]
@@ -370,26 +344,18 @@ class TagSearchDialog(QDialog):
         for row in self.rows:
             have = row["id"] in self.existing
             in_library += have
-            label = (
-                f"{row['title']} — {row['author']}" if row["author"] else row["title"]
-            )
+            label = f"{row['title']} — {row['author']}" if row["author"] else row["title"]
             item = QListWidgetItem(label + ("   (already in library)" if have else ""))
             item.setData(Qt.ItemDataRole.UserRole, row["id"])
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             skip = have and self.options.skip.isChecked()
-            item.setCheckState(
-                Qt.CheckState.Unchecked if skip else Qt.CheckState.Checked
-            )
+            item.setCheckState(Qt.CheckState.Unchecked if skip else Qt.CheckState.Checked)
             self.result_list.addItem(item)
-        self.summary.setText(
-            f"{len(self.rows)} stories found ({in_library} already in your library)."
-        )
+        self.summary.setText(f"{len(self.rows)} stories found ({in_library} already in your library).")
 
     def set_all_results(self, checked):
         for i in range(self.result_list.count()):
-            self.result_list.item(i).setCheckState(
-                Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-            )
+            self.result_list.item(i).setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
 
     def selected_ids(self):
         return [

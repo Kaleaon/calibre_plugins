@@ -98,15 +98,11 @@ class OpmlKitSerializationTests(unittest.TestCase):
         self.assertTrue(os.path.exists(out_file))
 
         # Import from string
-        imported_from_str = opml_kit.import_list_from_opml(
-            xml_str, item_type="metabods"
-        )
+        imported_from_str = opml_kit.import_list_from_opml(xml_str, item_type="metabods")
         self.assertEqual(imported_from_str, tags)
 
         # Import from file
-        imported_from_file = opml_kit.import_list_from_opml(
-            out_file, item_type="metabods"
-        )
+        imported_from_file = opml_kit.import_list_from_opml(out_file, item_type="metabods")
         self.assertEqual(imported_from_file, tags)
 
     def test_metabods_tags_json_roundtrip(self):
@@ -122,15 +118,11 @@ class OpmlKitSerializationTests(unittest.TestCase):
         self.assertTrue(os.path.exists(out_file))
 
         # Import from string
-        imported_from_str = opml_kit.import_list_from_json(
-            json_str, item_type="metabods"
-        )
+        imported_from_str = opml_kit.import_list_from_json(json_str, item_type="metabods")
         self.assertEqual(imported_from_str, tags)
 
         # Import from file
-        imported_from_file = opml_kit.import_list_from_json(
-            out_file, item_type="metabods"
-        )
+        imported_from_file = opml_kit.import_list_from_json(out_file, item_type="metabods")
         self.assertEqual(imported_from_file, tags)
 
     def test_nested_category_folder_opml_import(self):
@@ -155,12 +147,8 @@ class OpmlKitSerializationTests(unittest.TestCase):
         opml_path = os.path.join(self.tmp_dir, "list.opml")
         json_path = os.path.join(self.tmp_dir, "list.json")
 
-        opml_kit.export_list_to_opml(
-            ["gay/college"], target=opml_path, item_type="nifty"
-        )
-        opml_kit.export_list_to_json(
-            ["gay/camping"], target=json_path, item_type="nifty"
-        )
+        opml_kit.export_list_to_opml(["gay/college"], target=opml_path, item_type="nifty")
+        opml_kit.export_list_to_json(["gay/camping"], target=json_path, item_type="nifty")
 
         res_opml = opml_kit.import_list_from_file(opml_path, item_type="nifty")
         res_json = opml_kit.import_list_from_file(json_path, item_type="nifty")
@@ -180,9 +168,7 @@ class OpmlKitConflictResolutionTests(unittest.TestCase):
             existing, imported, item_type="categories", strategy=opml_kit.STRATEGY_MERGE
         )
 
-        self.assertEqual(
-            result, ["gay/college", "gay/camping", "gay/romance", "trans/sci-fi"]
-        )
+        self.assertEqual(result, ["gay/college", "gay/camping", "gay/romance", "trans/sci-fi"])
         self.assertEqual(stats["added"], 2)
         self.assertEqual(stats["skipped"], 1)
 
@@ -221,9 +207,7 @@ class OpmlKitConflictResolutionTests(unittest.TestCase):
             existing, imported, item_type="tags", strategy=opml_kit.STRATEGY_MERGE
         )
 
-        self.assertEqual(
-            result, [[1, "Alpha Original"], [2, "Beta Renamed"], [3, "Gamma"]]
-        )
+        self.assertEqual(result, [[1, "Alpha Original"], [2, "Beta Renamed"], [3, "Gamma"]])
         self.assertEqual(stats["added"], 1)
         self.assertEqual(stats["updated"], 1)
 
@@ -338,9 +322,7 @@ class OpmlKitUIDialogIntegrationTests(unittest.TestCase):
 
     def setUp(self):
         self.saved_modules = {
-            k: v
-            for k, v in sys.modules.items()
-            if k.startswith(("calibre", "qt", "calibre_plugins"))
+            k: v for k, v in sys.modules.items() if k.startswith(("calibre", "qt", "calibre_plugins"))
         }
         qtcore = types.ModuleType("qt.core")
         for module in (QtWidgets, QtGui, QtCore):
@@ -372,11 +354,7 @@ class OpmlKitUIDialogIntegrationTests(unittest.TestCase):
     def tearDown(self):
         self.patch_msg_info.stop()
         self.patch_msg_warn.stop()
-        for key in [
-            k
-            for k in list(sys.modules)
-            if k.startswith(("calibre", "qt", "calibre_plugins"))
-        ]:
+        for key in [k for k in list(sys.modules) if k.startswith(("calibre", "qt", "calibre_plugins"))]:
             del sys.modules[key]
         sys.modules.update(self.saved_modules)
 
@@ -438,18 +416,14 @@ class OpmlKitUIDialogIntegrationTests(unittest.TestCase):
 
         # Test import with merge
         in_file = os.path.join(self.tmp.name, "nifty_to_import.json")
-        opml_kit.export_list_to_json(
-            ["trans/romance", "gay/camping"], target=in_file, item_type="nifty"
-        )
+        opml_kit.export_list_to_json(["trans/romance", "gay/camping"], target=in_file, item_type="nifty")
 
         with patch.object(
             ui.QFileDialog,
             "getOpenFileName",
             return_value=(in_file, "JSON Files (*.json)"),
         ):
-            with patch.object(
-                ui.opml_kit, "ask_import_strategy", return_value=opml_kit.STRATEGY_MERGE
-            ):
+            with patch.object(ui.opml_kit, "ask_import_strategy", return_value=opml_kit.STRATEGY_MERGE):
                 dialog.import_favorites()
 
         # Both existing and new items should be merged
@@ -537,9 +511,7 @@ class OpmlKitUIDialogIntegrationTests(unittest.TestCase):
 
         # Test import with overwrite
         in_file = os.path.join(self.tmp.name, "metabods_to_import.json")
-        opml_kit.export_list_to_json(
-            [[3, "Gamma Gym"]], target=in_file, item_type="metabods"
-        )
+        opml_kit.export_list_to_json([[3, "Gamma Gym"]], target=in_file, item_type="metabods")
 
         with patch.object(
             ui.QFileDialog,
