@@ -11,13 +11,10 @@ from urllib.error import HTTPError, URLError
 if 'qt.core' not in sys.modules:
     try:
         import PyQt6.QtCore as _qtcore
-        import PyQt6.QtGui as _qtgui
         import PyQt6.QtWidgets as _qtwidgets
         qt = types.ModuleType('qt')
         qtcore = types.ModuleType('qt.core')
         for k, v in _qtcore.__dict__.items():
-            setattr(qtcore, k, v)
-        for k, v in _qtgui.__dict__.items():
             setattr(qtcore, k, v)
         for k, v in _qtwidgets.__dict__.items():
             setattr(qtcore, k, v)

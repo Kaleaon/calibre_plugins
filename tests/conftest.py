@@ -27,7 +27,6 @@ try:
     for module in (QtWidgets, QtGui, QtCore):
         for name in dir(module):
             setattr(_QT_CORE, name, getattr(module, name))
-    _QT_CORE._ = lambda s: s
     _QT_MOD = types.ModuleType("qt")
     _QT_MOD.core = _QT_CORE
     sys.modules.setdefault("qt", _QT_MOD)
