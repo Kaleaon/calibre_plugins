@@ -1,35 +1,33 @@
 """Metabods parsing and download logic. Pure standard library so it can be tested outside Calibre."""
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import copy
 import functools
 import html
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qs, urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
     from .storykit import (
         Cancelled,
         Fetcher,
-        build_epub as _build_epub,
-        clean_fragment,
-        decode,
-        epub_builder,
         parse_chapter_range,
         strip_tags,
-    )  # noqa: F401
+    )
+    from .storykit import (
+        build_epub as _build_epub,
+    )
 except ImportError:  # tests load this file directly with common/ on sys.path
     from storykit import (
         Cancelled,
         Fetcher,
-        build_epub as _build_epub,
-        clean_fragment,
-        decode,
-        epub_builder,
         parse_chapter_range,
         strip_tags,
-    )  # noqa: F401
+    )
+    from storykit import (
+        build_epub as _build_epub,
+    )
 
 SITE = "https://metabods.com/mbxy/site/"
 PUBLISHER = "Metabods"
@@ -68,11 +66,7 @@ def classify(line):
         return None
     query = parse_qs(parsed.query)
     path = parsed.path.rsplit("/", 1)[-1]
-    if (
-        path in ("story.php", "story_print.php")
-        and query.get("id")
-        and SLUG.match(query["id"][0])
-    ):
+    if path in ("story.php", "story_print.php") and query.get("id") and SLUG.match(query["id"][0]):
         return "story", query["id"][0]
     if path == "archive.php" and query.get("list"):
         return "list", f"{SITE}archive.php?" + parsed.query
@@ -106,9 +100,7 @@ def parse_story_rows(page):
 
 def parse_tag_index(page):
     tags = {}
-    for m in re.finditer(
-        r'<a\s[^>]*href="[^"]*list=tag&(?:amp;)?id=(\d+)"[^>]*>(.*?)</a>', page, re.S
-    ):
+    for m in re.finditer(r'<a\s[^>]*href="[^"]*list=tag&(?:amp;)?id=(\d+)"[^>]*>(.*?)</a>', page, re.S):
         name = strip_tags(m.group(2))
         if name and name.lower() != "all tags":
             tags.setdefault(int(m.group(1)), name)
@@ -139,7 +131,7 @@ def make_thread_fetcher(fetcher=None):
         return tf
     except Exception:
         kwargs = {}
-        for attr in ('min_interval', 'cancelled', 'opener'):
+        for attr in ("min_interval", "cancelled", "opener"):
             val = getattr(fetcher, attr, None)
             if val is not None:
                 kwargs[attr] = val
@@ -171,7 +163,7 @@ def search_tags(fetcher, tag_ids, progress=None, max_workers=5):
             return tf
         except Exception:
             kwargs = {}
-            for attr in ('min_interval', 'cancelled', 'opener'):
+            for attr in ("min_interval", "cancelled", "opener"):
                 val = getattr(fetcher, attr, None)
                 if val is not None:
                     kwargs[attr] = val
@@ -251,8 +243,7 @@ def parse_story_page(page):
         seen = set()
         for kind, key in (("tag", "tags"), ("category", "categories")):
             for m in re.finditer(
-                r'<a\s[^>]*href="/mbxy/site/archive\.php\?list=%s&(?:amp;)?id=\d+"[^>]*>(.*?)</a>'
-                % kind,
+                rf'<a\s[^>]*href="/mbxy/site/archive\.php\?list={kind}&(?:amp;)?id=\d+"[^>]*>(.*?)</a>',
                 block,
                 re.S,
             ):
@@ -291,9 +282,7 @@ def parse_print_page(page, chapter_range=None):
             indices = set(chapter_range)
         sections = [sec for i, sec in enumerate(sections) if i in indices]
         if not sections:
-            raise ValueError(
-                f'No chapters match range "{chapter_range}" (story has {total_sections} chapter(s))'
-            )
+            raise ValueError(f'No chapters match range "{chapter_range}" (story has {total_sections} chapter(s))')
     return {
         "title": title,
         "author": author,
@@ -304,20 +293,16 @@ def parse_print_page(page, chapter_range=None):
 
 def fetch_story(fetcher, story_id, chapter_range=None):
     """Download one story (all parts) and merge print-page text with story-page metadata."""
-    story = parse_print_page(
-        fetcher.get(print_url(story_id)), chapter_range=chapter_range
-    )
+    story = parse_print_page(fetcher.get(print_url(story_id)), chapter_range=chapter_range)
     story["id"] = story_id
     story["url"] = story_url(story_id)
     try:
         info = parse_story_page(fetcher.get(story["url"]))
     except Cancelled:
         raise
-    except IOError:
+    except OSError:
         info = {"tags": [], "categories": [], "summary": ""}
-    story.update(
-        tags=info["tags"], categories=info["categories"], summary=info["summary"]
-    )
+    story.update(tags=info["tags"], categories=info["categories"], summary=info["summary"])
     return story
 
 

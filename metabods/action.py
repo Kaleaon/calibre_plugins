@@ -1,10 +1,8 @@
 from calibre.gui2 import error_dialog, info_dialog, question_dialog
-from qt.core import QAction, QMenu
-
-from calibre_plugins.metabods_downloader import core
-from calibre_plugins.metabods_downloader import libkit
+from calibre_plugins.metabods_downloader import core, libkit
 from calibre_plugins.metabods_downloader.guikit import run_task
 from calibre_plugins.metabods_downloader.ui import DownloadDialog, TagSearchDialog
+from qt.core import QAction, QMenu
 
 IDENTIFIER = "metabods"
 
@@ -111,17 +109,13 @@ class MetabodsAction(libkit.DownloaderAction):
             for n, sid in enumerate(ids, 1):
                 task.status = f"Downloading {n} of {len(ids)}: {sid}"
                 try:
-                    stories.append(
-                        core.fetch_story(fetcher, sid, chapter_range=chapter_range)
-                    )
+                    stories.append(core.fetch_story(fetcher, sid, chapter_range=chapter_range))
                 except core.Cancelled:
                     raise
                 except Exception as exc:
                     failures.append(f"{sid}: {exc}")
 
-        task = run_task(
-            self.gui, "Downloading stories…", work
-        )  # on cancel, stories fetched so far are still imported
+        task = run_task(self.gui, "Downloading stories…", work)  # on cancel, stories fetched so far are still imported
         if task.error:
             failures.append(str(task.error))
         imported, build_errors = libkit.import_stories(

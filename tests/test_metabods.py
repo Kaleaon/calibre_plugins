@@ -11,9 +11,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 import storykit
 
-spec = importlib.util.spec_from_file_location(
-    "mcore", Path(__file__).resolve().parents[1] / "metabods/core.py"
-)
+spec = importlib.util.spec_from_file_location("mcore", Path(__file__).resolve().parents[1] / "metabods/core.py")
 core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
 
@@ -58,12 +56,8 @@ class InputTests(unittest.TestCase):
             core.classify("https://www.metabods.com/mbxy/site/story.php?id=a-b-1"),
             ("story", "a-b-1"),
         )
-        self.assertEqual(
-            core.classify("metabods.com/mbxy/site/story_print.php?id=x"), ("story", "x")
-        )
-        kind, url = core.classify(
-            "https://metabods.com/mbxy/site/archive.php?list=author&id=368"
-        )
+        self.assertEqual(core.classify("metabods.com/mbxy/site/story_print.php?id=x"), ("story", "x"))
+        kind, url = core.classify("https://metabods.com/mbxy/site/archive.php?list=author&id=368")
         self.assertEqual(kind, "list")
         self.assertTrue(url.endswith("list=author&id=368"))
         self.assertIsNone(core.classify("https://example.com/story.php?id=x"))
@@ -87,14 +81,13 @@ class ListTests(unittest.TestCase):
     def test_tag_index_and_combination(self):
         page = '<a href="?list=tag&id=9">Zebra</a><a href="?list=tag&id=3">apple</a><a href="?list=tag&id=90">All Tags</a><a href="?list=tag&id=3">apple</a>'
         self.assertEqual(core.parse_tag_index(page), [(3, "apple"), (9, "Zebra")])
-        r = lambda *ids: [{"id": i, "title": i.upper(), "author": ""} for i in ids]
+
+        def r(*ids):
+            return [{"id": i, "title": i.upper(), "author": ""} for i in ids]
+
         results = {1: r("a", "b"), 2: r("b", "c")}
-        self.assertEqual(
-            [x["id"] for x in core.combine_tag_results(results, True)], ["b"]
-        )
-        self.assertEqual(
-            [x["id"] for x in core.combine_tag_results(results, False)], ["a", "b", "c"]
-        )
+        self.assertEqual([x["id"] for x in core.combine_tag_results(results, True)], ["b"])
+        self.assertEqual([x["id"] for x in core.combine_tag_results(results, False)], ["a", "b", "c"])
         self.assertEqual(core.combine_tag_results({}, True), [])
 
     def test_expand_targets_without_skip_ids(self):
@@ -109,9 +102,7 @@ class ListTests(unittest.TestCase):
             "https://metabods.com/mbxy/site/archive.php?list=author&id=1",
         ]
         rows, errors = core.expand_targets(fetcher, lines)
-        self.assertEqual(
-            [r["id"] for r in rows], ["direct-story", "story-1", "story-2"]
-        )
+        self.assertEqual([r["id"] for r in rows], ["direct-story", "story-1", "story-2"])
         self.assertEqual(errors, [])
 
     def test_expand_targets_with_skip_ids_filters_story_rows(self):
@@ -144,18 +135,14 @@ class ListTests(unittest.TestCase):
     def test_expand_targets_no_stories_found(self):
         fetcher = ConcurrentFakeFetcher()
         fetcher.get = lambda url: "<html><body>Empty page</body></html>"
-        rows, errors = core.expand_targets(
-            fetcher, ["https://metabods.com/mbxy/site/archive.php?list=author&id=999"]
-        )
+        rows, errors = core.expand_targets(fetcher, ["https://metabods.com/mbxy/site/archive.php?list=author&id=999"])
         self.assertEqual(rows, [])
         self.assertEqual(len(errors), 1)
         self.assertIn("No stories found", errors[0])
 
 
 class ConcurrentFakeFetcher:
-    def __init__(
-        self, min_interval=0, cancelled=lambda: False, delays=None, errors=None
-    ):
+    def __init__(self, min_interval=0, cancelled=lambda: False, delays=None, errors=None):
         self.min_interval = min_interval
         self.cancelled = cancelled
         self.delays = delays or {}
@@ -166,7 +153,7 @@ class ConcurrentFakeFetcher:
             raise core.Cancelled()
         tid_str = url.rsplit("=", 1)[-1]
         if tid_str in self.errors:
-            raise IOError(self.errors[tid_str])
+            raise OSError(self.errors[tid_str])
         delay = self.delays.get(tid_str, 0.0)
         if delay > 0:
             import time
@@ -209,9 +196,7 @@ class SearchTagsTests(unittest.TestCase):
         def is_cancelled():
             return cancel_flag
 
-        fetcher = ConcurrentFakeFetcher(
-            cancelled=is_cancelled, delays={str(i): 0.1 for i in range(1, 6)}
-        )
+        fetcher = ConcurrentFakeFetcher(cancelled=is_cancelled, delays={str(i): 0.1 for i in range(1, 6)})
         cancel_flag = True
         with self.assertRaises(core.Cancelled):
             core.search_tags(fetcher, [1, 2, 3])
@@ -244,7 +229,7 @@ class SearchTagsTests(unittest.TestCase):
 
         seen_locks = set()
 
-        class LockTrackingFetcher(getattr(core, 'Fetcher', storykit.Fetcher)):
+        class LockTrackingFetcher(getattr(core, "Fetcher", storykit.Fetcher)):
             def get(self, url):
                 seen_locks.add(self._lock)
                 time.sleep(0.02)
@@ -279,7 +264,7 @@ class SearchTagsTests(unittest.TestCase):
             return False
 
         def custom_opener(req, timeout=60):
-            return FakeResponse(b'test')
+            return FakeResponse(b"test")
 
         class UncopyableFetcher:
             def __init__(self):
@@ -316,17 +301,15 @@ class SearchTagsTests(unittest.TestCase):
         duck_fetcher = UncopyableDuckFetcher()
         results = core.search_tags(duck_fetcher, [101, 102], max_workers=2)
         self.assertEqual(len(results), 2)
-        self.assertEqual(results[101][0]['id'], 'fallback_story')
-        self.assertEqual(results[102][0]['id'], 'fallback_story')
+        self.assertEqual(results[101][0]["id"], "fallback_story")
+        self.assertEqual(results[102][0]["id"], "fallback_story")
 
 
 class StoryTests(unittest.TestCase):
     def test_print_page(self):
         s = core.parse_print_page(PRINT)
         self.assertEqual((s["title"], s["author"]), ("Big & Bold", "Some Author"))
-        self.assertEqual(
-            [h for h, _ in s["sections"]], ["Author's Note", "Part 1", "Part 2"]
-        )
+        self.assertEqual([h for h, _ in s["sections"]], ["Author's Note", "Part 1", "Part 2"])
         with self.assertRaises(ValueError):
             core.parse_print_page("<html></html>")
 
@@ -341,9 +324,7 @@ class StoryTests(unittest.TestCase):
         self.assertEqual([h for h, _ in s2_plus["sections"]], ["Part 1", "Part 2"])
 
         s_all = core.parse_print_page(PRINT, chapter_range="")
-        self.assertEqual(
-            [h for h, _ in s_all["sections"]], ["Author's Note", "Part 1", "Part 2"]
-        )
+        self.assertEqual([h for h, _ in s_all["sections"]], ["Author's Note", "Part 1", "Part 2"])
 
         with self.assertRaises(ValueError) as ctx:
             core.parse_print_page(PRINT, chapter_range="99")
@@ -370,9 +351,7 @@ class StoryTests(unittest.TestCase):
         self.assertNotIn("javascript", out)
         self.assertNotIn("<p></p>", out)
         self.assertIn("stray", out)
-        styled = storykit.clean_fragment(
-            '<p style="margin-left:40px;color:red;background:url(x)">t</p>'
-        )
+        styled = storykit.clean_fragment('<p style="margin-left:40px;color:red;background:url(x)">t</p>')
         self.assertIn("margin-left:40px", styled)
         self.assertNotIn("color", styled)
 
@@ -392,24 +371,16 @@ class StoryTests(unittest.TestCase):
             '<div class="xyp_section"><h3>Part 2</h3>',
             '<div class="xyp_section"><h3 class="x">Skip</h3>',
         )
-        s = core.parse_print_page(
-            one.split('<div class="xyp_section"><h3 class="x">')[0] + "</body>"
-        )
+        s = core.parse_print_page(one.split('<div class="xyp_section"><h3 class="x">')[0] + "</body>")
         s.update(id="x", url="u", tags=[], categories=[], summary="")
         ncx = check_epub(self, core.build_epub([s])).read("OEBPS/toc.ncx").decode()
         self.assertIn("<text>Big &amp; Bold</text>", ncx)
 
     def test_combined_epub_nests_parts(self):
-        z = check_epub(
-            self, core.build_epub([story("one"), story("two")], title="Omnibus")
-        )
+        z = check_epub(self, core.build_epub([story("one"), story("two")], title="Omnibus"))
         ncx = z.read("OEBPS/toc.ncx").decode()
-        self.assertEqual(
-            ncx.count("<navPoint"), 1 + 2 + 6
-        )  # title page, two stories, six parts
-        self.assertIn(
-            "<dc:title>Omnibus</dc:title>", z.read("OEBPS/content.opf").decode()
-        )
+        self.assertEqual(ncx.count("<navPoint"), 1 + 2 + 6)  # title page, two stories, six parts
+        self.assertIn("<dc:title>Omnibus</dc:title>", z.read("OEBPS/content.opf").decode())
         with self.assertRaises(ValueError):
             core.build_epub([])
 
@@ -439,16 +410,12 @@ class FetcherTests(unittest.TestCase):
             return FakeResponse("café".encode())
 
         self.assertEqual(
-            storykit.Fetcher(min_interval=0, opener=opener).get(
-                "https://metabods.com/x"
-            ),
+            storykit.Fetcher(min_interval=0, opener=opener).get("https://metabods.com/x"),
             "café",
         )
         self.assertEqual(len(calls), 2)
         with self.assertRaises(storykit.Cancelled):
-            storykit.Fetcher(min_interval=0, cancelled=lambda: True, opener=opener).get(
-                "https://metabods.com/x"
-            )
+            storykit.Fetcher(min_interval=0, cancelled=lambda: True, opener=opener).get("https://metabods.com/x")
 
 
 _INJECTED_MODULES = []
@@ -470,9 +437,7 @@ def _load_action_module():
             sys.modules[mod] = MagicMock()
             _INJECTED_MODULES.append(mod)
     sys.modules["calibre.gui2.actions"].InterfaceAction = object
-    sys.modules["calibre.utils.config"].JSONConfig = lambda name: type(
-        "Prefs", (dict,), {"defaults": {}}
-    )()
+    sys.modules["calibre.utils.config"].JSONConfig = lambda name: type("Prefs", (dict,), {"defaults": {}})()
 
     pkg_name = "calibre_plugins.metabods_downloader"
     if "calibre_plugins" not in sys.modules:
@@ -485,17 +450,13 @@ def _load_action_module():
         sys.modules[pkg_name] = pkg
         _INJECTED_MODULES.append(pkg_name)
 
-    spec_c = importlib.util.spec_from_file_location(
-        f"{pkg_name}.core", root / "metabods/core.py"
-    )
+    spec_c = importlib.util.spec_from_file_location(f"{pkg_name}.core", root / "metabods/core.py")
     core_mod = importlib.util.module_from_spec(spec_c)
     sys.modules[f"{pkg_name}.core"] = core_mod
     _INJECTED_MODULES.append(f"{pkg_name}.core")
     spec_c.loader.exec_module(core_mod)
 
-    act_spec = importlib.util.spec_from_file_location(
-        f"{pkg_name}.action", root / "metabods/action.py"
-    )
+    act_spec = importlib.util.spec_from_file_location(f"{pkg_name}.action", root / "metabods/action.py")
     action_mod = importlib.util.module_from_spec(act_spec)
     sys.modules[f"{pkg_name}.action"] = action_mod
     _INJECTED_MODULES.append(f"{pkg_name}.action")
@@ -555,9 +516,7 @@ class DownloadByLinkTests(unittest.TestCase):
         with (
             patch.object(self.action_mod, "DownloadDialog", return_value=mock_dialog),
             patch.object(self.action_mod, "run_task", side_effect=fake_run_task),
-            patch.object(
-                self.core_mod, "expand_targets", wraps=self.core_mod.expand_targets
-            ) as spy_expand,
+            patch.object(self.core_mod, "expand_targets", wraps=self.core_mod.expand_targets) as spy_expand,
             patch.object(self.core_mod.Fetcher, "get", return_value=page) as mock_get,
         ):
             act.download_by_link()
@@ -568,12 +527,8 @@ class DownloadByLinkTests(unittest.TestCase):
             spy_expand.call_args[0][1],
             ["direct-2", "https://metabods.com/mbxy/site/archive.php?list=author&id=1"],
         )
-        self.assertEqual(
-            spy_expand.call_args[1].get("skip_ids"), {"story-1", "direct-1"}
-        )
-        act.download.assert_called_once_with(
-            ["direct-2", "story-2"], False, "", [], 1, chapter_range=None
-        )
+        self.assertEqual(spy_expand.call_args[1].get("skip_ids"), {"story-1", "direct-1"})
+        act.download.assert_called_once_with(["direct-2", "story-2"], False, "", [], 1, chapter_range=None)
 
     def test_download_by_link_all_direct_stories_skipped_no_network(self):
         act = self.action_mod.MetabodsAction()
@@ -597,9 +552,7 @@ class DownloadByLinkTests(unittest.TestCase):
             patch.object(
                 self.action_mod,
                 "run_task",
-                side_effect=lambda gui, msg, fn: MagicMock(
-                    error=None, result=fn(MagicMock(cancelled=lambda: False))
-                ),
+                side_effect=lambda gui, msg, fn: MagicMock(error=None, result=fn(MagicMock(cancelled=lambda: False))),
             ),
             patch.object(self.core_mod.Fetcher, "get", get_mock),
         ):
@@ -629,22 +582,16 @@ class DownloadByLinkTests(unittest.TestCase):
             patch.object(
                 self.action_mod,
                 "run_task",
-                side_effect=lambda gui, msg, fn: MagicMock(
-                    error=None, result=fn(MagicMock(cancelled=lambda: False))
-                ),
+                side_effect=lambda gui, msg, fn: MagicMock(error=None, result=fn(MagicMock(cancelled=lambda: False))),
             ),
-            patch.object(
-                self.core_mod, "expand_targets", wraps=self.core_mod.expand_targets
-            ) as spy_expand,
+            patch.object(self.core_mod, "expand_targets", wraps=self.core_mod.expand_targets) as spy_expand,
         ):
             act.download_by_link()
 
         self.assertEqual(act.existing_ids.call_count, 0)
         self.assertEqual(spy_expand.call_args[0][1], ["direct-1"])
         self.assertIsNone(spy_expand.call_args[1].get("skip_ids"))
-        act.download.assert_called_once_with(
-            ["direct-1"], False, "", [], 0, chapter_range=None
-        )
+        act.download.assert_called_once_with(["direct-1"], False, "", [], 0, chapter_range=None)
 
 
 if __name__ == "__main__":
