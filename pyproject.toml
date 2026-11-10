@@ -1,10 +1,80 @@
 [tool.ruff]
 target-version = "py310"
-line-length = 88
+line-length = 120
+include = [
+    "scrubber_plugin/__init__.py",
+    "scrubber_plugin/action.py",
+    "scrubber_plugin/core.py",
+    "scrubber_plugin/ui.py",
+    "tests/test_scrubber.py",
+    "tests/test_scrubber_restore.py",
+]
 extend-exclude = [
     "dist",
     "build",
     "third_party",
+    "common",
+    "fanfic",
+    "furry",
+    "gemini",
+    "media",
+    "metabods",
+    "nifty",
+    "plugin",
+    "reddit",
+    "scripts",
+    "scrubber_plugin",
+    "tagger",
+    "build.py",
+    "build_plugins.py",
+    "calibre_link/adapter.py",
+    "calibre_link/build_zip.py",
+    "calibre_link/config.py",
+    "calibre_link/server.py",
+    "tests/calibre_integration.py",
+    "tests/conftest.py",
+    "tests/harness_utils.py",
+    "tests/reddit_samples.py",
+    "tests/takeout_pdf_validation.py",
+    "tests/takeout_validation.py",
+    "tests/test_core.py",
+    "tests/test_empty_state_overlay.py",
+    "tests/test_epub_merge.py",
+    "tests/test_epub_merge_dialog.py",
+    "tests/test_error_handler.py",
+    "tests/test_fanfic.py",
+    "tests/test_flaresolverr.py",
+    "tests/test_flaresolverr_autospawn.py",
+    "tests/test_flaresolverr_launcher.py",
+    "tests/test_furry.py",
+    "tests/test_gemini.py",
+    "tests/test_guikit.py",
+    "tests/test_importer.py",
+    "tests/test_media.py",
+    "tests/test_media_dialogs.py",
+    "tests/test_metabods.py",
+    "tests/test_nifty.py",
+    "tests/test_nifty_authors.py",
+    "tests/test_nifty_posting_order.py",
+    "tests/test_plugin_imports.py",
+    "tests/test_qt_dialogs.py",
+    "tests/test_readme_index.py",
+    "tests/test_reddit.py",
+    "tests/test_reddit_login.py",
+    "tests/test_reddit_registry.py",
+    "tests/test_scrubber.py",
+    "tests/test_scrubber_config.py",
+    "tests/test_scrubber_history.py",
+    "tests/test_scrubber_pipeline.py",
+    "tests/test_scrubber_preview.py",
+    "tests/test_scrubber_profiles.py",
+    "tests/test_storykit_cover.py",
+    "tests/test_tagger.py",
+    "tests/test_tagger_presets.py",
+    "tests/test_takeout_duplicates.py",
+    "tests/test_takeout_queue.py",
+    "tests/test_task_queue.py",
+    "tests/test_watch_folder.py",
 ]
 
 [tool.ruff.lint]
@@ -15,10 +85,11 @@ select = [
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
 ]
-ignore = ["E501", "UP038"]
+ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = [
+    "calibre_link",
     "common",
     "fanfic",
     "gemini",

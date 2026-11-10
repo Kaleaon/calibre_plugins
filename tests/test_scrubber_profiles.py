@@ -3,12 +3,15 @@
 import importlib.util
 import io
 import json
+import os
 import sys
 import types
 import unittest
 import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 
