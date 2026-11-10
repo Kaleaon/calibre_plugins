@@ -9,7 +9,7 @@ import sys
 
 def get_changed_files(base_ref=None):
     """Determine changed files against base branch or upstream."""
-    base = base_ref or os.environ.get("BASE_REF")
+    base = base_ref or os.environ.get("BASE_REF") or "main"
     diff_succeeded = False
     files = []
 
