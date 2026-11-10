@@ -85,7 +85,7 @@ To run the Ruff linter across modified files (as in PR CI):
 ruff check <modified_files>
 ```
 
-To run the Ruff linter across the entire codebase:
+To run the Ruff linter across the codebase:
 ```bash
 ruff check .
 ```
@@ -101,7 +101,7 @@ To check code formatting on modified files:
 ruff format --check <modified_files>
 ```
 
-To check code formatting across the repository:
+To check code formatting:
 ```bash
 ruff format --check .
 ```
