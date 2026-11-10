@@ -149,9 +149,7 @@ class ThemeTokenEngine(QObject):
         palette = app.palette()
         bg_color = palette.color(QPalette.ColorRole.Window)
         text_color = palette.color(QPalette.ColorRole.WindowText)
-        return (
-            bg_color.lightness() < text_color.lightness() or bg_color.lightness() < 128
-        )
+        return bg_color.lightness() < text_color.lightness() or bg_color.lightness() < 128
 
     @classmethod
     def is_high_contrast(cls, app=None) -> bool:
@@ -490,9 +488,7 @@ def scan_library_books_for_merge(gui, book_ids):
             if mi and getattr(mi, "authors", None):
                 story["author"] = " & ".join(mi.authors)
 
-            results.append(
-                {"book_id": b_id, "title": title, "status": "ok", "story": story}
-            )
+            results.append({"book_id": b_id, "title": title, "status": "ok", "story": story})
         except Exception as exc:
             results.append(
                 {
@@ -628,9 +624,7 @@ class TreeCheckStateMixin:
         try:
             state = item.checkState(0)
             val = getattr(state, "value", state)
-            partially_val = getattr(
-                getattr(Qt, "CheckState", Qt), "PartiallyChecked", 1
-            )
+            partially_val = getattr(getattr(Qt, "CheckState", Qt), "PartiallyChecked", 1)
             if item.childCount() > 0 and val != 1 and state != partially_val:
                 self._set_children_check_state(item, state)
             self._update_parent_check_state(item)
@@ -723,9 +717,7 @@ class MergePreviewDialog(TreeCheckStateMixin, _MergeDialogBase):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Book / Chapter Sequence", "Status / Category"])
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.tree.header().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
-        )
+        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.tree.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
 
@@ -755,12 +747,8 @@ class MergePreviewDialog(TreeCheckStateMixin, _MergeDialogBase):
         bottom_layout.addWidget(self.summary_label)
         bottom_layout.addStretch()
 
-        self.button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText(
-            "Merge Books"
-        )
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Merge Books")
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         bottom_layout.addWidget(self.button_box)
@@ -777,11 +765,7 @@ class MergePreviewDialog(TreeCheckStateMixin, _MergeDialogBase):
         self.update_summary()
 
     def prepopulate_metadata(self):
-        valid_stories = [
-            res["story"]
-            for res in self.scan_results
-            if res.get("status") == "ok" and res.get("story")
-        ]
+        valid_stories = [res["story"] for res in self.scan_results if res.get("status") == "ok" and res.get("story")]
         if not valid_stories:
             self.title_edit.setText("Merged Omnibus")
             self.author_edit.setText("Unknown")
@@ -792,29 +776,18 @@ class MergePreviewDialog(TreeCheckStateMixin, _MergeDialogBase):
 
         combined = len(valid_stories) > 1
         title = (
-            f"{valid_stories[0]['title']} and {len(valid_stories) - 1} more"
-            if combined
-            else valid_stories[0]["title"]
+            f"{valid_stories[0]['title']} and {len(valid_stories) - 1} more" if combined else valid_stories[0]["title"]
         )
         authors = list(dict.fromkeys(s.get("author", "Unknown") for s in valid_stories))
         author = " & ".join(authors)
         publisher = "Merged Omnibus"
-        tags_set = list(
-            dict.fromkeys(
-                t
-                for s in valid_stories
-                for t in s.get("tags", []) + s.get("categories", [])
-            )
-        )
+        tags_set = list(dict.fromkeys(t for s in valid_stories for t in s.get("tags", []) + s.get("categories", [])))
         tags_str = ", ".join(tags_set)
 
         if combined:
             desc = (
                 "<ol>"
-                + "".join(
-                    f"<li>{html.escape(s['title'])} — {html.escape(s['author'])}</li>"
-                    for s in valid_stories
-                )
+                + "".join(f"<li>{html.escape(s['title'])} — {html.escape(s['author'])}</li>" for s in valid_stories)
                 + "</ol>"
             )
         else:
@@ -832,28 +805,20 @@ class MergePreviewDialog(TreeCheckStateMixin, _MergeDialogBase):
 
         for res in self.scan_results:
             status = res.get("status", "ok")
-            title = res.get("title") or (
-                res["story"].get("title") if res.get("story") else "Untitled"
-            )
+            title = res.get("title") or (res["story"].get("title") if res.get("story") else "Untitled")
 
             if status == "error":
                 disp_title = f"⚠️ {title} [CORRUPTED]"
-                book_item = QTreeWidgetItem(
-                    self.tree, [disp_title, "Extraction Failure"]
-                )
+                book_item = QTreeWidgetItem(self.tree, [disp_title, "Extraction Failure"])
                 book_item.setFlags(book_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 book_item.setCheckState(0, Qt.CheckState.Unchecked)
-                book_item.setData(
-                    0, Qt.ItemDataRole.UserRole, {"type": "error", "item": res}
-                )
+                book_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "error", "item": res})
             else:
                 story = res["story"]
                 author = story.get("author", "Unknown")
                 sections = story.get("sections", [])
                 disp_title = f"{title} (by {author})"
-                book_item = QTreeWidgetItem(
-                    self.tree, [disp_title, f"{len(sections)} chapter(s)"]
-                )
+                book_item = QTreeWidgetItem(self.tree, [disp_title, f"{len(sections)} chapter(s)"])
                 book_item.setFlags(book_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 book_item.setCheckState(0, Qt.CheckState.Checked)
                 book_item.setData(
@@ -864,9 +829,7 @@ class MergePreviewDialog(TreeCheckStateMixin, _MergeDialogBase):
 
                 for heading, body in sections:
                     child_item = QTreeWidgetItem(book_item, [heading, "Chapter"])
-                    child_item.setFlags(
-                        child_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-                    )
+                    child_item.setFlags(child_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                     child_item.setCheckState(0, Qt.CheckState.Checked)
                     child_item.setData(
                         0,
@@ -928,16 +891,8 @@ class MergePreviewDialog(TreeCheckStateMixin, _MergeDialogBase):
             data = item.data(0, Qt.ItemDataRole.UserRole)
             top_items.append((item, data))
 
-        valid_items = [
-            t
-            for t in top_items
-            if isinstance(t[1], dict) and t[1].get("type") == "story"
-        ]
-        error_items = [
-            t
-            for t in top_items
-            if isinstance(t[1], dict) and t[1].get("type") == "error"
-        ]
+        valid_items = [t for t in top_items if isinstance(t[1], dict) and t[1].get("type") == "story"]
+        error_items = [t for t in top_items if isinstance(t[1], dict) and t[1].get("type") == "error"]
 
         stories = [t[1]["story"] for t in valid_items]
         sorted_stories = sort_by_posting_order(stories)
@@ -989,9 +944,7 @@ class MergePreviewDialog(TreeCheckStateMixin, _MergeDialogBase):
                 heading = data.get("heading", "Chapter")
                 body = data.get("body", "")
                 snippet = re.sub(r"<[^>]+>", "", body)[:500].strip()
-                self.detail_edit.setPlainText(
-                    f"Chapter Heading: {heading}\n\nContent Excerpt:\n{snippet}..."
-                )
+                self.detail_edit.setPlainText(f"Chapter Heading: {heading}\n\nContent Excerpt:\n{snippet}...")
             else:
                 self.detail_edit.setPlainText(f"Selected: {item.text(0)}")
         else:
@@ -1056,9 +1009,7 @@ class MergePreviewDialog(TreeCheckStateMixin, _MergeDialogBase):
     def update_summary(self):
         active_stories = self.get_active_stories()
         total_valid = sum(1 for r in self.scan_results if r.get("status") == "ok")
-        total_corrupted = sum(
-            1 for r in self.scan_results if r.get("status") == "error"
-        )
+        total_corrupted = sum(1 for r in self.scan_results if r.get("status") == "error")
 
         msg = f"Active: {len(active_stories)} of {total_valid} valid story(ies)"
         if total_corrupted > 0:
@@ -1095,10 +1046,7 @@ def chosen_fields(boxes, field_labels=None):
         else:
             keys = []
     else:
-        keys = [
-            item[0] if isinstance(item, (tuple, list)) else item
-            for item in field_labels
-        ]
+        keys = [item[0] if isinstance(item, (tuple, list)) else item for item in field_labels]
 
     result = []
     for key in keys:
@@ -1137,9 +1085,7 @@ def collect_tree_changes(tree):
             child = top.child(j)
             checked_state = child.checkState(0)
             if checked_state == Qt.CheckState.Checked or checked_state == 2:
-                changes[child.data(0, Qt.ItemDataRole.UserRole)] = child.data(
-                    0, Qt.ItemDataRole.UserRole + 1
-                )
+                changes[child.data(0, Qt.ItemDataRole.UserRole)] = child.data(0, Qt.ItemDataRole.UserRole + 1)
         if changes:
             items.append((top.data(0, Qt.ItemDataRole.UserRole), changes))
     return items
@@ -1316,10 +1262,7 @@ class EmptyStateOverlay(QWidget):
         on_action=None,
         actions=None,
     ):
-        if any(
-            arg is not None
-            for arg in (title, message, icon, action_text, on_action, actions)
-        ):
+        if any(arg is not None for arg in (title, message, icon, action_text, on_action, actions)):
             self.set_message(
                 title=title,
                 message=message,
@@ -1338,9 +1281,7 @@ class EmptyStateOverlay(QWidget):
             else QPalette.ColorRole.WindowText
         )
 
-        self.setStyleSheet(
-            f"EmptyStateOverlay {{ background-color: {base_col.name()}; }}"
-        )
+        self.setStyleSheet(f"EmptyStateOverlay {{ background-color: {base_col.name()}; }}")
         self.title_label.setStyleSheet(f"color: {text_col.name()};")
         self.message_label.setStyleSheet(f"color: {sub_col.name()};")
 
@@ -1405,11 +1346,7 @@ def format_field_value(field, value):
         if value is None:
             return "none"
         if isinstance(value, (tuple, list)) and value:
-            source = (
-                "Cover Art Archive"
-                if "coverartarchive" in str(value[0])
-                else "Open Library"
-            )
+            source = "Cover Art Archive" if "coverartarchive" in str(value[0]) else "Open Library"
             return f"front cover from {source}"
         return str(value) if value else "none"
     if field in ("authors", "tags") or isinstance(value, list):

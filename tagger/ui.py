@@ -29,18 +29,12 @@ except ImportError:
 
 CHECKED = getattr(Qt.CheckState, "Checked", getattr(Qt, "Checked", 2))
 UNCHECKED = getattr(Qt.CheckState, "Unchecked", getattr(Qt, "Unchecked", 0))
-PARTIALLY_CHECKED = getattr(
-    Qt.CheckState, "PartiallyChecked", getattr(Qt, "PartiallyChecked", 1)
-)
-ITEM_IS_USER_CHECKABLE = getattr(
-    Qt.ItemFlag, "ItemIsUserCheckable", getattr(Qt, "ItemIsUserCheckable", 16)
-)
+PARTIALLY_CHECKED = getattr(Qt.CheckState, "PartiallyChecked", getattr(Qt, "PartiallyChecked", 1))
+ITEM_IS_USER_CHECKABLE = getattr(Qt.ItemFlag, "ItemIsUserCheckable", getattr(Qt, "ItemIsUserCheckable", 16))
 USER_ROLE = getattr(Qt.ItemDataRole, "UserRole", getattr(Qt, "UserRole", 256))
 
 TreeCheckStateMixin = None
-if "common.guikit" in sys.modules and hasattr(
-    sys.modules["common.guikit"], "TreeCheckStateMixin"
-):
+if "common.guikit" in sys.modules and hasattr(sys.modules["common.guikit"], "TreeCheckStateMixin"):
     TreeCheckStateMixin = getattr(sys.modules["common.guikit"], "TreeCheckStateMixin")
 
 if TreeCheckStateMixin is None:
@@ -147,9 +141,7 @@ class TaggerPreviewDialog(TreeCheckStateMixin, _TaggerDialogBase):
         layout.addLayout(tb_layout)
 
         # Dialog Button Box
-        self.button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
         if ok_button:
             ok_button.setText("Apply Selected Tags")
@@ -170,22 +162,16 @@ class TaggerPreviewDialog(TreeCheckStateMixin, _TaggerDialogBase):
         for p in self.plan:
             title = p.get("title") or f"Book ID {p.get('id')}"
             add_tags = p.get("add", [])
-            book_item = QTreeWidgetItem(
-                self.tree, [title, f"{len(add_tags)} tag(s) proposed"]
-            )
+            book_item = QTreeWidgetItem(self.tree, [title, f"{len(add_tags)} tag(s) proposed"])
             book_item.setFlags(book_item.flags() | ITEM_IS_USER_CHECKABLE)
             book_item.setCheckState(0, CHECKED)
-            book_item.setData(
-                0, USER_ROLE, {"type": "book", "id": p.get("id"), "plan_item": p}
-            )
+            book_item.setData(0, USER_ROLE, {"type": "book", "id": p.get("id"), "plan_item": p})
 
             for tag in add_tags:
                 tag_item = QTreeWidgetItem(book_item, [tag, "Proposed Tag"])
                 tag_item.setFlags(tag_item.flags() | ITEM_IS_USER_CHECKABLE)
                 tag_item.setCheckState(0, CHECKED)
-                tag_item.setData(
-                    0, USER_ROLE, {"type": "tag", "id": p.get("id"), "tag": tag}
-                )
+                tag_item.setData(0, USER_ROLE, {"type": "tag", "id": p.get("id"), "tag": tag})
 
             book_item.setExpanded(True)
 

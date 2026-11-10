@@ -96,15 +96,9 @@ class TreeCheckStateMixinTests(unittest.TestCase):
         self.assertEqual(partial_enum, expected_partial)
 
         # Check idempotency when already Qt.CheckState
-        self.assertEqual(
-            TreeCheckStateMixin._to_check_state(checked_enum), checked_enum
-        )
-        self.assertEqual(
-            TreeCheckStateMixin._to_check_state(unchecked_enum), unchecked_enum
-        )
-        self.assertEqual(
-            TreeCheckStateMixin._to_check_state(partial_enum), partial_enum
-        )
+        self.assertEqual(TreeCheckStateMixin._to_check_state(checked_enum), checked_enum)
+        self.assertEqual(TreeCheckStateMixin._to_check_state(unchecked_enum), unchecked_enum)
+        self.assertEqual(TreeCheckStateMixin._to_check_state(partial_enum), partial_enum)
 
     def test_recursive_children_check_state(self):
         dialog = DummyDialogWithSummary()
