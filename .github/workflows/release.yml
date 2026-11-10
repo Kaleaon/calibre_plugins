@@ -30,7 +30,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install fanficfare PyQt6 lxml cloudscraper requests-file requests-toolbelt pyparsing
+          pip install --require-hashes -r requirements.txt
 
       - name: Run unit tests
         run: |
@@ -62,3 +62,23 @@ jobs:
             dist/SHA256SUMS
             dist/SHA256SUMS.txt
           generate_release_notes: true
+
+      - name: Check out main to refresh the dist downloads
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-dist
+
+      - name: Commit the packaged zips to dist/ on main
+        run: |
+          cp dist/*.zip dist/SHA256SUMS dist/SHA256SUMS.txt main-dist/dist/
+          cd main-dist
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist/
+          if git diff --cached --quiet; then
+            echo "dist/ on main is already up to date"
+          else
+            git commit -m "dist: refresh plugin zips for ${{ github.ref_name }}"
+            git push origin main
+          fi
