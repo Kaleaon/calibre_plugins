@@ -2688,6 +2688,7 @@ class ApiKeyValidationTests(unittest.TestCase):
         try:
             for name in ('calibre', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config'):
                 sys.modules[name] = MagicMock()
+            sys.modules['calibre.utils.config'].config_dir = tempfile.gettempdir()
             sys.modules['calibre.gui2.actions'].InterfaceAction = object
             qt_mod = MagicMock()
             qt_mod.core = MagicMock()

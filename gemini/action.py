@@ -328,6 +328,8 @@ def get_batch_dir():
             pass
     try:
         from calibre.utils.config import config_dir
+        if not isinstance(config_dir, str):
+            raise TypeError("config_dir must be a string")
         base = os.path.join(config_dir, 'plugins', 'gemini_library_fixer_batches')
     except Exception:
         import tempfile
@@ -347,6 +349,8 @@ def get_batch_dir():
 def _undo_path():
     try:
         from calibre.utils.config import config_dir
+        if not isinstance(config_dir, str):
+            raise TypeError("config_dir must be a string")
         base = os.path.join(config_dir, 'plugins')
     except Exception:
         import tempfile
