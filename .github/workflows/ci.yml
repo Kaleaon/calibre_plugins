@@ -149,7 +149,7 @@ jobs:
                       )
                       changed = [f.strip() for f in proc.stdout.splitlines() if f.strip()]
                       for c in changed:
-                          norm_c = c.replace('\\', '/')
+                          norm_c = c.replace(os.sep, '/')
                           if norm_c.startswith('tests/test_') and norm_c.endswith('.py') and os.path.exists(c):
                               test_targets.append(c)
                           else:
