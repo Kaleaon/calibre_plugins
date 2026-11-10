@@ -5,7 +5,6 @@ plugins folder, flushing every line. If calibre ever dies hard during a fetch or
 the last line in the log names the stage it died in. Logging must never break the plugin:
 every failure here is swallowed.
 """
-
 import os
 import time
 
@@ -13,28 +12,20 @@ import time
 def _log_path():
     try:
         from calibre.utils.config import config_dir
-
-        if not isinstance(config_dir, str) or not config_dir.strip():
-            raise TypeError("config_dir is not a valid string path")
-        folder = os.path.join(config_dir, "plugins")
+        folder = os.path.join(config_dir, 'plugins')
         os.makedirs(folder, exist_ok=True)
-        return os.path.join(folder, "inkbunny_sofurry_downloader.log")
+        return os.path.join(folder, 'inkbunny_sofurry_downloader.log')
     except Exception:
         return None
 
 
-def log(stage, detail=""):
+def log(stage, detail=''):
     try:
         path = _log_path()
         if not path:
             return
-        line = (
-            time.strftime("%Y-%m-%d %H:%M:%S")
-            + f"  {stage}"
-            + (f"  {detail}" if detail else "")
-            + "\n"
-        )
-        with open(path, "a", encoding="utf-8") as f:
+        line = time.strftime('%Y-%m-%d %H:%M:%S') + f'  {stage}' + (f'  {detail}' if detail else '') + '\n'
+        with open(path, 'a', encoding='utf-8') as f:
             f.write(line)
     except Exception:
         pass
