@@ -44,6 +44,8 @@ class CalibreLinkAction(InterfaceAction):
         self.server = None
         self.sidecar = None
         self._sidecar_stopping = False
+        self._auth_prompted = False
+        self.suppress_dialogs = False
         self.ts_status = {
             "state": "off",
             "auth_url": None,
@@ -225,6 +227,7 @@ class CalibreLinkAction(InterfaceAction):
     def start_sidecar(self):
         self.stop_sidecar()
         self._sidecar_stopping = False
+        self._auth_prompted = False
         if not prefs.get("ts_enabled", True):
             self.ts_status = {
                 "state": "off",
@@ -249,7 +252,7 @@ class CalibreLinkAction(InterfaceAction):
         except Exception as e:
             path = None
             self.ts_status.update(
-                state="error", error="could not extract Tailscale sidecar: %s" % e
+                state="error", error=f"could not extract Tailscale sidecar: {e}"
             )
             self._write_connection_file()
             return
@@ -271,8 +274,8 @@ class CalibreLinkAction(InterfaceAction):
         env = dict(os.environ)
         env["CLTS_HOSTNAME"] = prefs.get("ts_hostname", "calibre-link")
         env["CLTS_STATE_DIR"] = os.path.join(self._ts_dir(), "tsnet-state")
-        env["CLTS_LISTEN"] = ":%d" % port
-        env["CLTS_TARGET"] = "http://127.0.0.1:%d" % port
+        env["CLTS_LISTEN"] = f":{port}"
+        env["CLTS_TARGET"] = f"http://127.0.0.1:{port}"
         authkey = (prefs.get("ts_authkey") or "").strip()
         if authkey:
             env["CLTS_AUTHKEY"] = authkey
@@ -291,9 +294,7 @@ class CalibreLinkAction(InterfaceAction):
                 **kwargs,
             )
         except Exception as e:
-            self.ts_status.update(
-                state="error", error="could not launch sidecar: %s" % e
-            )
+            self.ts_status.update(state="error", error=f"could not launch sidecar: {e}")
             self._write_connection_file()
             return
         threading.Thread(
@@ -346,8 +347,9 @@ class CalibreLinkAction(InterfaceAction):
         if not self._sidecar_stopping:
             self.ts_status.update(
                 state="error",
-                error="Tailscale node exited (code %s) — see tsnet.log"
-                % getattr(proc, "returncode", "?"),
+                error="Tailscale node exited (code {}) — see tsnet.log".format(
+                    getattr(proc, "returncode", "?")
+                ),
             )
             self._write_connection_file()
 
@@ -360,10 +362,21 @@ class CalibreLinkAction(InterfaceAction):
             if url:
                 self.ts_status.update(state="auth", auth_url=url)
                 self._write_connection_file()
+                if not getattr(self, "_auth_prompted", False):
+                    self._auth_prompted = True
+                    from qt.core import QTimer
+
+                    QTimer.singleShot(0, lambda u=url: self._prompt_tailscale_auth(u))
             return
         if line.startswith("CALIBRE_TSNET auth_url="):
-            self.ts_status.update(state="auth", auth_url=line.split("=", 1)[1].strip())
+            url = line.split("=", 1)[1].strip()
+            self.ts_status.update(state="auth", auth_url=url)
             self._write_connection_file()
+            if url and not getattr(self, "_auth_prompted", False):
+                self._auth_prompted = True
+                from qt.core import QTimer
+
+                QTimer.singleShot(0, lambda u=url: self._prompt_tailscale_auth(u))
         elif line.startswith("CALIBRE_TSNET ip="):
             fields = {}
             for part in line.split()[1:]:
@@ -374,6 +387,7 @@ class CalibreLinkAction(InterfaceAction):
                 state="up", ip=fields.get("ip"), dns=fields.get("dns")
             )
             self._write_connection_file()
+            self._auth_prompted = False
         elif line.startswith("CALIBRE_TSNET bridge=ok"):
             self.ts_status.update(bridge=True)
             self._write_connection_file()
@@ -388,9 +402,9 @@ class CalibreLinkAction(InterfaceAction):
                 "on your tailnet as its own device."
             ]
             if st.get("dns"):
-                lines.append("  Tailnet name: http://%s:%d" % (st["dns"], port))
+                lines.append(f"  Tailnet name: http://{st['dns']}:{port}")
             if st.get("ip"):
-                lines.append("  Tailnet IP:   http://%s:%d" % (st["ip"], port))
+                lines.append(f"  Tailnet IP:   http://{st['ip']}:{port}")
             lines.append(
                 "That is the address Tinker uses — reachable "
                 "from anywhere on your tailnet. The token "
@@ -401,7 +415,7 @@ class CalibreLinkAction(InterfaceAction):
             return [
                 "Integrated Tailscale: WAITING FOR ONE-TIME LOGIN.",
                 "Open this link in your browser and approve the device:",
-                "  %s" % st["auth_url"],
+                f"  {st['auth_url']}",
                 "You only do this once. Afterwards this file will "
                 "show the tailnet address Tinker uses.",
             ]
@@ -411,8 +425,7 @@ class CalibreLinkAction(InterfaceAction):
             ]
         if st["state"] == "error":
             return [
-                "Integrated Tailscale: not running — %s"
-                % (st.get("error") or "unknown error")
+                f"Integrated Tailscale: not running — {st.get('error') or 'unknown error'}"
             ]
         return [
             "Integrated Tailscale: off (enable it in Preferences "
@@ -455,38 +468,38 @@ class CalibreLinkAction(InterfaceAction):
         port = int(prefs.get("port", 8765))
         lines = ["Calibre Link", ""]
         if self.server is not None and self.server.running:
-            lines.append("Bridge: RUNNING on %s:%d" % (host, port))
+            lines.append(f"Bridge: RUNNING on {host}:{port}")
         elif self.server is not None and self.server.last_error:
-            lines.append("Bridge: FAILED TO START — %s" % self.server.last_error)
+            lines.append(f"Bridge: FAILED TO START — {self.server.last_error}")
         else:
             lines.append("Bridge: not running")
-        lines.append("Token: %s" % get_token())
+        lines.append(f"Token: {get_token()}")
         lines.append("")
         st = self.ts_status
         lines.append("Tailscale (integrated):")
         if st["state"] == "up":
             lines.append("  CONNECTED as %s" % (st.get("dns") or "?"))
             if st.get("ip"):
-                lines.append("  Tailnet IP: %s" % st["ip"])
+                lines.append("  Tailnet IP: {}".format(st["ip"]))
             lines.append(
                 "  Local bridge link: %s" % ("OK" if st.get("bridge") else "pending")
             )
         elif st["state"] == "auth":
             lines.append("  WAITING FOR ONE-TIME LOGIN — open:")
-            lines.append("  %s" % st.get("auth_url"))
+            lines.append("  {}".format(st.get("auth_url")))
         elif st["state"] == "starting":
             lines.append("  starting…")
         elif st["state"] == "error":
-            lines.append("  ERROR: %s" % st.get("error"))
+            lines.append("  ERROR: {}".format(st.get("error")))
         else:
             lines.append("  off (Preferences -> Plugins -> Calibre Link)")
         lines.append("")
         try:
             info = self.adapter.health()
-            lines.append("Library: %s" % info["library"])
-            lines.append("Books: %s" % info["book_count"])
+            lines.append("Library: {}".format(info["library"]))
+            lines.append("Books: {}".format(info["book_count"]))
         except Exception as e:
-            lines.append("Library info unavailable: %s" % e)
+            lines.append(f"Library info unavailable: {e}")
         lines += [
             "",
             "The same details are in CalibreLink-connection.txt in "
@@ -509,3 +522,71 @@ class CalibreLinkAction(InterfaceAction):
         layout.addWidget(buttons)
         dlg.resize(560, 380)
         dlg.exec()
+
+    def _prompt_tailscale_auth(self, auth_url):
+        if not auth_url:
+            return None
+        if (
+            getattr(self, "suppress_dialogs", False)
+            or getattr(self, "_suppress_auth_dialog", False)
+            or bool(os.environ.get("CALIBRE_LINK_SUPPRESS_AUTH_DIALOG"))
+        ):
+            return None
+        self._auth_prompted = True
+        from qt.core import (
+            QApplication,
+            QDesktopServices,
+            QDialog,
+            QDialogButtonBox,
+            QLabel,
+            QPushButton,
+            QTextEdit,
+            QUrl,
+            QVBoxLayout,
+        )
+
+        dlg = QDialog(getattr(self, "gui", None))
+        dlg.setWindowTitle("Tailscale Authentication")
+        dlg.setModal(True)
+        dlg.auth_url = auth_url
+        layout = QVBoxLayout(dlg)
+
+        info = QLabel(
+            "Tailscale authorization is required for Calibre Link.\n\n"
+            "Open the authentication link in your browser to log in "
+            "and approve this device:"
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        url_box = QTextEdit(auth_url)
+        url_box.setReadOnly(True)
+        url_box.setMaximumHeight(60)
+        layout.addWidget(url_box)
+
+        buttons = QDialogButtonBox(dlg)
+
+        open_btn = QPushButton("Open Browser")
+        open_btn.clicked.connect(
+            lambda: (QDesktopServices.openUrl(QUrl(auth_url)), dlg.accept())
+        )
+        buttons.addButton(open_btn, QDialogButtonBox.ButtonRole.ActionRole)
+
+        copy_btn = QPushButton("Copy Link")
+        copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(auth_url))
+        buttons.addButton(copy_btn, QDialogButtonBox.ButtonRole.ActionRole)
+
+        dismiss_btn = QPushButton("Dismiss")
+        dismiss_btn.clicked.connect(dlg.reject)
+        buttons.addButton(dismiss_btn, QDialogButtonBox.ButtonRole.RejectRole)
+
+        layout.addWidget(buttons)
+
+        dlg.open_button = open_btn
+        dlg.copy_button = copy_btn
+        dlg.dismiss_button = dismiss_btn
+        dlg.button_box = buttons
+
+        dlg.resize(480, 200)
+        dlg.exec()
+        return dlg

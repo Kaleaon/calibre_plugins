@@ -1,5 +1,7 @@
 import importlib.util
 import io
+import os
+import struct
 import sys
 import tempfile
 import unittest
@@ -7,49 +9,19 @@ import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-class StubInterfaceAction:
-    def __init__(self, gui=None, name=None):
-        self.gui = gui
-        self.name = name
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+if str(ROOT / "common") not in sys.path:
+    sys.path.insert(0, str(ROOT / "common"))
 
-
-class StubJSONConfig(dict):
-    def __init__(self, name="", *args, **kwargs):
-        super().__init__()
-        self.name = name
-        self.defaults = {}
-
-    def __getitem__(self, key):
-        try:
-            return super().__getitem__(key)
-        except KeyError:
-            return self.defaults.get(key, "")
-
-    def get(self, key, default=None):
-        if key in self:
-            return self[key]
-        if key in self.defaults:
-            return self.defaults[key]
-        return default
-
-
-for mod_name in [
-    "calibre",
-    "calibre.customize",
-    "calibre.gui2",
-    "calibre.gui2.actions",
-    "calibre.utils",
-    "calibre.utils.config",
-]:
-    if mod_name not in sys.modules:
-        sys.modules[mod_name] = MagicMock()
-if not hasattr(sys.modules["calibre.utils.config"], "JSONConfig") or isinstance(
-    sys.modules["calibre.utils.config"].JSONConfig, MagicMock
-):
-    sys.modules["calibre.utils.config"].JSONConfig = StubJSONConfig
-sys.modules["calibre.gui2.actions"].InterfaceAction = StubInterfaceAction
-sys.modules["calibre.customize"].InterfaceActionBase = StubInterfaceAction
+from scrubber_plugin.image_classifier import (  # noqa: E402
+    classify_image_context,
+    get_image_dimensions,
+)
+from scrubber_plugin.scanner import LibraryScanner  # noqa: E402
 
 spec = importlib.util.spec_from_file_location(
     "scrub_core", Path(__file__).resolve().parents[1] / "scrubber_plugin/core.py"
@@ -65,8 +37,7 @@ OPF = """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" vers
 <item id="promo" href="promo.xhtml" media-type="application/xhtml+xml"/><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest>
 <spine><itemref idref="promo"/><itemref idref="c1"/></spine></package>"""
 NAV = (
-    XHTML
-    % '<nav><ol><li><a href="promo.xhtml">Downloaded</a></li><li><a href="c1.xhtml">Chapter 1</a></li></ol></nav>'
+    XHTML % '<nav><ol><li><a href="promo.xhtml">Downloaded</a></li><li><a href="c1.xhtml">Chapter 1</a></li></ol></nav>'
 )
 
 
@@ -115,22 +86,14 @@ class ScrubTests(unittest.TestCase):
         self.assertIn("Chapter 1", read(data, "OEBPS/nav.xhtml"))
 
     def test_clean_book_is_unchanged(self):
-        clean = OPF.replace(" - OceanofPDF.com", "").replace(
-            "OceanofPDF.com", "Some Press"
-        )
-        data, report = core.scrub_epub(
-            make("<p>Nothing here.</p>", "<p>Cover page</p>", clean)
-        )
+        clean = OPF.replace(" - OceanofPDF.com", "").replace("OceanofPDF.com", "Some Press")
+        data, report = core.scrub_epub(make("<p>Nothing here.</p>", "<p>Cover page</p>", clean))
         self.assertIsNone(data)
         self.assertEqual(report["changes"], [])
 
     def test_long_paragraph_keeps_surrounding_text(self):
-        text = (
-            "A long paragraph. " * 30
-            + "Found at oceanofpdf.com okay. "
-            + "More story. " * 5
-        )
-        data, _ = core.scrub_epub(make("<p>%s</p>" % text))
+        text = "A long paragraph. " * 30 + "Found at oceanofpdf.com okay. " + "More story. " * 5
+        data, _ = core.scrub_epub(make(f"<p>{text}</p>"))
         chapter = read(data, "OEBPS/c1.xhtml")
         self.assertIn("More story.", chapter)
         self.assertNotIn("oceanofpdf", chapter.lower())
@@ -163,9 +126,7 @@ class ScrubTests(unittest.TestCase):
 
     def test_in_place_replaces_original_only_when_changed(self):
         with tempfile.TemporaryDirectory() as d:
-            clean = OPF.replace(" - OceanofPDF.com", "").replace(
-                "OceanofPDF.com", "Some Press"
-            )
+            clean = OPF.replace(" - OceanofPDF.com", "").replace("OceanofPDF.com", "Some Press")
             (Path(d) / "dirty.epub").write_bytes(make("<p>Hi</p>"))
             untouched = make("<p>Hi</p>", "<p>Cover</p>", clean)
             (Path(d) / "clean.epub").write_bytes(untouched)
@@ -176,9 +137,7 @@ class ScrubTests(unittest.TestCase):
             )
             self.assertNotIn(
                 "oceanofpdf",
-                read(
-                    (Path(d) / "dirty.epub").read_bytes(), "OEBPS/content.opf"
-                ).lower(),
+                read((Path(d) / "dirty.epub").read_bytes(), "OEBPS/content.opf").lower(),
             )
             self.assertEqual((Path(d) / "clean.epub").read_bytes(), untouched)
             self.assertFalse(list(Path(d).glob("*.scrub-tmp")))
@@ -191,9 +150,7 @@ class ScrubActionTests(unittest.TestCase):
         import types
 
         self.saved_modules = {
-            k: v
-            for k, v in sys.modules.items()
-            if k.startswith(("calibre", "qt", "calibre_plugins"))
+            k: v for k, v in sys.modules.items() if k.startswith(("calibre", "qt", "calibre_plugins"))
         }
         for name in [
             "calibre",
@@ -248,9 +205,7 @@ class ScrubActionTests(unittest.TestCase):
         db = MagicMock()
         gui.current_db.new_api = db
 
-        clean_opf = OPF.replace(" - OceanofPDF.com", "").replace(
-            "OceanofPDF.com", "Some Press"
-        )
+        clean_opf = OPF.replace(" - OceanofPDF.com", "").replace("OceanofPDF.com", "Some Press")
         dirty_epub = make("<p>Dirty content</p>")
         clean_epub = make("<p>Clean content</p>", "<p>Cover</p>", clean_opf)
 
@@ -262,9 +217,7 @@ class ScrubActionTests(unittest.TestCase):
         db.format.side_effect = fake_format
         db.formats.return_value = ["EPUB"]
         db.add_format.return_value = True
-        db.get_metadata.return_value = MagicMock(
-            title="Title", publisher="Pub", comments="Comm"
-        )
+        db.get_metadata.return_value = MagicMock(title="Title", publisher="Pub", comments="Comm")
 
         info_dialog_mock = MagicMock()
         action_mod.info_dialog = info_dialog_mock
@@ -328,9 +281,7 @@ class ScrubActionTests(unittest.TestCase):
         db.format.return_value = make("<p>Dirty content</p>")
         db.formats.return_value = ["EPUB"]
         db.add_format.return_value = True
-        db.get_metadata.return_value = MagicMock(
-            title="Title", publisher="Pub", comments="Comm"
-        )
+        db.get_metadata.return_value = MagicMock(title="Title", publisher="Pub", comments="Comm")
 
         info_dialog_mock = MagicMock()
         action_mod.info_dialog = info_dialog_mock
@@ -383,23 +334,11 @@ class ScrubActionTests(unittest.TestCase):
 # Image Classification & Library Scanner Tests
 # -------------------------------------------------------------------------------------------------
 
-import struct
-
-from scrubber_plugin.image_classifier import (
-    classify_image_context,
-    get_image_dimensions,
-)
-from scrubber_plugin.scanner import LibraryScanner
-
 
 class ImageClassifierTests(unittest.TestCase):
     def test_binary_header_parsing(self):
         # 1. PNG 400x200
-        png_data = (
-            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
-            + struct.pack(">II", 400, 200)
-            + b"\x08\x02\x00\x00\x00"
-        )
+        png_data = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + struct.pack(">II", 400, 200) + b"\x08\x02\x00\x00\x00"
         w, h, fmt = get_image_dimensions(png_data, "test.png")
         self.assertEqual((w, h, fmt), (400, 200, "png"))
 
@@ -434,18 +373,11 @@ class ImageClassifierTests(unittest.TestCase):
         )
         self.assertTrue(res["is_promo"])
         self.assertEqual(res["category"], "ad")
-        self.assertTrue(
-            "patreon" in res["reason"].lower()
-            or "crowdfunding" in res["reason"].lower()
-        )
+        self.assertTrue("patreon" in res["reason"].lower() or "crowdfunding" in res["reason"].lower())
 
     def test_classify_publisher_logo_safe(self):
         # Publisher logo on title page with publisher keyword
-        logo_png = (
-            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
-            + struct.pack(">II", 150, 80)
-            + b"\x08\x02\x00\x00\x00"
-        )
+        logo_png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + struct.pack(">II", 150, 80) + b"\x08\x02\x00\x00\x00"
         res = classify_image_context(
             logo_png,
             "publisher_colophon.png",
@@ -468,10 +400,7 @@ class ImageClassifierTests(unittest.TestCase):
         self.assertEqual(res["category"], "ornament")
 
         # Narrative illustration inside chapter story
-        story_text = (
-            "The traveler looked across the misty valley toward the ancient stone towers. "
-            * 10
-        )
+        story_text = "The traveler looked across the misty valley toward the ancient stone towers. " * 10
         res = classify_image_context(
             None,
             "illustration_castle.jpg",
@@ -501,21 +430,9 @@ class ImageClassifierTests(unittest.TestCase):
 
 class ScrubImageTests(unittest.TestCase):
     def test_scrub_epub_removes_ad_image_and_purges_orphaned_file(self):
-        png_banner = (
-            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
-            + struct.pack(">II", 728, 90)
-            + b"\x08\x02\x00\x00\x00"
-        )
-        png_logo = (
-            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
-            + struct.pack(">II", 120, 60)
-            + b"\x08\x02\x00\x00\x00"
-        )
-        png_divider = (
-            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
-            + struct.pack(">II", 100, 10)
-            + b"\x08\x02\x00\x00\x00"
-        )
+        png_banner = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + struct.pack(">II", 728, 90) + b"\x08\x02\x00\x00\x00"
+        png_logo = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + struct.pack(">II", 120, 60) + b"\x08\x02\x00\x00\x00"
+        png_divider = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + struct.pack(">II", 100, 10) + b"\x08\x02\x00\x00\x00"
         jpg_cover = b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 20
 
         opf_with_images = """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">
@@ -598,11 +515,7 @@ class ScrubImageTests(unittest.TestCase):
         self.assertGreaterEqual(stats.get("ornaments", 0), 1)
 
     def test_scrub_epub_drops_page_when_ad_image_removed(self):
-        png_ad = (
-            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
-            + struct.pack(">II", 400, 300)
-            + b"\x08\x02\x00\x00\x00"
-        )
+        png_ad = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + struct.pack(">II", 400, 300) + b"\x08\x02\x00\x00\x00"
 
         opf = """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Test Book</dc:title></metadata>
@@ -642,11 +555,7 @@ class ScrubImageTests(unittest.TestCase):
 
 class LibraryScannerTests(unittest.TestCase):
     def test_scanner_discovers_and_cleans_promos(self):
-        png_banner = (
-            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
-            + struct.pack(">II", 728, 90)
-            + b"\x08\x02\x00\x00\x00"
-        )
+        png_banner = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR" + struct.pack(">II", 728, 90) + b"\x08\x02\x00\x00\x00"
         dirty_epub = make(
             chapter='<p>Story chapter 1</p><p><img src="images/oceanofpdf_banner.png" alt="oceanofpdf"/></p>',
             promo="<p>Downloaded from OceanofPDF.com</p>",
@@ -662,9 +571,7 @@ class LibraryScannerTests(unittest.TestCase):
         dirty_epub_with_img = b.getvalue()
 
         clean_epub = make(
-            chapter="<p>"
-            + "A completely clean story with nothing promotional. " * 10
-            + "</p>",
+            chapter="<p>" + "A completely clean story with nothing promotional. " * 10 + "</p>",
             promo="<p>Preface: Welcome to the book.</p>",
             opf="""<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Clean Book</dc:title><dc:publisher>Good Publisher</dc:publisher></metadata>
@@ -728,20 +635,24 @@ class LibraryScannerTests(unittest.TestCase):
 
 
 class LibraryScannerDialogTests(unittest.TestCase):
-    def test_dialog_instantiation_and_filtering(self):
+    @classmethod
+    def setUpClass(cls):
         try:
             from PyQt6.QtWidgets import QApplication
 
-            app = QApplication.instance() or QApplication([])
+            cls.app = QApplication.instance() or QApplication([])
+        except Exception:
+            cls.app = None
+
+    def test_dialog_instantiation_and_filtering(self):
+        try:
             from scrubber_plugin.ui import LibraryScannerDialog
         except ImportError:
             return
 
         db = MagicMock()
         db.all_book_ids.return_value = [1, 2]
-        db.get_metadata.return_value = MagicMock(
-            title="Title", publisher="Pub", comments="", authors=["Author"]
-        )
+        db.get_metadata.return_value = MagicMock(title="Title", publisher="Pub", comments="", authors=["Author"])
         db.format.return_value = None
 
         dialog = LibraryScannerDialog(None, db, {}, selected_book_ids=[1])
