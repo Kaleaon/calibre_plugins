@@ -42,7 +42,7 @@ To match the continuous integration (CI) pipeline in `.github/workflows/ci.yml`,
 
 ## 3. Building Plugin Packages (Strict Mode)
 
-To build all 9 Calibre plugin zip packages into the `dist/` directory in strict packaging mode:
+To build all 10 suite plugin zip packages into the `dist/` directory in strict packaging mode (the eleventh tool, Calibre Link, is built separately from `calibre_link/` via its Go sidecar and its release ZIP is committed to `dist/` prebuilt):
 
 ```bash
 python build.py
