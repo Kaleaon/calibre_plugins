@@ -11,34 +11,30 @@ import unittest
 from unittest.mock import MagicMock
 
 # Setup stub modules for calibre if calibre is not installed in the environment
-for name in (
-    'calibre',
-    'calibre.ebooks',
-    'calibre.ebooks.metadata',
-    'calibre.ebooks.metadata.meta',
-    'calibre.ebooks.metadata.book',
-    'calibre.ebooks.metadata.book.base',
-    'calibre.utils',
-    'calibre.utils.date',
-):
-    if name not in sys.modules or not isinstance(sys.modules[name], types.ModuleType):
-        mod = types.ModuleType(name)
-        mod.__path__ = []
-        sys.modules[name] = mod
+if 'calibre' not in sys.modules:
+    for name in (
+        'calibre',
+        'calibre.ebooks',
+        'calibre.ebooks.metadata',
+        'calibre.ebooks.metadata.meta',
+        'calibre.ebooks.metadata.book',
+        'calibre.ebooks.metadata.book.base',
+        'calibre.utils',
+        'calibre.utils.date',
+    ):
+        if name not in sys.modules:
+            sys.modules[name] = types.ModuleType(name)
 
-class StubMetadata:
-    def __init__(self, title='Unknown', authors=None):
-        self.title = title
-        self.authors = authors or ['Unknown']
-        self.cover_data = None
-    def set_identifier(self, key, val):
-        pass
+    class StubMetadata:
+        def __init__(self, title='Unknown', authors=None):
+            self.title = title
+            self.authors = authors or ['Unknown']
+            self.cover_data = None
+        def set_identifier(self, key, val):
+            pass
 
-if not hasattr(sys.modules['calibre.ebooks.metadata.book.base'], 'Metadata') or isinstance(sys.modules['calibre.ebooks.metadata.book.base'].Metadata, MagicMock):
     sys.modules['calibre.ebooks.metadata.book.base'].Metadata = StubMetadata
-if not hasattr(sys.modules['calibre.ebooks.metadata.meta'], 'get_metadata') or isinstance(sys.modules['calibre.ebooks.metadata.meta'].get_metadata, MagicMock):
     sys.modules['calibre.ebooks.metadata.meta'].get_metadata = lambda stream, stream_type=None: StubMetadata('Mock Title')
-if not hasattr(sys.modules['calibre.utils.date'], 'parse_date') or isinstance(sys.modules['calibre.utils.date'].parse_date, MagicMock):
     sys.modules['calibre.utils.date'].parse_date = lambda d, assume_utc=True: None
 
 spec = importlib.util.spec_from_file_location('importer', Path(__file__).resolve().parents[1] / 'plugin/importer.py')

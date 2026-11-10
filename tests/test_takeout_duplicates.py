@@ -26,23 +26,6 @@ for name in STUBS:
     if name not in sys.modules:
         sys.modules[name] = MagicMock()
 
-class StubPrefs(dict):
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-        self.defaults = {}
-    def __getitem__(self, key):
-        try:
-            return super().__getitem__(key)
-        except KeyError:
-            return self.defaults.get(key)
-    def get(self, key, default=None):
-        if key in self:
-            return self[key]
-        return self.defaults.get(key, default)
-
-if not hasattr(sys.modules['calibre.utils.config'], 'JSONConfig') or isinstance(sys.modules['calibre.utils.config'].JSONConfig, MagicMock):
-    sys.modules['calibre.utils.config'].JSONConfig = StubPrefs
-
 class Meta:
     def __init__(self, title, authors):
         self.title, self.authors, self.ids = title, authors, {}

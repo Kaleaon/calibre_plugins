@@ -13,40 +13,37 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-for mod_name in ('calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config',
-                 'calibre.utils.date', 'calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.meta',
-                 'calibre.ebooks.metadata.book', 'calibre.ebooks.metadata.book.base'):
-    if mod_name not in sys.modules:
+if 'calibre' not in sys.modules:
+    for mod_name in ('calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config',
+                     'calibre.utils.date', 'calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.meta',
+                     'calibre.ebooks.metadata.book', 'calibre.ebooks.metadata.book.base'):
         sys.modules[mod_name] = MagicMock()
-
-class StubPrefs(dict):
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-        self.defaults = {}
-    def __getitem__(self, key):
-        try:
-            return super().__getitem__(key)
-        except KeyError:
-            return self.defaults[key]
-    def get(self, key, default=None):
-        if key in self:
-            return self[key]
-        if key in self.defaults:
-            return self.defaults[key]
-        return default
-
-class Metadata:
-    def __init__(self, title, authors):
-        self.title = title
-        self.authors = authors
-        self.ids = {}
-    def set_identifier(self, k, v):
-        self.ids[k] = v
-
-sys.modules['calibre.utils.config'].JSONConfig = StubPrefs
-sys.modules['calibre.ebooks.metadata.book.base'].Metadata = Metadata
-sys.modules['calibre.ebooks.metadata.meta'].get_metadata = lambda stream, stream_type: Metadata('Test', ['Author'])
-sys.modules['calibre.utils.date'].parse_date = lambda d, assume_utc=True: None
+    class StubPrefs(dict):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+            self.defaults = {}
+        def __getitem__(self, key):
+            try:
+                return super().__getitem__(key)
+            except KeyError:
+                return self.defaults[key]
+        def get(self, key, default=None):
+            if key in self:
+                return self[key]
+            if key in self.defaults:
+                return self.defaults[key]
+            return default
+    class Metadata:
+        def __init__(self, title, authors):
+            self.title = title
+            self.authors = authors
+            self.ids = {}
+        def set_identifier(self, k, v):
+            self.ids[k] = v
+    sys.modules['calibre.utils.config'].JSONConfig = StubPrefs
+    sys.modules['calibre.ebooks.metadata.book.base'].Metadata = Metadata
+    sys.modules['calibre.ebooks.metadata.meta'].get_metadata = lambda stream, stream_type: Metadata('Test', ['Author'])
+    sys.modules['calibre.utils.date'].parse_date = lambda d, assume_utc=True: None
 
 if 'calibre_plugins' not in sys.modules:
     cp = types.ModuleType('calibre_plugins')

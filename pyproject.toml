@@ -87,10 +87,6 @@ select = [
 ]
 ignore = ["E501"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "--ignore=tests/test_qt_dialogs.py"
-
 [tool.ruff.lint.isort]
 known-first-party = [
     "calibre_link",

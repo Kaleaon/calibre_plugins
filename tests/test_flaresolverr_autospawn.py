@@ -34,19 +34,7 @@ sys.modules['calibre.gui2.actions'].InterfaceAction = object
 if 'calibre' not in sys.modules:
     for name in ('calibre', 'calibre.customize', 'calibre.utils',
                  'calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.book'):
-        mod = MagicMock()
-        mod.__path__ = []
-        sys.modules[name] = mod
-
-if hasattr(sys.modules.get('calibre.customize'), 'InterfaceActionBase') is False or not hasattr(sys.modules.get('calibre.customize'), 'InterfaceActionBase'):
-    sys.modules['calibre.customize'].InterfaceActionBase = object
-
-if 'calibre.ebooks.metadata.meta' not in sys.modules:
-    meta_mod = types.ModuleType('calibre.ebooks.metadata.meta')
-    meta_mod.get_metadata = lambda stream, stream_type=None: StubMetadata('Mock Title', ['Author'])
-    sys.modules['calibre.ebooks.metadata.meta'] = meta_mod
-elif not hasattr(sys.modules['calibre.ebooks.metadata.meta'], 'get_metadata'):
-    sys.modules['calibre.ebooks.metadata.meta'].get_metadata = lambda stream, stream_type=None: StubMetadata('Mock Title', ['Author'])
+        sys.modules[name] = MagicMock()
 
 if 'calibre.ebooks.metadata.book.base' not in sys.modules:
     base = types.ModuleType('calibre.ebooks.metadata.book.base')

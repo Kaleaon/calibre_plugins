@@ -4,58 +4,32 @@ import re
 import threading
 import time
 from pathlib import Path
-try:
-    from qt.core import (
-        QAbstractItemView,
-        QApplication,
-        QCheckBox,
-        QDialog,
-        QDialogButtonBox,
-        QEvent,
-        QFormLayout,
-        QFrame,
-        QHBoxLayout,
-        QHeaderView,
-        QLabel,
-        QLineEdit,
-        QObject,
-        QPalette,
-        QPlainTextEdit,
-        QPushButton,
-        QProgressDialog,
-        QSplitter,
-        Qt,
-        QTableWidget,
-        QTreeWidget,
-        QTreeWidgetItem,
-        QVBoxLayout,
-        QWidget,
-    )
-except ImportError:
-    from PyQt6.QtCore import QEvent, QObject, Qt
-    from PyQt6.QtGui import QPalette
-    from PyQt6.QtWidgets import (
-        QAbstractItemView,
-        QApplication,
-        QCheckBox,
-        QDialog,
-        QDialogButtonBox,
-        QFormLayout,
-        QFrame,
-        QHBoxLayout,
-        QHeaderView,
-        QLabel,
-        QLineEdit,
-        QPlainTextEdit,
-        QPushButton,
-        QProgressDialog,
-        QSplitter,
-        QTableWidget,
-        QTreeWidget,
-        QTreeWidgetItem,
-        QVBoxLayout,
-        QWidget,
-    )
+from qt.core import (
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QEvent,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QObject,
+    QPalette,
+    QPlainTextEdit,
+    QPushButton,
+    QProgressDialog,
+    QSplitter,
+    Qt,
+    QTableWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 try:
     from .storykit import Cancelled, extract_epub_story, sort_by_posting_order
@@ -973,16 +947,37 @@ def collect_tree_changes(tree):
     Returns list of (top_item_user_data, {child_user_data: child_user_data_plus_1}).
     """
     items = []
+    user_role = getattr(getattr(Qt, 'ItemDataRole', None), 'UserRole', 32)
+    try:
+        user_role_int = int(user_role)
+    except (ValueError, TypeError):
+        user_role_int = 32
+
     for i in range(tree.topLevelItemCount()):
         top = tree.topLevelItem(i)
         changes = {}
         for j in range(top.childCount()):
             child = top.child(j)
             checked_state = child.checkState(0)
-            if checked_state == Qt.CheckState.Checked or checked_state == 2:
-                changes[child.data(0, Qt.ItemDataRole.UserRole)] = child.data(0, Qt.ItemDataRole.UserRole + 1)
+            is_checked = (checked_state == Qt.CheckState.Checked) or (getattr(checked_state, 'value', None) == 2)
+            if not is_checked:
+                try:
+                    is_checked = (int(checked_state) == 2)
+                except (ValueError, TypeError):
+                    is_checked = False
+            if is_checked:
+                key = child.data(0, user_role)
+                if key is None:
+                    key = child.data(0, user_role_int)
+                val = child.data(0, user_role + 1) if not isinstance(user_role, int) else None
+                if val is None:
+                    val = child.data(0, user_role_int + 1)
+                changes[key] = val
         if changes:
-            items.append((top.data(0, Qt.ItemDataRole.UserRole), changes))
+            top_key = top.data(0, user_role)
+            if top_key is None:
+                top_key = top.data(0, user_role_int)
+            items.append((top_key, changes))
     return items
 
 
