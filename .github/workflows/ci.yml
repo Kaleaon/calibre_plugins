@@ -43,6 +43,9 @@ jobs:
   build-and-test:
     name: Build & Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -84,44 +87,7 @@ jobs:
           pip install --require-hashes -r requirements.txt
 
       - name: Run static code linting and formatting check
-        run: |
-          python -c "
-          import os, subprocess, sys
-
-          base = os.environ.get('BASE_REF')
-          files = []
-          if base:
-              subprocess.run(['git', 'fetch', 'origin', f'{base}:refs/remotes/origin/{base}'], capture_output=True)
-              subprocess.run(['git', 'fetch', 'origin', base], capture_output=True)
-              for ref in [f'origin/{base}', base, 'FETCH_HEAD']:
-                  for sep in ['...', '..']:
-                      try:
-                          proc = subprocess.run(
-                              ['git', 'diff', '--name-only', '--diff-filter=d', f'{ref}{sep}HEAD', '--', '*.py'],
-                              capture_output=True, text=True, check=True
-                          )
-                          files = [f.strip().replace(chr(92), '/') for f in proc.stdout.splitlines() if f.strip() and os.path.exists(f.strip().replace(chr(92), '/'))]
-                          if files:
-                              break
-                      except Exception:
-                          continue
-                  if files:
-                      break
-
-          if base:
-              targets = files
-              if not targets:
-                  print(f'No Python files changed relative to base branch {base}. Skipping ruff checks.')
-                  sys.exit(0)
-          else:
-              targets = files if files else ['.']
-
-          print(f'Checking {len(targets)} target(s) with ruff: {targets}')
-          env = dict(os.environ)
-          env.setdefault('PYTHONPATH', '.')
-          subprocess.run(['ruff', 'check'] + targets, env=env, check=True)
-          subprocess.run(['ruff', 'format', '--check'] + targets, env=env, check=True)
-          "
+        run: python .github/scripts/run_ci_checks.py lint
         env:
           BASE_REF: ${{ github.base_ref }}
 
@@ -137,60 +103,12 @@ jobs:
       - name: Upload plugin packages artifact
         uses: actions/upload-artifact@v4
         with:
-          name: calibre-plugin-packages-${{ matrix.os }}-py${{ matrix.python-version }}
+          name: calibre-plugin-packages-${{ matrix.os }}-${{ matrix.python-version }}
           path: dist/*.zip
           retention-days: 14
           overwrite: true
 
       - name: Run unit test suite
-        run: |
-          python -c "
-          import glob, os, subprocess, sys
-
-          base = os.environ.get('BASE_REF')
-          test_targets = []
-          if base:
-              subprocess.run(['git', 'fetch', 'origin', f'{base}:refs/remotes/origin/{base}'], capture_output=True)
-              subprocess.run(['git', 'fetch', 'origin', base], capture_output=True)
-              for ref in [f'origin/{base}', base, 'FETCH_HEAD']:
-                  for sep in ['...', '..']:
-                      try:
-                          proc = subprocess.run(
-                              ['git', 'diff', '--name-only', '--diff-filter=d', f'{ref}{sep}HEAD', '--', '*.py'],
-                              capture_output=True, text=True, check=True
-                          )
-                          changed = [f.strip().replace(chr(92), '/') for f in proc.stdout.splitlines() if f.strip()]
-                          for c in changed:
-                              c = c.replace(chr(92), '/')
-                              if c.startswith('tests/test_') and c.endswith('.py') and os.path.exists(c):
-                                  test_targets.append(c)
-                              else:
-                                  part = c.split('/')[0]
-                                  for match in glob.glob(f'tests/test_{part}*.py'):
-                                      test_targets.append(match.replace(chr(92), '/'))
-                          if test_targets:
-                              break
-                      except Exception:
-                          continue
-                  if test_targets:
-                      break
-              test_targets = sorted(list(set(test_targets)))
-
-          if base:
-              targets = test_targets
-              if not targets:
-                  print(f'No test suites affected by PR changes relative to base branch {base}. Skipping tests.')
-                  sys.exit(0)
-          else:
-              targets = test_targets if test_targets else ['tests/']
-
-          print(f'Running unit tests on targets: {targets}')
-          env = dict(os.environ)
-          env.setdefault('QT_QPA_PLATFORM', 'offscreen')
-          env.setdefault('PYTHONPATH', '.')
-          cmd = [sys.executable, '-m', 'pytest'] + targets
-          subprocess.run(cmd, env=env, check=True)
-          "
+        run: python .github/scripts/run_ci_checks.py test
         env:
           BASE_REF: ${{ github.base_ref }}
-
