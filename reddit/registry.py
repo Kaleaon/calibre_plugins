@@ -80,9 +80,7 @@ class SeriesRegistry:
     def _get_connection(self):
         def _check_setup(conn):
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='series';"
-            )
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='series';")
             if not cursor.fetchone():
                 self._create_tables(conn)
             else:
@@ -97,21 +95,15 @@ class SeriesRegistry:
         except Exception:
             pass
         try:
-            cursor.execute(
-                "ALTER TABLE manifests ADD COLUMN is_excluded INTEGER DEFAULT 0;"
-            )
+            cursor.execute("ALTER TABLE manifests ADD COLUMN is_excluded INTEGER DEFAULT 0;")
         except Exception:
             pass
         try:
-            cursor.execute(
-                "ALTER TABLE manifests ADD COLUMN is_custom_order INTEGER DEFAULT 0;"
-            )
+            cursor.execute("ALTER TABLE manifests ADD COLUMN is_custom_order INTEGER DEFAULT 0;")
         except Exception:
             pass
         try:
-            cursor.execute(
-                "ALTER TABLE manifests ADD COLUMN reconciliation_status TEXT DEFAULT 'approved';"
-            )
+            cursor.execute("ALTER TABLE manifests ADD COLUMN reconciliation_status TEXT DEFAULT 'approved';")
         except Exception:
             pass
         conn.commit()
@@ -222,16 +214,11 @@ class SeriesRegistry:
                 s_id = s_dict["id"]
 
                 # Fetch feed sources
-                cursor.execute(
-                    "SELECT * FROM feed_sources WHERE series_id = ?", (s_id,)
-                )
+                cursor.execute("SELECT * FROM feed_sources WHERE series_id = ?", (s_id,))
                 s_dict["sources"] = [dict(src) for src in cursor.fetchall()]
 
                 # Fetch authors
-                cursor.execute(
-                    "SELECT author_name FROM authors WHERE series_id = ? ORDER BY author_name",
-                    (s_id,),
-                )
+                cursor.execute("SELECT author_name FROM authors WHERE series_id = ? ORDER BY author_name", (s_id,))
                 s_dict["authors"] = [a["author_name"] for a in cursor.fetchall()]
 
                 sig = s_dict.get("signature", "")
@@ -254,12 +241,7 @@ class SeriesRegistry:
                     s_dict["author_filter"] = first_src["author_filter"]
                     s_dict["flair_filter"] = first_src["flair_filter"]
                 else:
-                    s_dict["source"] = {
-                        "kind": "subreddit",
-                        "subreddit": "",
-                        "user": "",
-                        "query": "",
-                    }
+                    s_dict["source"] = {"kind": "subreddit", "subreddit": "", "user": "", "query": ""}
                     s_dict["title_filter"] = ""
                     s_dict["author_filter"] = ""
                     s_dict["flair_filter"] = ""
@@ -466,18 +448,12 @@ class SeriesRegistry:
         cursor = conn.cursor()
 
         # Check if this series has a custom order manifest
-        cursor.execute(
-            "SELECT 1 FROM manifests WHERE series_id = ? AND is_custom_order = 1 LIMIT 1",
-            (series_id,),
-        )
+        cursor.execute("SELECT 1 FROM manifests WHERE series_id = ? AND is_custom_order = 1 LIMIT 1", (series_id,))
         is_custom = cursor.fetchone() is not None
 
         if is_custom:
             # Custom ordered series:
-            cursor.execute(
-                "SELECT * FROM manifests WHERE series_id = ? ORDER BY sequence_order ASC",
-                (series_id,),
-            )
+            cursor.execute("SELECT * FROM manifests WHERE series_id = ? ORDER BY sequence_order ASC", (series_id,))
             existing_manifests = [dict(r) for r in cursor.fetchall()]
             existing_pids = {r["post_id"] for r in existing_manifests}
             max_seq = max([r["sequence_order"] for r in existing_manifests], default=0)
@@ -486,18 +462,13 @@ class SeriesRegistry:
             seen_canonical = {}
             for m in existing_manifests:
                 if not m.get("is_duplicate"):
-                    cursor.execute(
-                        "SELECT link FROM chapters WHERE id = ?", (m["post_id"],)
-                    )
+                    cursor.execute("SELECT link FROM chapters WHERE id = ?", (m["post_id"],))
                     row = cursor.fetchone()
                     if row and row["link"]:
                         seen_canonical[row["link"]] = m["post_id"]
 
             # Fetch all chapters for series
-            cursor.execute(
-                "SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC",
-                (series_id,),
-            )
+            cursor.execute("SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC", (series_id,))
             all_chapters = [dict(c) for c in cursor.fetchall()]
 
             # Detect and append new chapters with reconciliation_status = 'pending'
@@ -522,28 +493,14 @@ class SeriesRegistry:
                     is_duplicate, canonical_post_id, is_excluded, is_custom_order, reconciliation_status
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
-                    (
-                        series_id,
-                        pid,
-                        max_seq,
-                        ch["title"],
-                        ch["author"],
-                        is_dup,
-                        canonical_id,
-                        0,
-                        1,
-                        "pending",
-                    ),
+                    (series_id, pid, max_seq, ch["title"], ch["author"], is_dup, canonical_id, 0, 1, "pending"),
                 )
         else:
             # Standard chronological order series
             cursor.execute("SELECT * FROM manifests WHERE series_id = ?", (series_id,))
             existing_by_pid = {r["post_id"]: dict(r) for r in cursor.fetchall()}
 
-            cursor.execute(
-                "SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC",
-                (series_id,),
-            )
+            cursor.execute("SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC", (series_id,))
             chapters = [dict(c) for c in cursor.fetchall()]
 
             seen_canonical = {}
@@ -580,27 +537,13 @@ class SeriesRegistry:
                     is_custom_order = excluded.is_custom_order,
                     reconciliation_status = excluded.reconciliation_status;
                 """,
-                    (
-                        series_id,
-                        pid,
-                        idx,
-                        title,
-                        ch["author"],
-                        is_dup,
-                        canonical_id,
-                        is_excluded,
-                        0,
-                        "approved",
-                    ),
+                    (series_id, pid, idx, title, ch["author"], is_dup, canonical_id, is_excluded, 0, "approved"),
                 )
 
     def get_chapters(self, series_id):
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC",
-                (series_id,),
-            )
+            cursor.execute("SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC", (series_id,))
             return [dict(r) for r in cursor.fetchall()]
 
     def get_manifest(self, series_id, include_duplicates=False):
@@ -719,17 +662,11 @@ class SeriesRegistry:
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
             for pid in post_ids:
-                cursor.execute(
-                    "UPDATE chapters SET added_to_lib = 1 WHERE series_id = ? AND id = ?",
-                    (series_id, pid),
-                )
+                cursor.execute("UPDATE chapters SET added_to_lib = 1 WHERE series_id = ? AND id = ?", (series_id, pid))
             conn.commit()
 
     def get_added_post_ids(self, series_id):
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id FROM chapters WHERE series_id = ? AND added_to_lib = 1",
-                (series_id,),
-            )
+            cursor.execute("SELECT id FROM chapters WHERE series_id = ? AND added_to_lib = 1", (series_id,))
             return {r["id"] for r in cursor.fetchall()}

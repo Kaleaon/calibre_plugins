@@ -17,29 +17,17 @@ except ImportError:
         from .error_handler import show_friendly_error_dialog
     except ImportError:
         from error_handler import show_friendly_error_dialog
-from calibre_plugins.reddit_follower.ui import (
-    DiscoverDialog,
-    ManageDialog,
-    SettingsDialog,
-    SubscriptionExchangeDialog,
-)
+from calibre_plugins.reddit_follower.ui import DiscoverDialog, ManageDialog, SettingsDialog, SubscriptionExchangeDialog
 
 IDENTIFIER = "redditfollow"
-TICK_MS = (
-    15 * 60 * 1000
-)  # how often we look at which stories are due; looking costs nothing
+TICK_MS = 15 * 60 * 1000  # how often we look at which stories are due; looking costs nothing
 FIRST_CHECK_MS = 2 * 60 * 1000  # after startup, so Calibre opens quickly
 MIN_BACKOFF = 15 * 60  # seconds to leave Reddit alone after it asks us to slow down
 
 
 class FollowerAction(InterfaceAction):
     name = "Reddit Story Follower"
-    action_spec = (
-        "Reddit stories",
-        None,
-        "Follow story series on Reddit as books that grow",
-        None,
-    )
+    action_spec = ("Reddit stories", None, "Follow story series on Reddit as books that grow", None)
 
     def genesis(self):
         menu = QMenu(self.gui)
@@ -80,9 +68,7 @@ class FollowerAction(InterfaceAction):
         if self._cache_dir is None:
             from calibre.constants import config_dir
 
-            self._cache_dir = os.path.join(
-                config_dir, "plugins", "reddit_follower_cache"
-            )
+            self._cache_dir = os.path.join(config_dir, "plugins", "reddit_follower_cache")
         return self._cache_dir
 
     def get_queue_manager(self):
@@ -104,10 +90,7 @@ class FollowerAction(InterfaceAction):
 
     def registry(self):
         db_path = os.path.join(self.cache_dir(), "series_registry.db")
-        if (
-            getattr(self, "_registry", None) is None
-            or self._registry.db_path != db_path
-        ):
+        if getattr(self, "_registry", None) is None or self._registry.db_path != db_path:
             try:
                 from .registry import SeriesRegistry
             except ImportError:
@@ -158,11 +141,7 @@ class FollowerAction(InterfaceAction):
         return series_list if series_list else prefs["follows"]
 
     def chapter_count(self, follow):
-        return len(
-            core.ChapterCache(
-                self.cache_dir(), follow["id"], registry=self.registry()
-            ).posts
-        )
+        return len(core.ChapterCache(self.cache_dir(), follow["id"], registry=self.registry()).posts)
 
     def make_source(self, cancelled):
         return core.make_source(
@@ -186,9 +165,7 @@ class FollowerAction(InterfaceAction):
         dialog = DiscoverDialog(self.gui, self)
         if dialog.exec() != DiscoverDialog.DialogCode.Accepted:
             return
-        added = ([dialog.chosen] if dialog.chosen is not None else []) + list(
-            dialog.chosen_many
-        )
+        added = ([dialog.chosen] if dialog.chosen is not None else []) + list(dialog.chosen_many)
         if added:
             for s in added:
                 self.registry().save_series(s)
@@ -231,13 +208,9 @@ class FollowerAction(InterfaceAction):
                 ),
             )
         except core.SourceError as exc:
-            return show_friendly_error_dialog(
-                self.gui, "Reddit stories", exc, show=True
-            )
+            return show_friendly_error_dialog(self.gui, "Reddit stories", exc, show=True)
         if task.error:
-            return show_friendly_error_dialog(
-                self.gui, "Reddit stories", task.error, show=True
-            )
+            return show_friendly_error_dialog(self.gui, "Reddit stories", task.error, show=True)
         if task.result is None:
             return
         self.finish(task.result, interactive=True)
@@ -245,27 +218,16 @@ class FollowerAction(InterfaceAction):
     def test_follow(self, follow):
         """One request for the first page of this follow, reported to the user. Changes nothing."""
         task = run_task(
-            self.gui,
-            "Testing…",
-            lambda t: core.probe(
-                self.make_source(t.cancelled), follow["source"], follow
-            ),
+            self.gui, "Testing…", lambda t: core.probe(self.make_source(t.cancelled), follow["source"], follow)
         )
         if task.error:
-            return show_friendly_error_dialog(
-                self.gui, "Reddit stories", task.error, show=True
-            )
+            return show_friendly_error_dialog(self.gui, "Reddit stories", task.error, show=True)
         if task.result is not None:
             info_dialog(self.gui, f"Test: {follow['name']}", task.result[1], show=True)
 
     # -- automatic checks (quiet, in a background thread)
     def auto_check(self):
-        if (
-            self.stopping
-            or self.busy
-            or not prefs["auto_check"]
-            or time.time() < self.backoff_until
-        ):
+        if self.stopping or self.busy or not prefs["auto_check"] or time.time() < self.backoff_until:
             return
         hours = float(prefs["check_hours"])
         qm = self.get_queue_manager()
@@ -288,11 +250,7 @@ class FollowerAction(InterfaceAction):
                 if self.stopping:
                     break
                 task_id = task["task_id"]
-                follow = (
-                    task["payload"]
-                    if isinstance(task["payload"], dict)
-                    else by_id.get(task_id)
-                )
+                follow = task["payload"] if isinstance(task["payload"], dict) else by_id.get(task_id)
                 if not follow:
                     continue
                 qm.mark_processing(task_id)
@@ -331,9 +289,7 @@ class FollowerAction(InterfaceAction):
             self.finish(job["results"], interactive=False)
         elif job.get("error") and not isinstance(job["error"], core.Cancelled):
             self.last_background_error = str(job["error"])
-            self.gui.status_bar.show_message(
-                f"Reddit stories: check failed ({job['error']})", 10000
-            )
+            self.gui.status_bar.show_message(f"Reddit stories: check failed ({job['error']})", 10000)
 
     # -- applying results
     def finish(self, results, interactive):
@@ -341,9 +297,7 @@ class FollowerAction(InterfaceAction):
         for r in results:
             live = by_id.get(r["follow"]["id"])
             if live is not None and not r["skipped"]:
-                live["last_checked"] = r["follow"].get(
-                    "last_checked", live.get("last_checked", 0.0)
-                )
+                live["last_checked"] = r["follow"].get("last_checked", live.get("last_checked", 0.0))
                 live["last_status"] = r["follow"].get("last_status", "")
                 self.registry().save_series(live)
         prefs["follows"] = list(self.get_follows())  # assigning saves the settings
@@ -379,32 +333,19 @@ class FollowerAction(InterfaceAction):
                 lines.append(f"{name}: up to date")
             if hasattr(self, "registry") and self.registry():
                 try:
-                    pending_cnt = self.registry().get_pending_manifest_count(
-                        r["follow"]["id"]
-                    )
+                    pending_cnt = self.registry().get_pending_manifest_count(r["follow"]["id"])
                     if pending_cnt:
-                        lines.append(
-                            f"{name}: {pending_cnt} new chapter(s) need review in Chapter Manager"
-                        )
+                        lines.append(f"{name}: {pending_cnt} new chapter(s) need review in Chapter Manager")
                 except Exception:
                     pass
         if interactive:
-            info_dialog(
-                self.gui,
-                "Reddit stories",
-                "\n".join(lines) or "Nothing to report.",
-                show=True,
-            )
+            info_dialog(self.gui, "Reddit stories", "\n".join(lines) or "Nothing to report.", show=True)
         elif changed_books:
             self.gui.status_bar.show_message(
-                "Reddit stories updated: "
-                + "; ".join(line for line in lines if "up to date" not in line),
-                15000,
+                "Reddit stories updated: " + "; ".join(line for line in lines if "up to date" not in line), 15000
             )
         else:
-            pending_notes = [
-                line for line in lines if "need review in Chapter Manager" in line
-            ]
+            pending_notes = [line for line in lines if "need review in Chapter Manager" in line]
             if pending_notes:
                 self.gui.status_bar.show_message("; ".join(pending_notes), 15000)
 
@@ -416,24 +357,15 @@ class FollowerAction(InterfaceAction):
         if follow.get("layout") == "each":
             return self.update_each(follow, cache)
         story = core.build_story(follow, cache)
-        if (
-            not has_changes
-            and libkit.find_book(self.gui, IDENTIFIER, story["id"]) is not None
-        ):
+        if not has_changes and libkit.find_book(self.gui, IDENTIFIER, story["id"]) is not None:
             return ""
         try:
             mi = libkit.metadata_for([story], None, IDENTIFIER, core.PUBLISHER)
-            _, created = libkit.upsert_epub(
-                self.gui, mi, core.build_epub(story), IDENTIFIER, story["id"]
-            )
+            _, created = libkit.upsert_epub(self.gui, mi, core.build_epub(story), IDENTIFIER, story["id"])
         except Exception as exc:
             return f"could not update the book ({exc})"
         count = len(story["sections"])
-        return (
-            f"added to your library with {count} chapter(s)"
-            if created
-            else f"book updated, now {count} chapter(s)"
-        )
+        return f"added to your library with {count} chapter(s)" if created else f"book updated, now {count} chapter(s)"
 
     def update_each(self, follow, cache):
         """Make a separate library book from each cached post that has none yet. Returns a message or ''."""
@@ -442,9 +374,7 @@ class FollowerAction(InterfaceAction):
             story = core.build_each(follow, post)
             try:
                 mi = libkit.metadata_for([story], None, IDENTIFIER, core.PUBLISHER)
-                libkit.upsert_epub(
-                    self.gui, mi, core.build_epub(story), IDENTIFIER, story["id"]
-                )
+                libkit.upsert_epub(self.gui, mi, core.build_epub(story), IDENTIFIER, story["id"])
             except Exception:
                 errors += 1
                 continue

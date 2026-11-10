@@ -24,9 +24,7 @@ spec_mig = importlib.util.spec_from_file_location(
 migration_mod = importlib.util.module_from_spec(spec_mig)
 spec_mig.loader.exec_module(migration_mod)
 
-spec_core = importlib.util.spec_from_file_location(
-    "rcore", Path(__file__).resolve().parents[1] / "reddit/core.py"
-)
+spec_core = importlib.util.spec_from_file_location("rcore", Path(__file__).resolve().parents[1] / "reddit/core.py")
 core = importlib.util.module_from_spec(spec_core)
 spec_core.loader.exec_module(core)
 
@@ -58,12 +56,12 @@ class SQLiteRegistryTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_tables_initialized(self):
-        conn = self.reg._get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-        tables = {row["name"] for row in cursor.fetchall()}
-        expected = {"series", "feed_sources", "authors", "chapters", "manifests"}
-        self.assertTrue(expected.issubset(tables), f"Missing tables. Found: {tables}")
+        with self.reg._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = {row["name"] for row in cursor.fetchall()}
+            expected = {"series", "feed_sources", "authors", "chapters", "manifests"}
+            self.assertTrue(expected.issubset(tables), f"Missing tables. Found: {tables}")
 
     def test_crud_multi_source_series(self):
         s_dict = {
@@ -332,20 +330,8 @@ class SQLiteRegistryTests(unittest.TestCase):
         s_id = "custom_recon_series"
         self.reg.save_series({"id": s_id, "name": "Reconciliation Story"})
 
-        p1 = {
-            "id": "t3_post1",
-            "title": "Ch 1: Start",
-            "author": "AuthorA",
-            "created": 1000.0,
-            "html": "<p>1</p>",
-        }
-        p2 = {
-            "id": "t3_post2",
-            "title": "Ch 2: Middle",
-            "author": "AuthorB",
-            "created": 2000.0,
-            "html": "<p>2</p>",
-        }
+        p1 = {"id": "t3_post1", "title": "Ch 1: Start", "author": "AuthorA", "created": 1000.0, "html": "<p>1</p>"}
+        p2 = {"id": "t3_post2", "title": "Ch 2: Middle", "author": "AuthorB", "created": 2000.0, "html": "<p>2</p>"}
         self.reg.save_chapter_and_manifest(s_id, p1)
         self.reg.save_chapter_and_manifest(s_id, p2)
 
@@ -411,9 +397,7 @@ class SQLiteRegistryTests(unittest.TestCase):
         # Resetting order to default chronological
         self.reg.reset_manifest_order(s_id)
         reset_manifest = self.reg.get_manifest(s_id)
-        self.assertEqual(
-            [m["post_id"] for m in reset_manifest], ["t3_post1", "t3_post3", "t3_post2"]
-        )
+        self.assertEqual([m["post_id"] for m in reset_manifest], ["t3_post1", "t3_post3", "t3_post2"])
         self.assertFalse(any(m["is_custom_order"] for m in reset_manifest))
 
     def test_chapter_cache_ordered_omits_excluded_and_pending_posts(self):
