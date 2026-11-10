@@ -22,6 +22,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 FIXTURES = ROOT / "tests" / "media_fixtures"
 pkg = types.ModuleType(
     "media_pure"
@@ -31,6 +33,57 @@ sys.modules["media_pure"] = pkg
 tags = importlib.import_module("media_pure.tags")
 sources = importlib.import_module("media_pure.sources")
 matching = importlib.import_module("media_pure.matching")
+
+_APP = None
+
+
+def _load_match_inspector():
+    global _APP
+    try:
+        from PyQt6 import QtCore, QtGui, QtWidgets
+    except ImportError:
+        return None
+    if _APP is None:
+        _APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    qtcore = types.ModuleType("qt.core")
+    for module in (QtWidgets, QtGui, QtCore):
+        for name in dir(module):
+            setattr(qtcore, name, getattr(module, name))
+    sys.modules.setdefault("qt", types.ModuleType("qt"))
+    sys.modules.setdefault("qt.core", qtcore)
+
+    for name in ("calibre", "calibre.customize", "calibre.gui2", "calibre.utils"):
+        if name not in sys.modules:
+            sys.modules[name] = types.SimpleNamespace(
+                error_dialog=lambda *a, **k: None,
+                info_dialog=lambda *a, **k: None,
+                question_dialog=lambda *a, **k: None,
+            )
+    if "calibre.gui2.actions" not in sys.modules:
+        actions = types.ModuleType("calibre.gui2.actions")
+        actions.InterfaceAction = type(
+            "InterfaceAction",
+            (object,),
+            {"__init__": lambda self, gui, name: setattr(self, "gui", gui)},
+        )
+        sys.modules["calibre.gui2.actions"] = actions
+
+    if "calibre_plugins" not in sys.modules:
+        sys.modules["calibre_plugins"] = types.ModuleType("calibre_plugins")
+        sys.modules["calibre_plugins"].__path__ = []
+    if "calibre_plugins.media_matcher" not in sys.modules:
+        sys.modules["calibre_plugins.media_matcher"] = pkg
+    sys.modules.setdefault("calibre_plugins.media_matcher.matching", matching)
+    sys.modules.setdefault("calibre_plugins.media_matcher.sources", sources)
+    sys.modules.setdefault("calibre_plugins.media_matcher.tags", tags)
+    if "calibre_plugins.media_matcher.config" not in sys.modules:
+        cfg = types.ModuleType("calibre_plugins.media_matcher.config")
+        cfg.prefs = {"fields": []}
+        sys.modules["calibre_plugins.media_matcher.config"] = cfg
+
+    action = importlib.import_module("media_pure.action")
+    return action.MatchInspectorDialog
+
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 20
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
@@ -52,12 +105,7 @@ def id3_tag(major, frames, flags=0):
         if major == 2:
             body += frame_id.encode() + len(payload).to_bytes(3, "big") + payload
         elif major == 3:
-            body += (
-                frame_id.encode()
-                + struct.pack(">I", len(payload))
-                + b"\x00\x00"
-                + payload
-            )
+            body += frame_id.encode() + struct.pack(">I", len(payload)) + b"\x00\x00" + payload
         else:
             body += frame_id.encode() + syncsafe(len(payload)) + b"\x00\x00" + payload
     return b"ID3" + bytes([major, 0, flags]) + syncsafe(len(body)) + body
@@ -74,11 +122,7 @@ def mp3_frames(count=100, xing=False):
 
 
 def vorbis_block(entries, vendor="test"):
-    out = (
-        struct.pack("<I", len(vendor))
-        + vendor.encode()
-        + struct.pack("<I", len(entries))
-    )
+    out = struct.pack("<I", len(vendor)) + vendor.encode() + struct.pack("<I", len(entries))
     for e in entries:
         raw = e.encode()
         out += struct.pack("<I", len(raw)) + raw
@@ -98,21 +142,13 @@ def flac_picture(kind, mime, image):
 
 
 def flac_file(entries, picture=None, samples=88200, rate=44100, id3=b""):
-    info = struct.pack(">HH", 4096, 4096) + bytes(
-        6
-    )  # block sizes, then min/max frame size
+    info = struct.pack(">HH", 4096, 4096) + bytes(6)  # block sizes, then min/max frame size
     packed = (rate << 44) | (1 << 41) | (15 << 36) | samples
     info += struct.pack(">Q", packed) + bytes(16)
-    blocks = [(0, info), (4, vorbis_block(entries))] + (
-        [(6, picture)] if picture else []
-    )
+    blocks = [(0, info), (4, vorbis_block(entries))] + ([(6, picture)] if picture else [])
     out = id3 + b"fLaC"
     for i, (kind, data) in enumerate(blocks):
-        out += (
-            bytes([(0x80 if i == len(blocks) - 1 else 0) | kind])
-            + len(data).to_bytes(3, "big")
-            + data
-        )
+        out += bytes([(0x80 if i == len(blocks) - 1 else 0) | kind]) + len(data).to_bytes(3, "big") + data
     return out
 
 
@@ -126,12 +162,7 @@ def ogg_page(packets, seq, granule=0, flags=0):
         segs.append(n)
         body += p
     return (
-        b"OggS"
-        + bytes([0, flags])
-        + struct.pack("<qIII", granule, 1, seq, 0)
-        + bytes([len(segs)])
-        + bytes(segs)
-        + body
+        b"OggS" + bytes([0, flags]) + struct.pack("<qIII", granule, 1, seq, 0) + bytes([len(segs)]) + bytes(segs) + body
     )
 
 
@@ -197,13 +228,11 @@ class Id3Tests(TempFiles):
                     ("COMM", id3_text(0, "x")[:1] + b"eng" + b"\x00" + b"nice song"),
                     (
                         "UFID",
-                        b"http://musicbrainz.org\x00"
-                        + b"0aa1938a-ee7f-487b-b742-8b2cfa110c85",
+                        b"http://musicbrainz.org\x00" + b"0aa1938a-ee7f-487b-b742-8b2cfa110c85",
                     ),
                     (
                         "TXXX",
-                        b"\x00MusicBrainz Album Id\x00"
-                        + b"6f1a1c0a-3c7a-4d31-9e62-b32796043b6c",
+                        b"\x00MusicBrainz Album Id\x00" + b"6f1a1c0a-3c7a-4d31-9e62-b32796043b6c",
                     ),
                     ("APIC", b"\x00image/png\x00\x00\x00" + PNG),  # type 0: other
                     ("APIC", b"\x00image/jpeg\x00\x03Front\x00" + JPEG),
@@ -273,9 +302,7 @@ class Id3Tests(TempFiles):
             + mp3_frames()
         )
         t = tags.read_tags(self.write("a.mp3", data))
-        self.assertEqual(
-            (t["title"], t["artist"], t["album"], t["track"]), ("Old", "Band", "LP", 3)
-        )
+        self.assertEqual((t["title"], t["artist"], t["album"], t["track"]), ("Old", "Band", "LP", 3))
         self.assertEqual(t["cover"], ("image/jpeg", JPEG))
 
     def test_v23_unsynchronised_tag(self):
@@ -285,16 +312,8 @@ class Id3Tests(TempFiles):
         _head, body = raw[:10], raw[10:]
         unsynced = body.replace(b"\xff", b"\xff\x00")
         # a v2.3 tag-level unsync flag: sizes in the header count the escaped bytes, frame sizes the original ones
-        data = (
-            b"ID3"
-            + bytes([3, 0, 0x80])
-            + syncsafe(len(unsynced))
-            + unsynced
-            + mp3_frames()
-        )
-        self.assertEqual(
-            tags.read_tags(self.write("a.mp3", data))["title"], "Sync\xff\xfeTest"
-        )
+        data = b"ID3" + bytes([3, 0, 0x80]) + syncsafe(len(unsynced)) + unsynced + mp3_frames()
+        self.assertEqual(tags.read_tags(self.write("a.mp3", data))["title"], "Sync\xff\xfeTest")
 
     def test_id3v1_only_with_track_and_genre(self):
         block = (
@@ -325,9 +344,7 @@ class Id3Tests(TempFiles):
         )
         data = id3_tag(3, [("TIT2", id3_text(0, "V2 title"))]) + mp3_frames() + block
         t = tags.read_tags(self.write("a.mp3", data))
-        self.assertEqual(
-            (t["title"], t["artist"], t["album"]), ("V2 title", "V1 artist", "V1 album")
-        )
+        self.assertEqual((t["title"], t["artist"], t["album"]), ("V2 title", "V1 artist", "V1 album"))
 
     def test_mp3_duration_estimated_and_exact(self):
         cbr = tags.read_tags(self.write("cbr.mp3", mp3_frames(100)))
@@ -356,9 +373,7 @@ class Id3Tests(TempFiles):
             with self.subTest(name=name):
                 t = tags.read_tags(self.write(name, data))
                 self.assertFalse(t["tagged"])
-        self.assertFalse(
-            tags.read_tags(str(Path(self.tmp.name) / "missing.mp3"))["tagged"]
-        )
+        self.assertFalse(tags.read_tags(str(Path(self.tmp.name) / "missing.mp3"))["tagged"])
 
 
 class OtherFormatTests(TempFiles):
@@ -397,11 +412,7 @@ class OtherFormatTests(TempFiles):
         self.assertEqual(t["format"], fmt)
 
     def test_flac_with_picture_and_length(self):
-        t = tags.read_tags(
-            self.write(
-                "a.flac", flac_file(self.ENTRIES, flac_picture(3, "image/jpeg", JPEG))
-            )
-        )
+        t = tags.read_tags(self.write("a.flac", flac_file(self.ENTRIES, flac_picture(3, "image/jpeg", JPEG))))
         self.check(t, "FLAC")
         self.assertEqual(t["cover"], ("image/jpeg", JPEG))
         self.assertAlmostEqual(t["duration"], 2.0, places=3)
@@ -410,9 +421,7 @@ class OtherFormatTests(TempFiles):
         t = tags.read_tags(
             self.write(
                 "a.flac",
-                flac_file(
-                    self.ENTRIES, id3=id3_tag(3, [("TIT2", id3_text(0, "ignored"))])
-                ),
+                flac_file(self.ENTRIES, id3=id3_tag(3, [("TIT2", id3_text(0, "ignored"))])),
             )
         )
         self.check(t, "FLAC")
@@ -430,13 +439,9 @@ class OtherFormatTests(TempFiles):
         self.assertAlmostEqual(t["duration"], 2.0, places=3)
 
     def test_ogg_comment_packet_spanning_pages(self):
-        big = ["TITLE=Song", "ARTIST=A / B", "COMMENT=" + "x" * 70000] + self.ENTRIES[
-            3:
-        ]
+        big = ["TITLE=Song", "ARTIST=A / B", "COMMENT=" + "x" * 70000] + self.ENTRIES[3:]
         comment = b"\x03vorbis" + vorbis_block(big) + b"\x01"
-        ident = (
-            b"\x01vorbis" + struct.pack("<IBIiii", 0, 2, 44100, 0, 0, 0) + b"\xb8\x01"
-        )
+        ident = b"\x01vorbis" + struct.pack("<IBIiii", 0, 2, 44100, 0, 0, 0) + b"\xb8\x01"
         first, rest = comment[:30000], comment[30000:]
         # a packet continued over page boundaries: pages end in a full 255 lace and the next page starts as a continuation
         pages = ogg_page([ident], 0, flags=2)
@@ -466,11 +471,7 @@ class OtherFormatTests(TempFiles):
     def test_opus(self):
         head = b"OpusHead" + bytes([1, 2]) + struct.pack("<HIhB", 312, 48000, 0, 0)
         tagpkt = b"OpusTags" + vorbis_block(self.ENTRIES)
-        data = (
-            ogg_page([head], 0, flags=2)
-            + ogg_page([tagpkt], 1)
-            + ogg_page([bytes(20)], 2, 96312, flags=4)
-        )
+        data = ogg_page([head], 0, flags=2) + ogg_page([tagpkt], 1) + ogg_page([bytes(20)], 2, 96312, flags=4)
         t = tags.read_tags(self.write("a.opus", data))
         self.check(t, "OPUS")
         self.assertAlmostEqual(t["duration"], 2.0, places=3)
@@ -516,10 +517,7 @@ class OtherFormatTests(TempFiles):
         t = tags.read_tags(
             self.write(
                 "a.mp3",
-                id3_tag(
-                    3, [("TIT2", id3_text(0, "x")), ("TCON", id3_text(0, "Audiobook"))]
-                )
-                + mp3_frames(),
+                id3_tag(3, [("TIT2", id3_text(0, "x")), ("TCON", id3_text(0, "Audiobook"))]) + mp3_frames(),
             )
         )
         self.assertTrue(tags.is_audiobook(t, "a.mp3"))
@@ -542,9 +540,7 @@ class PathGuessTests(unittest.TestCase):
             folder = Path(d) / "Artist" / "Album"
             folder.mkdir(parents=True)
             path = folder / "07 - Song.mp3"
-            path.write_bytes(
-                id3_tag(3, [("TIT2", id3_text(0, "Real Title"))]) + mp3_frames()
-            )
+            path.write_bytes(id3_tag(3, [("TIT2", id3_text(0, "Real Title"))]) + mp3_frames())
             t = tags.tags_with_fallback(str(path))
             self.assertEqual(
                 (t["title"], t["album"], t["artist"], t["track"]),
@@ -704,9 +700,7 @@ def http_error(code, retry_after=None):
     headers = Message()
     if retry_after is not None:
         headers["Retry-After"] = str(retry_after)
-    return urllib.error.HTTPError(
-        "https://x/?client=SECRETKEY", code, "err", headers, io.BytesIO(b"")
-    )
+    return urllib.error.HTTPError("https://x/?client=SECRETKEY", code, "err", headers, io.BytesIO(b""))
 
 
 class Scripted:
@@ -753,14 +747,10 @@ def make_http(*script, routes=None, **kwargs):
 
 class HttpTests(unittest.TestCase):
     def test_requests_to_the_same_host_are_spaced_and_identify_the_app(self):
-        http, fetch, clock = make_http(
-            {"a": 1}, {"b": 2}, {"c": 3}, contact="me@example.org"
-        )
+        http, fetch, clock = make_http({"a": 1}, {"b": 2}, {"c": 3}, contact="me@example.org")
         http.json("https://musicbrainz.org/ws/2/x")
         http.json("https://musicbrainz.org/ws/2/y")
-        self.assertGreaterEqual(
-            clock.now, 1.1 - 0.001, "MusicBrainz allows one request a second"
-        )
+        self.assertGreaterEqual(clock.now, 1.1 - 0.001, "MusicBrainz allows one request a second")
         before = clock.now
         http.json("https://openlibrary.org/search.json")
         self.assertLess(clock.now - before, 0.3, "a different host has its own pacing")
@@ -770,17 +760,13 @@ class HttpTests(unittest.TestCase):
         self.assertIn(sources.PROJECT_URL, sources.user_agent(""))
 
     def test_busy_answers_are_retried_and_retry_after_is_honoured(self):
-        http, fetch, clock = make_http(
-            http_error(503), http_error(429, retry_after=7), {"ok": True}
-        )
+        http, fetch, clock = make_http(http_error(503), http_error(429, retry_after=7), {"ok": True})
         waits = []
         http.on_wait = lambda seconds, why: waits.append((seconds, why))
         self.assertEqual(http.json("https://musicbrainz.org/ws/2/x"), {"ok": True})
         self.assertEqual(len(fetch.calls), 3)
         self.assertIn("busy (HTTP 503)", waits[0][1])
-        self.assertTrue(
-            any(seconds >= 7 for seconds, _ in waits), "Retry-After: 7 is respected"
-        )
+        self.assertTrue(any(seconds >= 7 for seconds, _ in waits), "Retry-After: 7 is respected")
 
     def test_gives_up_after_the_retries_with_the_status(self):
         http, fetch, _ = make_http(*[http_error(503)] * 10, retries=2)
@@ -806,9 +792,7 @@ class HttpTests(unittest.TestCase):
 
     def test_cancel_interrupts_a_wait(self):
         state = {"cancel": False}
-        http, fetch, _ = make_http(
-            http_error(503), {"ok": 1}, cancelled=lambda: state["cancel"]
-        )
+        http, fetch, _ = make_http(http_error(503), {"ok": 1}, cancelled=lambda: state["cancel"])
         http.on_wait = lambda seconds, why: state.update(cancel=True)
         with self.assertRaises(sources.Cancelled):
             http.json("https://musicbrainz.org/ws/2/x")
@@ -823,9 +807,7 @@ class HttpTests(unittest.TestCase):
 class ServiceCallTests(unittest.TestCase):
     def test_musicbrainz_query_is_quoted_and_escaped(self):
         http, fetch, _ = make_http({"recordings": [{"id": "r"}]})
-        out = sources.mb_search_recordings(
-            http, 'He said "Hi" \\ now', "AC/DC", "Back In Black"
-        )
+        out = sources.mb_search_recordings(http, 'He said "Hi" \\ now', "AC/DC", "Back In Black")
         self.assertEqual(out, [{"id": "r"}])
         url = fetch.calls[0][0]
         from urllib.parse import parse_qs, urlsplit
@@ -864,9 +846,7 @@ class ServiceCallTests(unittest.TestCase):
 
     def test_batched_recording_ids_limited_to_four(self):
         http, fetch, _ = make_http({"recordings": []})
-        sources.mb_search_recordings(
-            http, recording_ids=["id1", "id2", "id3", "id4", "id5", "id6"]
-        )
+        sources.mb_search_recordings(http, recording_ids=["id1", "id2", "id3", "id4", "id5", "id6"])
         url = fetch.calls[0][0]
         from urllib.parse import parse_qs, urlsplit
 
@@ -909,9 +889,7 @@ class ServiceCallTests(unittest.TestCase):
             [(0.97, ["r2", "r3"]), (0.4, ["r1"])],
         )
         url, _headers, data = fetch.calls[0]
-        self.assertNotIn(
-            "KEY", url, "the key and fingerprint go in the POST body, not the URL"
-        )
+        self.assertNotIn("KEY", url, "the key and fingerprint go in the POST body, not the URL")
         self.assertIn(b"client=KEY", data)
         self.assertIn(b"duration=187", data)
 
@@ -921,9 +899,7 @@ class ServiceCallTests(unittest.TestCase):
             sources.acoustid_lookup(http, "SECRETKEY", 10, "x")
         self.assertNotIn("SECRETKEY", str(ctx.exception))
         self.assertIn("key", str(ctx.exception))
-        http, *_ = make_http(
-            {"status": "error", "error": {"code": 4, "message": "invalid API key"}}
-        )
+        http, *_ = make_http({"status": "error", "error": {"code": 4, "message": "invalid API key"}})
         with self.assertRaises(sources.ServiceError) as ctx:
             sources.acoustid_lookup(http, "SECRETKEY", 10, "x")
         self.assertIn("invalid API key", str(ctx.exception))
@@ -939,24 +915,18 @@ class ServiceCallTests(unittest.TestCase):
                 stderr=b"",
             )
 
-        self.assertEqual(
-            sources.fingerprint("/m/a.mp3", "/bin/fpcalc", runner), (187, "AQADxx")
-        )
+        self.assertEqual(sources.fingerprint("/m/a.mp3", "/bin/fpcalc", runner), (187, "AQADxx"))
         self.assertEqual(calls[0], ["/bin/fpcalc", "-json", "/m/a.mp3"])
 
         def bad(cmd, **kw):
-            return types.SimpleNamespace(
-                returncode=2, stdout=b"", stderr=b"ERROR: could not open\n"
-            )
+            return types.SimpleNamespace(returncode=2, stdout=b"", stderr=b"ERROR: could not open\n")
 
         with self.assertRaises(sources.FingerprintError) as ctx:
             sources.fingerprint("/m/a.mp3", "/bin/fpcalc", bad)
         self.assertIn("could not open", str(ctx.exception))
 
         def garbled(cmd, **kw):
-            return types.SimpleNamespace(
-                returncode=0, stdout=b"DURATION=1\nFINGERPRINT=x", stderr=b""
-            )
+            return types.SimpleNamespace(returncode=0, stdout=b"DURATION=1\nFINGERPRINT=x", stderr=b"")
 
         with self.assertRaises(sources.FingerprintError):
             sources.fingerprint("/m/a.mp3", "/bin/fpcalc", garbled)
@@ -978,9 +948,7 @@ class ServiceCallTests(unittest.TestCase):
 
     def test_open_library_search_retries_without_the_author(self):
         http, fetch, _ = make_http({"docs": []}, {"docs": [{"title": "Dune"}]})
-        self.assertEqual(
-            sources.ol_search(http, "Dune", "Frank Herbart"), [{"title": "Dune"}]
-        )
+        self.assertEqual(sources.ol_search(http, "Dune", "Frank Herbart"), [{"title": "Dune"}])
         self.assertIn("author=Frank+Herbart", fetch.calls[0][0])
         self.assertNotIn("author=", fetch.calls[1][0])
         self.assertEqual(sources.ol_cover_urls(None), [])
@@ -991,9 +959,7 @@ class ServiceCallTests(unittest.TestCase):
 
 
 # -- matching ------------------------------------------------------------------------------------------------------------
-MB = json.loads((FIXTURES / "mb_yesterday_help.json").read_text(encoding="utf-8"))[
-    "recordings"
-]
+MB = json.loads((FIXTURES / "mb_yesterday_help.json").read_text(encoding="utf-8"))["recordings"]
 OL = json.loads((FIXTURES / "ol_dune.json").read_text(encoding="utf-8"))["docs"]
 
 
@@ -1076,11 +1042,7 @@ class MusicMatchTests(unittest.TestCase):
             best["cover_urls"][0],
             "https://coverartarchive.org/release/6f1a1c0a-3c7a-4d31-9e62-b32796043b6c/front-500",
         )
-        self.assertTrue(
-            best["cover_urls"][1].startswith(
-                "https://coverartarchive.org/release-group/"
-            )
-        )
+        self.assertTrue(best["cover_urls"][1].startswith("https://coverartarchive.org/release-group/"))
 
     def test_length_prefers_the_matching_recording(self):
         far = matching.best_music_candidate(MB, want(duration=300))
@@ -1090,25 +1052,19 @@ class MusicMatchTests(unittest.TestCase):
         )
 
     def test_a_different_song_by_the_same_artist_is_never_offered(self):
-        self.assertIsNone(
-            matching.best_music_candidate(MB, want(title="Eleanor Rigby"))
-        )
+        self.assertIsNone(matching.best_music_candidate(MB, want(title="Eleanor Rigby")))
 
     def test_a_fingerprint_can_vouch_for_a_record_with_a_junk_title(self):
         junk = want(title="Track 01", album="")
         self.assertIsNone(matching.best_music_candidate(MB, junk))
-        best = matching.best_music_candidate(
-            MB, junk, {"0aa1938a-ee7f-487b-b742-8b2cfa110c85": 0.98}
-        )
+        best = matching.best_music_candidate(MB, junk, {"0aa1938a-ee7f-487b-b742-8b2cfa110c85": 0.98})
         self.assertEqual(best["recording_id"], "0aa1938a-ee7f-487b-b742-8b2cfa110c85")
         self.assertFalse(best["ambiguous"])
 
     def test_untagged_track_acoustid_match_scores_above_tick_threshold(self):
         untagged = want(title="", artist="", album="", duration=125.6)
         self.assertIsNone(matching.best_music_candidate(MB, untagged))
-        best = matching.best_music_candidate(
-            MB, untagged, {"0aa1938a-ee7f-487b-b742-8b2cfa110c85": 0.95}
-        )
+        best = matching.best_music_candidate(MB, untagged, {"0aa1938a-ee7f-487b-b742-8b2cfa110c85": 0.95})
         self.assertIsNotNone(best)
         self.assertEqual(best["recording_id"], "0aa1938a-ee7f-487b-b742-8b2cfa110c85")
         self.assertGreaterEqual(best["score"], matching.TICK_SCORE)
@@ -1137,9 +1093,7 @@ class MusicMatchTests(unittest.TestCase):
                 },
             }
         )
-        best = matching.best_music_candidate(
-            [MB[0], compilation], want(album="", track=None)
-        )
+        best = matching.best_music_candidate([MB[0], compilation], want(album="", track=None))
         self.assertTrue(best["ambiguous"])
         self.assertEqual(best["rivals"], 1)
         # naming the album settles it
@@ -1151,18 +1105,12 @@ class MusicMatchTests(unittest.TestCase):
         def variant(rec_id, title, year, status="Official", secondary=()):
             rec = json.loads(json.dumps(MB[0]))
             rec["id"] = rec_id
-            rec["releases"][0].update(
-                {"id": "rel-" + rec_id, "title": title, "date": year, "status": status}
-            )
-            rec["releases"][0]["release-group"].update(
-                {"id": "rg-" + rec_id, "secondary-types": list(secondary)}
-            )
+            rec["releases"][0].update({"id": "rel-" + rec_id, "title": title, "date": year, "status": status})
+            rec["releases"][0]["release-group"].update({"id": "rg-" + rec_id, "secondary-types": list(secondary)})
             return rec
 
         late = variant("late", "Greatest Hits", "2021-05-31", secondary=["Compilation"])
-        early = variant(
-            "early", "Greatest Hits", "1975-01-01", secondary=["Compilation"]
-        )
+        early = variant("early", "Greatest Hits", "1975-01-01", secondary=["Compilation"])
         studio = variant("studio", "Real Album", "1990-01-01")
         no_album = want(album="", track=None, duration=125.6)
         self.assertEqual(
@@ -1170,9 +1118,7 @@ class MusicMatchTests(unittest.TestCase):
             "early",
         )
         self.assertEqual(
-            matching.best_music_candidate([late, early, studio], no_album)[
-                "recording_id"
-            ],
+            matching.best_music_candidate([late, early, studio], no_album)["recording_id"],
             "studio",
         )
         self.assertTrue(
@@ -1182,9 +1128,7 @@ class MusicMatchTests(unittest.TestCase):
 
     def test_no_album_known_prefers_the_studio_album_then_the_earliest(self):
         later = json.loads(json.dumps(MB[0]))
-        later["releases"][0].update(
-            {"id": "later", "title": "Help! (Deluxe)", "date": "2020-01-01"}
-        )
+        later["releases"][0].update({"id": "later", "title": "Help! (Deluxe)", "date": "2020-01-01"})
         chosen = matching.score_recording(
             {**MB[0], "releases": [later["releases"][0], MB[0]["releases"][0]]},
             want(album="", track=None),
@@ -1199,12 +1143,8 @@ class ChangePlanTests(unittest.TestCase):
         return c
 
     def test_music_changes_only_what_differs(self):
-        book = library_book(
-            title="yesterday", authors=["Beatles"], series="", series_index=1.0
-        )
-        changes = matching.plan_changes(
-            book, "music", self.music(), set(matching.DEFAULT_FIELDS)
-        )
+        book = library_book(title="yesterday", authors=["Beatles"], series="", series_index=1.0)
+        changes = matching.plan_changes(book, "music", self.music(), set(matching.DEFAULT_FIELDS))
         self.assertEqual(changes["title"], ("yesterday", "Yesterday"))
         self.assertEqual(changes["authors"], (["Beatles"], ["The Beatles"]))
         self.assertEqual(changes["album"], (["", 1.0], ["Help!", 13.0]))
@@ -1230,9 +1170,7 @@ class ChangePlanTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            matching.plan_changes(
-                book, "music", self.music(), set(matching.DEFAULT_FIELDS)
-            ),
+            matching.plan_changes(book, "music", self.music(), set(matching.DEFAULT_FIELDS)),
             {},
         )
 
@@ -1240,9 +1178,7 @@ class ChangePlanTests(unittest.TestCase):
         self,
     ):
         book = library_book(pubdate="1965-08-06T00:00:00+00:00", has_cover=True)
-        changes = matching.plan_changes(
-            book, "music", self.music(date="1965"), {"date", "cover"}
-        )
+        changes = matching.plan_changes(book, "music", self.music(date="1965"), {"date", "cover"})
         self.assertEqual(changes, {})
         changes = matching.plan_changes(
             library_book(pubdate="1999-01-01T00:00:00+00:00"),
@@ -1253,9 +1189,7 @@ class ChangePlanTests(unittest.TestCase):
         self.assertEqual(changes["date"][1], "1965-01-01T00:00:00+00:00")
 
     def test_authors_differing_only_in_punctuation_are_left_alone(self):
-        cand = matching.best_book_candidate(
-            OL, {"title": "Dune", "artist": "Frank Herbert"}
-        )
+        cand = matching.best_book_candidate(OL, {"title": "Dune", "artist": "Frank Herbert"})
         book = library_book(authors=["Herbert, Frank"], formats=["EPUB"])
         self.assertIn("authors", matching.plan_changes(book, "book", cand, {"authors"}))
         self.assertNotIn(
@@ -1276,9 +1210,7 @@ class ChangePlanTests(unittest.TestCase):
         )
 
     def test_books_get_edition_id_but_no_guessed_isbn_or_publisher(self):
-        cand = matching.best_book_candidate(
-            OL, {"title": "Dune", "artist": "Frank Herbert"}
-        )
+        cand = matching.best_book_candidate(OL, {"title": "Dune", "artist": "Frank Herbert"})
         changes = matching.plan_changes(
             library_book(formats=["EPUB"], series="", title="dune"),
             "book",
@@ -1292,13 +1224,9 @@ class ChangePlanTests(unittest.TestCase):
             "no isbn: a search cannot tell which edition you own",
         )
         self.assertNotIn("publisher", changes)
-        self.assertIn(
-            "tags", changes, "subjects were ticked, so they are offered as tags"
-        )
+        self.assertIn("tags", changes, "subjects were ticked, so they are offered as tags")
         self.assertFalse(set(changes["tags"][1]) - set(cand["subjects"]) - {"Music"})
-        no_subjects = matching.plan_changes(
-            library_book(formats=["EPUB"]), "book", cand, set(matching.DEFAULT_FIELDS)
-        )
+        no_subjects = matching.plan_changes(library_book(formats=["EPUB"]), "book", cand, set(matching.DEFAULT_FIELDS))
         self.assertNotIn(
             "tags",
             no_subjects,
@@ -1306,18 +1234,10 @@ class ChangePlanTests(unittest.TestCase):
         )
 
     def test_chapter_files_keep_their_titles_and_whole_audiobooks_do_not(self):
-        cand = matching.best_book_candidate(
-            OL, {"title": "Dune", "artist": "Frank Herbert"}
-        )
-        chapter = library_book(
-            title="Chapter 3", series="Dune", formats=["MP3"], tags=["Audiobook"]
-        )
-        self.assertNotIn(
-            "title", matching.plan_changes(chapter, "audiobook", cand, {"title"})
-        )
-        whole = library_book(
-            title="dune", series="", formats=["M4B"], tags=["Audiobook"]
-        )
+        cand = matching.best_book_candidate(OL, {"title": "Dune", "artist": "Frank Herbert"})
+        chapter = library_book(title="Chapter 3", series="Dune", formats=["MP3"], tags=["Audiobook"])
+        self.assertNotIn("title", matching.plan_changes(chapter, "audiobook", cand, {"title"}))
+        whole = library_book(title="dune", series="", formats=["M4B"], tags=["Audiobook"])
         self.assertEqual(
             matching.plan_changes(whole, "audiobook", cand, {"title"})["title"],
             ("dune", "Dune"),
@@ -1356,9 +1276,7 @@ class ChangePlanTests(unittest.TestCase):
 
 class BookMatchTests(unittest.TestCase):
     def test_best_open_library_work(self):
-        best = matching.best_book_candidate(
-            OL, {"title": "Dune", "artist": "Frank Herbert"}
-        )
+        best = matching.best_book_candidate(OL, {"title": "Dune", "artist": "Frank Herbert"})
         self.assertEqual(
             (best["title"], best["authors"], best["date"]),
             ("Dune", ["Frank Herbert"], "1965"),
@@ -1368,17 +1286,11 @@ class BookMatchTests(unittest.TestCase):
             best["cover_urls"],
             ["https://covers.openlibrary.org/b/id/11481354-L.jpg?default=false"],
         )
-        messiah = matching.best_book_candidate(
-            OL, {"title": "Dune Messiah", "artist": "Frank Herbert"}
-        )
+        messiah = matching.best_book_candidate(OL, {"title": "Dune Messiah", "artist": "Frank Herbert"})
         self.assertEqual(messiah["title"], "Dune Messiah")
 
     def test_unrelated_title_is_not_offered(self):
-        self.assertIsNone(
-            matching.best_book_candidate(
-                OL, {"title": "Cooking for One", "artist": "Frank Herbert"}
-            )
-        )
+        self.assertIsNone(matching.best_book_candidate(OL, {"title": "Cooking for One", "artist": "Frank Herbert"}))
 
     def test_want_for_audiobooks_uses_the_book_title_not_the_chapter(self):
         chapter = library_book(
@@ -1392,9 +1304,7 @@ class BookMatchTests(unittest.TestCase):
         self.assertEqual((w["title"], w["artist"]), ("Dune", "Frank Herbert"))
         self.assertEqual(
             matching.want_for(
-                library_book(
-                    title="Part 2 - Dune (Unabridged)", series="", formats=["M4B"]
-                ),
+                library_book(title="Part 2 - Dune (Unabridged)", series="", formats=["M4B"]),
                 "audiobook",
                 {},
             )["title"],
@@ -1436,9 +1346,7 @@ class PlanMatchesTests(unittest.TestCase):
                 series="",
                 formats=["EPUB"],
             ),
-            library_book(
-                id=4, title="Qzxv Plmk", authors=["Nobody"], series="", formats=["MP3"]
-            ),
+            library_book(id=4, title="Qzxv Plmk", authors=["Nobody"], series="", formats=["MP3"]),
         ]
         routes = {
             "musicbrainz.org/ws/2/recording": [{"recordings": MB}, {"recordings": []}],
@@ -1457,18 +1365,14 @@ class PlanMatchesTests(unittest.TestCase):
 
     def test_album_search_is_widened_when_nothing_good_comes_back(self):
         routes = {"musicbrainz.org": [{"recordings": []}, {"recordings": MB}]}
-        (found, _), fetch, _ = self.run_plan(
-            [library_book(series="Greatest Hits")], routes
-        )
+        (found, _), fetch, _ = self.run_plan([library_book(series="Greatest Hits")], routes)
         self.assertEqual(len(fetch.calls), 2)
         self.assertNotIn("release", fetch.calls[1][0].replace("release-group", ""))
         self.assertEqual(len(found), 1)
 
     def test_weak_matches_are_dropped(self):
         routes = {"musicbrainz.org": [{"recordings": MB}] * 2}
-        (found, _), *_ = self.run_plan(
-            [library_book(title="Totally Other Song")], routes
-        )
+        (found, _), *_ = self.run_plan([library_book(title="Totally Other Song")], routes)
         self.assertEqual(found, [])
 
     def test_a_refused_lookup_skips_that_book_but_a_dead_network_stops_the_run(self):
@@ -1490,9 +1394,7 @@ class PlanMatchesTests(unittest.TestCase):
             ]
         }
         (found, skipped), *_ = self.run_plan(books, routes, retries=0)
-        self.assertEqual(
-            [s["id"] for s in found], [1], "what was found before the failure is kept"
-        )
+        self.assertEqual([s["id"] for s in found], [1], "what was found before the failure is kept")
         self.assertEqual(len(skipped), 1)
         self.assertIn("Stopped at", skipped[0])
 
@@ -1524,8 +1426,7 @@ class PlanMatchesTests(unittest.TestCase):
                         ("TIT2", id3_text(0, "Yesterday")),
                         (
                             "UFID",
-                            b"http://musicbrainz.org\x00"
-                            + b"8083d5ff-d097-4636-9c30-77171b97aa43",
+                            b"http://musicbrainz.org\x00" + b"8083d5ff-d097-4636-9c30-77171b97aa43",
                         ),
                     ],
                 )
@@ -1556,9 +1457,7 @@ class PlanMatchesTests(unittest.TestCase):
                 "acoustid": [
                     {
                         "status": "ok",
-                        "results": [
-                            {"score": 0.97, "recordings": [{"id": MB[0]["id"]}]}
-                        ],
+                        "results": [{"score": 0.97, "recordings": [{"id": MB[0]["id"]}]}],
                     }
                 ],
                 "musicbrainz.org": [{"recordings": [MB[0]]}, {"recordings": []}],
@@ -1696,9 +1595,7 @@ class PlanMatchesTests(unittest.TestCase):
                 "acoustid": [
                     {
                         "status": "ok",
-                        "results": [
-                            {"score": 0.97, "recordings": [{"id": MB[0]["id"]}]}
-                        ],
+                        "results": [{"score": 0.97, "recordings": [{"id": MB[0]["id"]}]}],
                     }
                 ],
                 "musicbrainz.org": [{"recordings": [MB[0]]}],
@@ -1807,9 +1704,7 @@ class MatchInspectorAndSingleBookTests(unittest.TestCase):
         routes = {"musicbrainz.org": [{"recordings": [MB[0]]}, {"recordings": []}]}
         http, fetch, _ = make_http(routes=routes)
         mbid = MB[0]["id"]
-        cands = matching.search_single_book(
-            book, http, options={"kind": "music"}, identifier=mbid
-        )
+        cands = matching.search_single_book(book, http, options={"kind": "music"}, identifier=mbid)
         self.assertGreater(len(cands), 0)
         self.assertEqual(cands[0]["recording_id"], mbid)
         self.assertIn(f"rid%3A{mbid}", fetch.calls[0][0])
@@ -1833,20 +1728,167 @@ class MatchInspectorAndSingleBookTests(unittest.TestCase):
         self.assertGreater(len(cands), 0)
         self.assertEqual(cands[0]["title"], "Dune")
 
+    def test_update_diffs_unchanged_tags_and_identifiers_display_candidate_metadata(
+        self,
+    ):
+        MatchInspectorDialog = _load_match_inspector()
+        if MatchInspectorDialog is None:
+            self.skipTest("PyQt6 is not available")
+        book = library_book(
+            id=1,
+            title="Yesterday",
+            tags=["BookTag", "Music"],
+            identifiers={"isbn": "123"},
+        )
+        cand = {
+            "title": "Yesterday",
+            "score": 0.95,
+            "source": "musicbrainz",
+            "tags": ["CandidateTag"],
+            "identifiers": {"isbn": "456"},
+        }
+        dlg = MatchInspectorDialog(
+            None,
+            book=book,
+            suggestion={"candidate": cand},
+            http=types.SimpleNamespace(),
+            options={"kind": "music"},
+            chosen_fields=["tags", "identifiers"],
+        )
+        rows = {
+            dlg.diff_tree.topLevelItem(i).text(0): (
+                dlg.diff_tree.topLevelItem(i).text(1),
+                dlg.diff_tree.topLevelItem(i).text(2),
+                dlg.diff_tree.topLevelItem(i).text(3),
+            )
+            for i in range(dlg.diff_tree.topLevelItemCount())
+        }
+        self.assertEqual(rows["Tags"], ("BookTag, Music", "CandidateTag", "Unchanged"))
+        self.assertEqual(rows["Ids"], ("isbn:123", "isbn:456", "Unchanged"))
+
+    def test_update_diffs_unchanged_subjects_and_keys_extraction(self):
+        MatchInspectorDialog = _load_match_inspector()
+        if MatchInspectorDialog is None:
+            self.skipTest("PyQt6 is not available")
+        book = library_book(id=2, title="Dune", tags=["Sci-Fi"], identifiers={"olid": "OL123M"})
+        cand = {
+            "title": "Dune",
+            "score": 0.95,
+            "source": "openlibrary",
+            "subjects": ["Space Opera", "Arrakis"],
+            "olid": "OL123M",
+            "recording_id": "rec-99",
+            "release_id": "rel-88",
+        }
+        dlg = MatchInspectorDialog(
+            None,
+            book=book,
+            suggestion={"candidate": cand},
+            http=types.SimpleNamespace(),
+            options={"kind": "book"},
+            chosen_fields=["tags", "identifiers"],
+        )
+        rows = {
+            dlg.diff_tree.topLevelItem(i).text(0): (
+                dlg.diff_tree.topLevelItem(i).text(1),
+                dlg.diff_tree.topLevelItem(i).text(2),
+                dlg.diff_tree.topLevelItem(i).text(3),
+            )
+            for i in range(dlg.diff_tree.topLevelItemCount())
+        }
+        self.assertEqual(rows["Tags"], ("Sci-Fi", "Space Opera, Arrakis", "Unchanged"))
+        self.assertEqual(
+            rows["Ids"],
+            (
+                "olid:OL123M",
+                "olid:OL123M, recording_id:rec-99, release_id:rel-88",
+                "Unchanged",
+            ),
+        )
+
+    def test_update_diffs_explicit_identifiers_dict_takes_precedence(self):
+        MatchInspectorDialog = _load_match_inspector()
+        if MatchInspectorDialog is None:
+            self.skipTest("PyQt6 is not available")
+        book = library_book(
+            id=3,
+            title="Song",
+            tags=["Pop"],
+            identifiers={"isbn": "111", "mb_recording": "rec-1", "mb_release": "rel-1"},
+        )
+        cand = {
+            "title": "Song",
+            "score": 0.9,
+            "source": "musicbrainz",
+            "identifiers": {"isbn": "222"},
+            "recording_id": "rec-1",
+            "release_id": "rel-1",
+            "olid": "ignored-ol",
+        }
+        dlg = MatchInspectorDialog(
+            None,
+            book=book,
+            suggestion={"candidate": cand},
+            http=types.SimpleNamespace(),
+            options={"kind": "music"},
+            chosen_fields=["identifiers"],
+        )
+        rows = {
+            dlg.diff_tree.topLevelItem(i).text(0): (
+                dlg.diff_tree.topLevelItem(i).text(1),
+                dlg.diff_tree.topLevelItem(i).text(2),
+                dlg.diff_tree.topLevelItem(i).text(3),
+            )
+            for i in range(dlg.diff_tree.topLevelItemCount())
+        }
+        self.assertEqual(
+            rows["Ids"],
+            ("isbn:111, mb_recording:rec-1, mb_release:rel-1", "isbn:222", "Unchanged"),
+        )
+
+    def test_update_diffs_empty_and_missing_keys_graceful_fallback(self):
+        MatchInspectorDialog = _load_match_inspector()
+        if MatchInspectorDialog is None:
+            self.skipTest("PyQt6 is not available")
+        book = library_book(id=4, title="Song", tags=["Pop", "Music"], identifiers={"isbn": "111"})
+        cand = {
+            "title": "Song",
+            "score": 0.8,
+            "source": "musicbrainz",
+            "tags": None,
+            "subjects": None,
+            "identifiers": None,
+            "recording_id": "",
+            "release_id": None,
+            "olid": "",
+        }
+        dlg = MatchInspectorDialog(
+            None,
+            book=book,
+            suggestion={"candidate": cand},
+            http=types.SimpleNamespace(),
+            options={"kind": "music"},
+            chosen_fields=["tags", "identifiers"],
+        )
+        rows = {
+            dlg.diff_tree.topLevelItem(i).text(0): (
+                dlg.diff_tree.topLevelItem(i).text(1),
+                dlg.diff_tree.topLevelItem(i).text(2),
+                dlg.diff_tree.topLevelItem(i).text(3),
+            )
+            for i in range(dlg.diff_tree.topLevelItemCount())
+        }
+        self.assertEqual(rows["Tags"], ("Pop, Music", "(none)", "Unchanged"))
+        self.assertEqual(rows["Ids"], ("isbn:111", "(none)", "Unchanged"))
+
 
 class ManualSearchTests(unittest.TestCase):
     def test_sanitize_identifier(self):
         kind, val = sources.sanitize_identifier("12345678-1234-1234-1234-123456789abc")
-        self.assertEqual(
-            (kind, val), ("mb_recording", "12345678-1234-1234-1234-123456789abc")
-        )
+        self.assertEqual((kind, val), ("mb_recording", "12345678-1234-1234-1234-123456789abc"))
 
-        kind, val = sources.sanitize_identifier(
-            "mb_release:87654321-4321-4321-4321-cba987654321"
-        )
-        self.assertEqual(
-            (kind, val), ("mb_release", "87654321-4321-4321-4321-cba987654321")
-        )
+        kind, val = sources.sanitize_identifier("mb_release:87654321-4321-4321-4321-cba987654321")
+        self.assertEqual((kind, val), ("mb_release", "87654321-4321-4321-4321-cba987654321"))
 
         kind, val = sources.sanitize_identifier("OL12345M")
         self.assertEqual((kind, val), ("olid", "OL12345M"))
@@ -1888,7 +1930,6 @@ class ManualSearchTests(unittest.TestCase):
         # Explicit barcode prefix disambiguates ISBN overlap
         kind, val = sources.sanitize_identifier("barcode:9780140328721")
         self.assertEqual((kind, val), ("barcode", "9780140328721"))
-
         kind, val = sources.sanitize_identifier("invalid-text")
         self.assertEqual((kind, val), ("invalid", ""))
 
@@ -1900,27 +1941,18 @@ class ManualSearchTests(unittest.TestCase):
             }
         )
 
-        cands_mb = matching.manual_search(
-            http, direct_id="12345678-1234-1234-1234-123456789abc", media_kind="music"
-        )
+        cands_mb = matching.manual_search(http, direct_id="12345678-1234-1234-1234-123456789abc", media_kind="music")
         self.assertGreater(len(cands_mb), 0)
         self.assertTrue(cands_mb[0].get("by_id"))
 
-        cands_ol = matching.manual_search(
-            http, direct_id="isbn:9780140328721", media_kind="book"
-        )
+        cands_ol = matching.manual_search(http, direct_id="isbn:9780140328721", media_kind="book")
         self.assertGreater(len(cands_ol), 0)
         self.assertTrue(cands_ol[0].get("by_id"))
-
-        cands_barcode = matching.manual_search(
-            http, direct_id="barcode:075678249725", media_kind="music"
-        )
+        cands_barcode = matching.manual_search(http, direct_id="barcode:075678249725", media_kind="music")
         self.assertGreater(len(cands_barcode), 0)
         self.assertTrue(cands_barcode[0].get("by_id"))
 
-        cands_raw_upc = matching.manual_search(
-            http, direct_id="075678249725", media_kind="music"
-        )
+        cands_raw_upc = matching.manual_search(http, direct_id="075678249725", media_kind="music")
         self.assertGreater(len(cands_raw_upc), 0)
         self.assertTrue(cands_raw_upc[0].get("by_id"))
 
@@ -1932,9 +1964,7 @@ class ManualSearchTests(unittest.TestCase):
             }
         )
 
-        cands = matching.manual_search(
-            http, title="Yesterday", artist="Beatles", media_kind="music"
-        )
+        cands = matching.manual_search(http, title="Yesterday", artist="Beatles", media_kind="music")
         self.assertGreater(len(cands), 0)
         self.assertEqual(cands[0]["title"], "Yesterday")
 
