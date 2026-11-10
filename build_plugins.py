@@ -121,9 +121,7 @@ def _licenses():
     return "\n".join(parts)
 
 
-CLOUDSCRAPER_OLD = (
-    "with open(os.path.join(os.path.dirname(__file__), 'browsers.json'), 'r') as fp:"
-)
+CLOUDSCRAPER_OLD = "with open(os.path.join(os.path.dirname(__file__), 'browsers.json'), 'r') as fp:"
 CLOUDSCRAPER_NEW = (
     "import io, pkgutil  # patched: read the data file through the import system so it works from a zip\n"
     "        with io.StringIO(pkgutil.get_data(__name__, 'browsers.json').decode('utf-8')) as fp:"
@@ -132,9 +130,7 @@ CLOUDSCRAPER_NEW = (
 
 def _patch_cloudscraper(text):
     if CLOUDSCRAPER_OLD not in text:
-        raise RuntimeError(
-            "cloudscraper changed: the browsers.json patch no longer applies"
-        )
+        raise RuntimeError("cloudscraper changed: the browsers.json patch no longer applies")
     return text.replace(CLOUDSCRAPER_OLD, CLOUDSCRAPER_NEW)
 
 
@@ -152,9 +148,7 @@ def add_vendored(z):
         import requests_toolbelt
         import urllib3
     except ImportError as exc:
-        raise ImportError(
-            f'{exc}; run "pip install fanficfare" in this Python to build the fanfic plugin'
-        ) from exc
+        raise ImportError(f'{exc}; run "pip install fanficfare" in this Python to build the fanfic plugin') from exc
     fff_root = Path(fanficfare.__file__).parent
     for path in _package_files(fff_root):
         rel = path.relative_to(fff_root).as_posix()
@@ -174,9 +168,7 @@ def add_vendored(z):
                 flags=re.M,
             )
             if re.search(r"^\s*import fanficfare\b", text, re.M):
-                raise RuntimeError(
-                    f"{rel} still imports fanficfare by its absolute name"
-                )
+                raise RuntimeError(f"{rel} still imports fanficfare by its absolute name")
             z.writestr(arcname, text)
         else:
             z.write(path, arcname)
@@ -197,9 +189,7 @@ def add_vendored(z):
                 continue  # native accelerators (e.g. charset-normalizer's) can't load from a zip; the pure-Python code works without them
             arcname = f"{base.name}/{path.relative_to(base).as_posix()}"
             if arcname == "cloudscraper/user_agent/__init__.py":
-                z.writestr(
-                    arcname, _patch_cloudscraper(path.read_text(encoding="utf-8"))
-                )
+                z.writestr(arcname, _patch_cloudscraper(path.read_text(encoding="utf-8")))
             else:
                 z.write(path, arcname)
     bro = root / "third_party" / "brotlidecpy"
@@ -223,9 +213,7 @@ def add_mutagen(z):
     """Copy pure-Python mutagen from third_party/mutagen into the MediaMatcher zip."""
     mutagen_dir = root / "third_party" / "mutagen"
     if not mutagen_dir.exists():
-        raise ImportError(
-            f"{mutagen_dir} not found; vendored mutagen is required to build MediaMatcher"
-        )
+        raise ImportError(f"{mutagen_dir} not found; vendored mutagen is required to build MediaMatcher")
     for path in _package_files(mutagen_dir):
         if path.name == "COPYING" or path.name == "LICENSE":
             continue
@@ -233,9 +221,7 @@ def add_mutagen(z):
         z.write(path, f"mutagen/{rel}")
     copying = mutagen_dir / "COPYING"
     if copying.exists():
-        z.writestr(
-            "MUTAGEN_LICENSE.txt", copying.read_text(encoding="utf-8", errors="replace")
-        )
+        z.writestr("MUTAGEN_LICENSE.txt", copying.read_text(encoding="utf-8", errors="replace"))
 
 
 def build_all(dest, skip_unavailable=True):
@@ -247,11 +233,7 @@ def build_all(dest, skip_unavailable=True):
         try:
             with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as z:
                 for path in sorted((root / folder).rglob("*")):
-                    if (
-                        path.is_file()
-                        and "__pycache__" not in path.parts
-                        and path.suffix in (".py", ".json")
-                    ):
+                    if path.is_file() and "__pycache__" not in path.parts and path.suffix in (".py", ".json"):
                         arcname = path.relative_to(root / folder).as_posix()
                         z.write(path, arcname)
                 for name in shared:
@@ -273,7 +255,5 @@ def build_all(dest, skip_unavailable=True):
 
 
 if __name__ == "__main__":
-    for target in build_all(
-        root / "dist", skip_unavailable="--strict" not in sys.argv
-    ).values():
+    for target in build_all(root / "dist", skip_unavailable="--strict" not in sys.argv).values():
         print(target)

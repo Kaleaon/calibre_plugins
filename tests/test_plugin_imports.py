@@ -46,27 +46,19 @@ class PluginImportTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.saved = {
-            k: v
-            for k, v in sys.modules.items()
-            if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))
+            k: v for k, v in sys.modules.items() if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))
         }
         for name in STUBS + ["lxml", "lxml.etree"]:
             sys.modules[name] = MagicMock()
         sys.modules["calibre.ebooks.metadata.book.base"].Metadata = Meta
         sys.modules["calibre.gui2.actions"].InterfaceAction = object
         sys.modules["calibre.customize"].InterfaceActionBase = object
-        sys.modules["calibre.utils.config"].JSONConfig = lambda name: type(
-            "Prefs", (dict,), {"defaults": {}}
-        )()
+        sys.modules["calibre.utils.config"].JSONConfig = lambda name: type("Prefs", (dict,), {"defaults": {}})()
         sys.modules["calibre_plugins"] = types.ModuleType("calibre_plugins")
         sys.modules["calibre_plugins"].__path__ = []
 
     def tearDown(self):
-        for k in [
-            k
-            for k in sys.modules
-            if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))
-        ]:
+        for k in [k for k in sys.modules if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))]:
             del sys.modules[k]
         sys.modules.update(self.saved)
         self.tmp.cleanup()
@@ -84,9 +76,7 @@ class PluginImportTests(unittest.TestCase):
         return package
 
     def test_every_plugin_module_imports(self):
-        self.load(
-            "metabods_downloader"
-        )  # builds everything that can be built in this environment
+        self.load("metabods_downloader")  # builds everything that can be built in this environment
         for import_name in self.built:
             package = self.load(import_name)
             modules = {
@@ -153,9 +143,7 @@ class PluginImportTests(unittest.TestCase):
             ("T", ["Au"], {"metabods": "a"}, ["x", "c"]),
         )
         self.assertEqual(mi.comments, "<p>S &amp; s</p>")
-        two = libkit.metadata_for(
-            group + [dict(group[0], id="b", title="U")], "Omni", "metabods", "Metabods"
-        )
+        two = libkit.metadata_for(group + [dict(group[0], id="b", title="U")], "Omni", "metabods", "Metabods")
         self.assertEqual((two.title, two.ids), ("Omni", {}))
 
     def test_library_metadata_carries_series_fields(self):
@@ -186,9 +174,7 @@ class PluginImportTests(unittest.TestCase):
             "nifty",
             "Nifty",
         )
-        self.assertFalse(
-            hasattr(plain, "series"), "a story outside a series gets no series fields"
-        )
+        self.assertFalse(hasattr(plain, "series"), "a story outside a series gets no series fields")
 
     def test_downloader_action_existing_ids(self):
         for plugin, ident in (
@@ -200,11 +186,7 @@ class PluginImportTests(unittest.TestCase):
             action_mod = importlib.import_module(package + ".action")
 
             # Identify action class
-            action_cls = (
-                action_mod.MetabodsAction
-                if plugin == "metabods_downloader"
-                else action_mod.NiftyAction
-            )
+            action_cls = action_mod.MetabodsAction if plugin == "metabods_downloader" else action_mod.NiftyAction
             self.assertTrue(issubclass(action_cls, libkit.DownloaderAction))
 
             mock_gui = MagicMock()
@@ -252,9 +234,7 @@ class PluginImportTests(unittest.TestCase):
                 continue
             package = self.load(plugin)
             libkit = importlib.import_module(package + ".libkit")
-            self.assertTrue(
-                hasattr(libkit, "merge_epubs"), f"{plugin} libkit missing merge_epubs"
-            )
+            self.assertTrue(hasattr(libkit, "merge_epubs"), f"{plugin} libkit missing merge_epubs")
             self.assertTrue(
                 callable(libkit.merge_epubs),
                 f"{plugin} libkit merge_epubs is not callable",
@@ -354,9 +334,7 @@ class PluginImportTests(unittest.TestCase):
 
         # ISBN-13 normalization
         self.assertEqual(importer.normalize_isbn("978-0-306-40615-7"), "9780306406157")
-        self.assertEqual(
-            importer.normalize_isbn("  978 0 306 40615 7  "), "9780306406157"
-        )
+        self.assertEqual(importer.normalize_isbn("  978 0 306 40615 7  "), "9780306406157")
 
         # Invalid / Empty inputs
         self.assertIsNone(importer.normalize_isbn(None))
@@ -445,9 +423,7 @@ class PluginImportTests(unittest.TestCase):
                 "source": "Annotated.epub",
                 "metadata": {
                     "title": "Pride and Prejudice (Annotated Edition)",
-                    "industryIdentifiers": [
-                        {"type": "ISBN_13", "identifier": "978-0-306-40615-7"}
-                    ],
+                    "industryIdentifiers": [{"type": "ISBN_13", "identifier": "978-0-306-40615-7"}],
                 },
             }
             imported, errors = importer.import_books(mock_gui, [row_isbn_dup])
@@ -488,9 +464,7 @@ class PluginImportTests(unittest.TestCase):
                     "isbn": "978-8-888-88888-8",
                 },
             }
-            imported, errors = importer.import_books(
-                mock_gui, [row_batch_1, row_batch_2]
-            )
+            imported, errors = importer.import_books(mock_gui, [row_batch_1, row_batch_2])
             self.assertEqual(imported, [201])
             self.assertEqual(row_batch_1.get("import_status"), "imported")
             self.assertEqual(row_batch_2.get("import_status"), "duplicate skipped")

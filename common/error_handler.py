@@ -25,9 +25,7 @@ except ImportError:
 class FriendlyError(Exception):
     """Structured exception containing category, explanation, recovery steps, and technical details."""
 
-    def __init__(
-        self, category, explanation, recovery, details=None, original_exc=None
-    ):
+    def __init__(self, category, explanation, recovery, details=None, original_exc=None):
         self.category = category
         self.explanation = explanation
         self.recovery = recovery
@@ -61,9 +59,7 @@ def format_exception(exc_or_msg, det_msg=None):
     if original_exc is not None:
         raw_msg = str(original_exc)
         if hasattr(original_exc, "__traceback__") and original_exc.__traceback__:
-            tb_lines = traceback.format_exception(
-                type(original_exc), original_exc, original_exc.__traceback__
-            )
+            tb_lines = traceback.format_exception(type(original_exc), original_exc, original_exc.__traceback__)
             details = "".join(tb_lines)
         else:
             tb_str = traceback.format_exc()
@@ -88,9 +84,7 @@ def format_exception(exc_or_msg, det_msg=None):
         or "access is denied" in msg_lower
     ):
         category = "File Access Error"
-        explanation = (
-            "A file or folder needed by this action is locked or access was denied."
-        )
+        explanation = "A file or folder needed by this action is locked or access was denied."
         recovery = [
             "Close any programs that might have the file open (e.g., e-book readers or text editors).",
             "Check folder permissions to ensure Calibre has write access.",
@@ -113,20 +107,14 @@ def format_exception(exc_or_msg, det_msg=None):
     # 3. Disk Space Error
     elif "no space left on device" in msg_lower or "errno 28" in msg_lower:
         category = "Storage Error"
-        explanation = (
-            "There is not enough free disk space available to complete the operation."
-        )
+        explanation = "There is not enough free disk space available to complete the operation."
         recovery = [
             "Free up disk space on the destination drive.",
             "Empty the temporary folder or trash bin and try again.",
         ]
 
     # 4. HTTP 429 Rate Limit
-    elif (
-        "429" in msg_lower
-        or "too many requests" in msg_lower
-        or "rate limit" in msg_lower
-    ):
+    elif "429" in msg_lower or "too many requests" in msg_lower or "rate limit" in msg_lower:
         category = "Rate Limit Exceeded"
         explanation = "The remote server rate-limited requests because too many requests were made in a short period."
         recovery = [
@@ -135,12 +123,7 @@ def format_exception(exc_or_msg, det_msg=None):
         ]
 
     # 5. HTTP 401 / 403 Access Denied
-    elif (
-        "401" in msg_lower
-        or "403" in msg_lower
-        or "unauthorized" in msg_lower
-        or "forbidden" in msg_lower
-    ):
+    elif "401" in msg_lower or "403" in msg_lower or "unauthorized" in msg_lower or "forbidden" in msg_lower:
         category = "Access Denied"
         explanation = "The remote server denied access or the authorization credentials were rejected."
         recovery = [
@@ -150,9 +133,7 @@ def format_exception(exc_or_msg, det_msg=None):
 
     # 6. General Network / Timeout / Connection Errors
     elif (
-        isinstance(
-            original_exc, (URLError, ConnectionError, TimeoutError, socket.error)
-        )
+        isinstance(original_exc, (URLError, ConnectionError, TimeoutError, socket.error))
         or "connection" in msg_lower
         or "timed out" in msg_lower
         or "network" in msg_lower
@@ -173,9 +154,7 @@ def format_exception(exc_or_msg, det_msg=None):
         or "bad zip" in msg_lower
     ):
         category = "Invalid Archive"
-        explanation = (
-            "The file is not a valid ZIP or EPUB archive, or the file is corrupted."
-        )
+        explanation = "The file is not a valid ZIP or EPUB archive, or the file is corrupted."
         recovery = [
             "Verify that the file is an intact EPUB or ZIP archive.",
             "Try re-downloading or recovering a fresh copy of the file.",
@@ -197,12 +176,7 @@ def format_exception(exc_or_msg, det_msg=None):
         )
         or (
             "audio" in msg_lower
-            and (
-                "tag" in msg_lower
-                or "header" in msg_lower
-                or "corrupt" in msg_lower
-                or "malformed" in msg_lower
-            )
+            and ("tag" in msg_lower or "header" in msg_lower or "corrupt" in msg_lower or "malformed" in msg_lower)
         )
         or (
             "id3" in msg_lower
@@ -223,11 +197,7 @@ def format_exception(exc_or_msg, det_msg=None):
         ]
 
     # 9. JSON or Data Parsing Error
-    elif (
-        isinstance(original_exc, (json.JSONDecodeError, ValueError))
-        or "xml" in msg_lower
-        or "parse" in msg_lower
-    ):
+    elif isinstance(original_exc, (json.JSONDecodeError, ValueError)) or "xml" in msg_lower or "parse" in msg_lower:
         category = "Data Parsing Error"
         explanation = "The input file or server response contained invalid or unexpected formatting."
         recovery = [
@@ -253,9 +223,7 @@ def format_exception(exc_or_msg, det_msg=None):
             "If the problem persists, report the issue with the detailed error trace.",
         ]
 
-    return FriendlyError(
-        category, explanation, recovery, details=details, original_exc=original_exc
-    )
+    return FriendlyError(category, explanation, recovery, details=details, original_exc=original_exc)
 
 
 def show_friendly_error_dialog(parent, title, exc_or_msg, det_msg=None, show=True):

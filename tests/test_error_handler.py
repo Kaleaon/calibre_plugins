@@ -54,12 +54,7 @@ class ErrorHandlerTests(unittest.TestCase):
         friendly = format_exception(exc)
         self.assertEqual(friendly.category, "File Not Found")
         self.assertIn("could not be found", friendly.explanation)
-        self.assertTrue(
-            any(
-                "Verify that the file or directory exists" in step
-                for step in friendly.recovery
-            )
-        )
+        self.assertTrue(any("Verify that the file or directory exists" in step for step in friendly.recovery))
 
     def test_http_429_rate_limit_formatting(self):
         exc = HTTPError("http://example.com", 429, "Too Many Requests", {}, None)
@@ -73,9 +68,7 @@ class ErrorHandlerTests(unittest.TestCase):
         friendly = format_exception(exc)
         self.assertEqual(friendly.category, "Network Error")
         self.assertIn("network error occurred", friendly.explanation)
-        self.assertTrue(
-            any("Check your internet connection" in step for step in friendly.recovery)
-        )
+        self.assertTrue(any("Check your internet connection" in step for step in friendly.recovery))
 
     def test_bad_zip_file_formatting(self):
         exc = zipfile.BadZipFile("File is not a zip file")
@@ -122,9 +115,7 @@ class ErrorHandlerTests(unittest.TestCase):
 
         with patch("common.error_handler.error_dialog", mock_error_dialog):
             exc = PermissionError(13, "Permission denied")
-            res = show_friendly_error_dialog(
-                "parent_widget", "Test Title", exc, det_msg="Det text"
-            )
+            res = show_friendly_error_dialog("parent_widget", "Test Title", exc, det_msg="Det text")
             self.assertEqual(res, "dialog_instance")
             self.assertEqual(captured["title"], "Test Title")
             self.assertIn("locked or access was denied", captured["msg"])
@@ -159,15 +150,8 @@ class ErrorHandlerTests(unittest.TestCase):
 
         friendly = format_exception(exc)
         self.assertEqual(friendly.category, "Audio Tagging Error")
-        self.assertIn(
-            "audio file tags could not be read or written", friendly.explanation
-        )
-        self.assertTrue(
-            any(
-                "intact and plays in a media player" in step
-                for step in friendly.recovery
-            )
-        )
+        self.assertIn("audio file tags could not be read or written", friendly.explanation)
+        self.assertTrue(any("intact and plays in a media player" in step for step in friendly.recovery))
         self.assertIn("corrupted MP3 ID3 header", friendly.details)
 
     def test_audio_tag_string_error_formatting(self):

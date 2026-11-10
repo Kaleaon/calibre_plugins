@@ -48,9 +48,7 @@ if mutagen is not None:
     from mutagen.oggvorbis import OggVorbis
 else:
     FLAC = Picture = ID3 = TIT2 = TPE1 = TPE2 = TALB = TRCK = TPOS = TDRC = TYER = None
-    TCON = TCOM = COMM = UFID = TXXX = APIC = MP3 = MP4 = MP4Cover = OggOpus = (
-        OggVorbis
-    ) = None
+    TCON = TCOM = COMM = UFID = TXXX = APIC = MP3 = MP4 = MP4Cover = OggOpus = OggVorbis = None
 
 
 def is_mutagen_available():
@@ -228,9 +226,7 @@ def _write_id3(audio, norm, cover_bytes, remove_cover):
     if cover_bytes:
         mime = "image/png" if cover_bytes.startswith(b"\x89PNG") else "image/jpeg"
         tags.delall("APIC")
-        tags.add(
-            APIC(encoding=3, mime=mime, type=3, desc="Front Cover", data=cover_bytes)
-        )
+        tags.add(APIC(encoding=3, mime=mime, type=3, desc="Front Cover", data=cover_bytes))
     elif remove_cover:
         tags.delall("APIC")
 
@@ -433,9 +429,7 @@ def _write_ogg(audio, norm, cover_bytes, remove_cover):
         pic.mime = mime
         pic.desc = "Front Cover"
         pic.data = cover_bytes
-        audio["METADATA_BLOCK_PICTURE"] = [
-            base64.b64encode(pic.write()).decode("ascii")
-        ]
+        audio["METADATA_BLOCK_PICTURE"] = [base64.b64encode(pic.write()).decode("ascii")]
     elif remove_cover:
         audio.pop("METADATA_BLOCK_PICTURE", None)
 
@@ -533,11 +527,7 @@ def _write_mp4(audio, norm, cover_bytes, remove_cover):
             tags.pop(key, None)
 
     if cover_bytes:
-        fmt = (
-            MP4Cover.FORMAT_PNG
-            if cover_bytes.startswith(b"\x89PNG")
-            else MP4Cover.FORMAT_JPEG
-        )
+        fmt = MP4Cover.FORMAT_PNG if cover_bytes.startswith(b"\x89PNG") else MP4Cover.FORMAT_JPEG
         tags["covr"] = [MP4Cover(cover_bytes, imageformat=fmt)]
     elif remove_cover:
         tags.pop("covr", None)
@@ -570,9 +560,7 @@ def write_metadata_to_file(path, metadata=None, cover_bytes=None, remove_cover=F
 
     audio = mutagen.File(path)
     if audio is None:
-        raise mutagen.MutagenError(
-            f"Unsupported or unrecognized audio format for file: {path}"
-        )
+        raise mutagen.MutagenError(f"Unsupported or unrecognized audio format for file: {path}")
 
     # Dispatch to appropriate writer based on audio file type
     if isinstance(audio, (MP4, mutagen.mp4.MP4)):
@@ -581,18 +569,14 @@ def write_metadata_to_file(path, metadata=None, cover_bytes=None, remove_cover=F
         _write_flac(audio, norm, cover_bytes, remove_cover)
     elif isinstance(audio, (OggVorbis, OggOpus, mutagen.ogg.OggFileType)):
         _write_ogg(audio, norm, cover_bytes, remove_cover)
-    elif isinstance(audio, (MP3, mutagen.mp3.MP3)) or (
-        hasattr(audio, "tags") and isinstance(audio.tags, ID3)
-    ):
+    elif isinstance(audio, (MP3, mutagen.mp3.MP3)) or (hasattr(audio, "tags") and isinstance(audio.tags, ID3)):
         _write_id3(audio, norm, cover_bytes, remove_cover)
     elif hasattr(audio, "add_tags") and not hasattr(audio, "tags"):
         _write_id3(audio, norm, cover_bytes, remove_cover)
     elif hasattr(audio, "__setitem__"):
         _write_ogg(audio, norm, cover_bytes, remove_cover)
     else:
-        raise mutagen.MutagenError(
-            f"Cannot determine appropriate tag format for {path} ({type(audio)})"
-        )
+        raise mutagen.MutagenError(f"Cannot determine appropriate tag format for {path} ({type(audio)})")
 
     audio.save()
     return True
@@ -622,9 +606,7 @@ def apply_changes_to_file(path, changes, cover_bytes=None):
         elif field == "cover" and cover_bytes:
             metadata["cover"] = cover_bytes
 
-    return write_metadata_to_file(
-        path, metadata=metadata, cover_bytes=cover_bytes, remove_cover=False
-    )
+    return write_metadata_to_file(path, metadata=metadata, cover_bytes=cover_bytes, remove_cover=False)
 
 
 def apply_saved_to_file(path, saved):
@@ -657,6 +639,4 @@ def apply_saved_to_file(path, saved):
             else:
                 cover_bytes = base64.b64decode(old) if isinstance(old, str) else old
 
-    return write_metadata_to_file(
-        path, metadata=metadata, cover_bytes=cover_bytes, remove_cover=remove_cover
-    )
+    return write_metadata_to_file(path, metadata=metadata, cover_bytes=cover_bytes, remove_cover=remove_cover)

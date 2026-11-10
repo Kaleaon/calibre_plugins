@@ -34,11 +34,7 @@ def mp3_frames(count=50):
 
 
 def vorbis_block(entries, vendor="test"):
-    out = (
-        struct.pack("<I", len(vendor))
-        + vendor.encode()
-        + struct.pack("<I", len(entries))
-    )
+    out = struct.pack("<I", len(vendor)) + vendor.encode() + struct.pack("<I", len(entries))
     for e in entries:
         raw = e.encode()
         out += struct.pack("<I", len(raw)) + raw
@@ -49,16 +45,10 @@ def flac_file(entries, picture=None, samples=88200, rate=44100):
     info = struct.pack(">HH", 4096, 4096) + bytes(6)
     packed = (rate << 44) | (1 << 41) | (15 << 36) | samples
     info += struct.pack(">Q", packed) + bytes(16)
-    blocks = [(0, info), (4, vorbis_block(entries))] + (
-        [(6, picture)] if picture else []
-    )
+    blocks = [(0, info), (4, vorbis_block(entries))] + ([(6, picture)] if picture else [])
     out = b"fLaC"
     for i, (kind, data) in enumerate(blocks):
-        out += (
-            bytes([(0x80 if i == len(blocks) - 1 else 0) | kind])
-            + len(data).to_bytes(3, "big")
-            + data
-        )
+        out += bytes([(0x80 if i == len(blocks) - 1 else 0) | kind]) + len(data).to_bytes(3, "big") + data
     return out
 
 
@@ -72,12 +62,7 @@ def ogg_page(packets, seq, granule=0, flags=0):
         segs.append(n)
         body += p
     return (
-        b"OggS"
-        + bytes([0, flags])
-        + struct.pack("<qIII", granule, 1, seq, 0)
-        + bytes([len(segs)])
-        + bytes(segs)
-        + body
+        b"OggS" + bytes([0, flags]) + struct.pack("<qIII", granule, 1, seq, 0) + bytes([len(segs)]) + bytes(segs) + body
     )
 
 
@@ -94,11 +79,7 @@ def ogg_vorbis(entries, rate=44100, granule=88200):
 def ogg_opus(entries):
     head = b"OpusHead" + bytes([1, 2]) + struct.pack("<HIhB", 312, 48000, 0, 0)
     tagpkt = b"OpusTags" + vorbis_block(entries)
-    return (
-        ogg_page([head], 0, flags=2)
-        + ogg_page([tagpkt], 1)
-        + ogg_page([bytes(20)], 2, 96312, flags=4)
-    )
+    return ogg_page([head], 0, flags=2) + ogg_page([tagpkt], 1) + ogg_page([bytes(20)], 2, 96312, flags=4)
 
 
 def mp4_box(kind, payload):
@@ -327,9 +308,7 @@ class MutagenWriterTests(unittest.TestCase):
         self.assertEqual(t["artist"], "Original Artist")
         self.assertEqual(t["album"], "Original Album")
         self.assertEqual(t["track"], 1)
-        self.assertIsNone(
-            t["cover"], "Undo successfully removed cover because original had none"
-        )
+        self.assertIsNone(t["cover"], "Undo successfully removed cover because original had none")
 
     def test_malformed_file_raises_and_formats_friendly_error(self):
         # Create a file with truncated/corrupt header
@@ -342,21 +321,12 @@ class MutagenWriterTests(unittest.TestCase):
 
         friendly = format_exception(ctx.exception)
         self.assertEqual(friendly.category, "Audio Tagging Error")
-        self.assertIn(
-            "audio file tags could not be read or written", friendly.explanation
-        )
-        self.assertTrue(
-            any(
-                "intact and plays in a media player" in step
-                for step in friendly.recovery
-            )
-        )
+        self.assertIn("audio file tags could not be read or written", friendly.explanation)
+        self.assertTrue(any("intact and plays in a media player" in step for step in friendly.recovery))
 
     def test_missing_file_raises_not_found(self):
         with self.assertRaises(FileNotFoundError):
-            mutagen_writer.write_metadata_to_file(
-                "/nonexistent/file.mp3", {"title": "Title"}
-            )
+            mutagen_writer.write_metadata_to_file("/nonexistent/file.mp3", {"title": "Title"})
 
     def test_fallback_when_mutagen_unavailable(self):
         with patch.object(mutagen_writer, "is_mutagen_available", return_value=False):
@@ -372,9 +342,7 @@ class ActionAudioTaggingIntegrationTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
 
         self.saved_modules = {
-            k: v
-            for k, v in sys.modules.items()
-            if k.startswith(("calibre", "qt", "calibre_plugins"))
+            k: v for k, v in sys.modules.items() if k.startswith(("calibre", "qt", "calibre_plugins"))
         }
 
         # Setup Qt stubs if not present
@@ -435,10 +403,7 @@ class ActionAudioTaggingIntegrationTests(unittest.TestCase):
 
     def tearDown(self):
         for k in list(sys.modules):
-            if (
-                k.startswith(("calibre", "qt", "calibre_plugins"))
-                and k not in self.saved_modules
-            ):
+            if k.startswith(("calibre", "qt", "calibre_plugins")) and k not in self.saved_modules:
                 del sys.modules[k]
         sys.modules.update(self.saved_modules)
 
@@ -531,9 +496,7 @@ class ActionAudioTaggingIntegrationTests(unittest.TestCase):
         self.assertEqual(t_restored["artist"], "Original Calibre Artist")
         self.assertEqual(t_restored["album"], "Original Series")
         self.assertEqual(t_restored["track"], 1)
-        self.assertIsNone(
-            t_restored["cover"], "Cover was removed because original had no cover"
-        )
+        self.assertIsNone(t_restored["cover"], "Cover was removed because original had no cover")
 
     def test_action_write_changes_malformed_file_reports_friendly_error(self):
         corrupt_file = self.write_file(
