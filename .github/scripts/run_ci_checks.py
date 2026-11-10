@@ -87,6 +87,11 @@ def check_tests():
 
     # Map changed files to relevant test suites
     module_test_map = {
+        "common": [
+            "tests/test_guikit*.py",
+            "tests/test_tree_check_state_mixin*.py",
+            "tests/test_epub_merge_dialog*.py",
+        ],
         "fanfic": ["tests/test_fanfic*.py", "tests/test_flaresolverr*.py"],
         "furry": ["tests/test_furry*.py"],
         "gemini": ["tests/test_gemini*.py"],
@@ -97,6 +102,7 @@ def check_tests():
         "scrubber": ["tests/test_scrubber*.py"],
         "scrubber_plugin": ["tests/test_scrubber*.py"],
         "story": ["tests/test_story*.py"],
+        "tagger": ["tests/test_tagger*.py"],
         "takeout": ["tests/test_takeout*.py"],
         "takeout_plugin": ["tests/test_takeout*.py"],
     }

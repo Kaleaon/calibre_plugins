@@ -85,6 +85,11 @@ To run the Ruff linter across modified files (as in PR CI):
 ruff check <modified_files>
 ```
 
+To run across changed files in a pull request:
+```bash
+ruff check $(git diff --name-only origin/main...HEAD -- '*.py')
+```
+
 To run the Ruff linter across the codebase:
 ```bash
 ruff check .
@@ -101,9 +106,14 @@ To check code formatting on modified files:
 ruff format --check <modified_files>
 ```
 
-To check code formatting:
+To check code formatting across the codebase:
 ```bash
 ruff format --check .
+```
+
+To apply code formatting across modified files:
+```bash
+ruff format <modified_files>
 ```
 
 To apply code formatting across the repository:
