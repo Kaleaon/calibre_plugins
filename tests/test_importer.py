@@ -9,33 +9,57 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 # Setup stub modules for calibre if calibre is not installed in the environment
-if "calibre" not in sys.modules:
-    for name in (
-        "calibre",
-        "calibre.ebooks",
-        "calibre.ebooks.metadata",
-        "calibre.ebooks.metadata.meta",
-        "calibre.ebooks.metadata.book",
-        "calibre.ebooks.metadata.book.base",
-        "calibre.utils",
-        "calibre.utils.date",
-    ):
-        if name not in sys.modules:
-            sys.modules[name] = types.ModuleType(name)
-
-    class StubMetadata:
-        def __init__(self, title="Unknown", authors=None):
-            self.title = title
-            self.authors = authors or ["Unknown"]
-            self.cover_data = None
-
-        def set_identifier(self, key, val):
+for name in (
+    "calibre",
+    "calibre.ebooks",
+    "calibre.ebooks.metadata",
+    "calibre.ebooks.metadata.meta",
+    "calibre.ebooks.metadata.book",
+    "calibre.ebooks.metadata.book.base",
+    "calibre.utils",
+    "calibre.utils.date",
+):
+    if name not in sys.modules or not isinstance(sys.modules[name], types.ModuleType):
+        mod = types.ModuleType(name)
+        mod.__path__ = []
+        sys.modules[name] = mod
+    elif not hasattr(sys.modules[name], "__path__"):
+        try:
+            sys.modules[name].__path__ = []
+        except AttributeError:
             pass
 
+for full_name in (
+    "calibre.ebooks",
+    "calibre.ebooks.metadata",
+    "calibre.ebooks.metadata.meta",
+    "calibre.ebooks.metadata.book",
+    "calibre.ebooks.metadata.book.base",
+    "calibre.utils",
+    "calibre.utils.date",
+):
+    parent_name, _, child_name = full_name.rpartition(".")
+    if parent_name in sys.modules and full_name in sys.modules:
+        setattr(sys.modules[parent_name], child_name, sys.modules[full_name])
+
+
+class StubMetadata:
+    def __init__(self, title="Unknown", authors=None):
+        self.title = title
+        self.authors = authors or ["Unknown"]
+        self.cover_data = None
+
+    def set_identifier(self, key, val):
+        pass
+
+
+if not hasattr(sys.modules["calibre.ebooks.metadata.book.base"], "Metadata"):
     sys.modules["calibre.ebooks.metadata.book.base"].Metadata = StubMetadata
+if not hasattr(sys.modules["calibre.ebooks.metadata.meta"], "get_metadata"):
     sys.modules["calibre.ebooks.metadata.meta"].get_metadata = lambda stream, stream_type=None: StubMetadata(
         "Mock Title"
     )
+if not hasattr(sys.modules["calibre.utils.date"], "parse_date"):
     sys.modules["calibre.utils.date"].parse_date = lambda d, assume_utc=True: None
 
 spec = importlib.util.spec_from_file_location("importer", Path(__file__).resolve().parents[1] / "plugin/importer.py")

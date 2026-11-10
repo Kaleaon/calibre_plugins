@@ -976,7 +976,7 @@ def collect_tree_changes(tree):
     Returns list of (top_item_user_data, {child_user_data: child_user_data_plus_1}).
     """
     items = []
-    user_role = getattr(getattr(Qt, 'ItemDataRole', None), 'UserRole', 32)
+    user_role = getattr(getattr(Qt, "ItemDataRole", None), "UserRole", 32)
     try:
         user_role_int = int(user_role)
     except (ValueError, TypeError):
@@ -988,10 +988,10 @@ def collect_tree_changes(tree):
         for j in range(top.childCount()):
             child = top.child(j)
             checked_state = child.checkState(0)
-            is_checked = (checked_state == Qt.CheckState.Checked) or (getattr(checked_state, 'value', None) == 2)
+            is_checked = (checked_state == Qt.CheckState.Checked) or (getattr(checked_state, "value", None) == 2)
             if not is_checked:
                 try:
-                    is_checked = (int(checked_state) == 2)
+                    is_checked = int(checked_state) == 2
                 except (ValueError, TypeError):
                     is_checked = False
             if is_checked:
