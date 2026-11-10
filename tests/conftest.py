@@ -1,69 +1,97 @@
 """Pytest global configuration and fixtures."""
 import os
 import sys
+import tempfile
 import types
+from pathlib import Path
 from unittest.mock import MagicMock
+import pytest
 
-os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+# Ensure ROOT and common directories are in sys.path
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+if str(ROOT / "common") not in sys.path:
+    sys.path.insert(0, str(ROOT / "common"))
 
-_GLOBAL_QT_APP = None
+# Ensure Qt runs in headless / offscreen mode during tests
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+# Keep a module-level reference to QApplication so it isn't garbage collected
+_GLOBAL_TEST_APP = None
+_QT_MOD = None
+_QT_CORE = None
 
 try:
     from PyQt6 import QtCore, QtGui, QtWidgets
-    _GLOBAL_QT_APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    if 'qt.core' not in sys.modules:
-        qtcore = types.ModuleType('qt.core')
-        for module in (QtWidgets, QtGui, QtCore):
-            for name in dir(module):
-                setattr(qtcore, name, getattr(module, name))
-        qtcore._ = lambda s: s
-        sys.modules['qt'] = types.ModuleType('qt')
-        sys.modules['qt.core'] = qtcore
-except ImportError:
+
+    _GLOBAL_TEST_APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    _QT_CORE = types.ModuleType("qt.core")
+    for module in (QtWidgets, QtGui, QtCore):
+        for name in dir(module):
+            setattr(_QT_CORE, name, getattr(module, name))
+    _QT_CORE._ = lambda s: s
+    _QT_MOD = types.ModuleType("qt")
+    _QT_MOD.core = _QT_CORE
+    sys.modules.setdefault("qt", _QT_MOD)
+    sys.modules.setdefault("qt.core", _QT_CORE)
+except Exception:
     pass
 
+try:
+    import lxml
+    import lxml.etree
+
+    _REAL_LXML = lxml
+    _REAL_LXML_ETREE = lxml.etree
+except Exception:
+    _REAL_LXML = None
+    _REAL_LXML_ETREE = None
+
+# Stub calibre modules when Calibre runtime is not present
 for mod_name in (
-    'calibre',
-    'calibre.customize',
-    'calibre.gui2',
-    'calibre.gui2.actions',
-    'calibre.utils',
-    'calibre.utils.config',
-    'calibre.utils.date',
-    'calibre.utils.shared_file',
-    'calibre.ebooks',
-    'calibre.ebooks.metadata',
-    'calibre.ebooks.metadata.book',
-    'calibre.ebooks.metadata.book.base',
-    'calibre.library',
-    'calibre.library.db',
+    "calibre",
+    "calibre.customize",
+    "calibre.gui2",
+    "calibre.gui2.actions",
+    "calibre.utils",
+    "calibre.utils.config",
+    "calibre.utils.date",
+    "calibre.utils.shared_file",
+    "calibre.ebooks",
+    "calibre.ebooks.metadata",
+    "calibre.ebooks.metadata.book",
+    "calibre.ebooks.metadata.book.base",
+    "calibre.library",
+    "calibre.library.db",
 ):
     if mod_name not in sys.modules:
         m = types.ModuleType(mod_name)
         m.__path__ = []
         sys.modules[mod_name] = m
 
-if not hasattr(sys.modules['calibre.utils.shared_file'], 'share_open'):
-    sys.modules['calibre.utils.shared_file'].share_open = lambda p, *a, **kw: open(p, *a, **kw)
+if not hasattr(sys.modules["calibre.utils.shared_file"], "share_open"):
+    sys.modules["calibre.utils.shared_file"].share_open = lambda p, *a, **kw: open(p, *a, **kw)
 
-if not hasattr(sys.modules['calibre.customize'], 'InterfaceActionBase'):
-    sys.modules['calibre.customize'].InterfaceActionBase = type(
-        'InterfaceActionBase', (object,), {}
+if not hasattr(sys.modules["calibre.customize"], "InterfaceActionBase"):
+    sys.modules["calibre.customize"].InterfaceActionBase = type(
+        "InterfaceActionBase", (object,), {}
     )
 
-if not hasattr(sys.modules['calibre.gui2.actions'], 'InterfaceAction'):
-    sys.modules['calibre.gui2.actions'].InterfaceAction = type(
-        'InterfaceAction',
+if not hasattr(sys.modules["calibre.gui2.actions"], "InterfaceAction"):
+    sys.modules["calibre.gui2.actions"].InterfaceAction = type(
+        "InterfaceAction",
         (object,),
-        {'__init__': lambda self, gui=None, name=None: setattr(self, 'gui', gui)},
+        {"__init__": lambda self, gui=None, name=None: setattr(self, "gui", gui)},
     )
 
-if not hasattr(sys.modules['calibre.gui2'], 'info_dialog'):
-    sys.modules['calibre.gui2'].info_dialog = MagicMock()
-if not hasattr(sys.modules['calibre.gui2'], 'error_dialog'):
-    sys.modules['calibre.gui2'].error_dialog = MagicMock()
-if not hasattr(sys.modules['calibre.gui2'], 'question_dialog'):
-    sys.modules['calibre.gui2'].question_dialog = MagicMock()
+if not hasattr(sys.modules["calibre.gui2"], "info_dialog"):
+    sys.modules["calibre.gui2"].info_dialog = MagicMock()
+if not hasattr(sys.modules["calibre.gui2"], "error_dialog"):
+    sys.modules["calibre.gui2"].error_dialog = MagicMock()
+if not hasattr(sys.modules["calibre.gui2"], "question_dialog"):
+    sys.modules["calibre.gui2"].question_dialog = MagicMock()
 
 
 class StubPrefs(dict):
@@ -94,30 +122,32 @@ def _get_config(name):
     return _shared_configs[name]
 
 
-if not hasattr(sys.modules['calibre.utils.config'], 'JSONConfig') or isinstance(sys.modules['calibre.utils.config'].JSONConfig, MagicMock):
-    sys.modules['calibre.utils.config'].JSONConfig = _get_config
+if not hasattr(sys.modules["calibre.utils.config"], "JSONConfig") or isinstance(
+    sys.modules["calibre.utils.config"].JSONConfig, MagicMock
+):
+    sys.modules["calibre.utils.config"].JSONConfig = _get_config
 
 
 class Metadata:
-    def __init__(self, title='Test', authors=None):
+    def __init__(self, title="Test", authors=None):
         self.title = title
-        self.authors = authors or ['Author']
+        self.authors = authors or ["Author"]
         self.ids = {}
 
     def set_identifier(self, k, v):
         self.ids[k] = v
 
 
-for mod in ('calibre.ebooks.metadata.meta',):
+for mod in ("calibre.ebooks.metadata.meta",):
     if mod not in sys.modules:
         sys.modules[mod] = types.ModuleType(mod)
-sys.modules['calibre.ebooks.metadata.meta'].get_metadata = lambda stream, stream_type: Metadata('Test', ['Author'])
-sys.modules['calibre.ebooks.metadata.book.base'].Metadata = Metadata
-if 'calibre.utils.date' not in sys.modules:
-    sys.modules['calibre.utils.date'] = types.ModuleType('calibre.utils.date')
-sys.modules['calibre.utils.date'].parse_date = lambda d, assume_utc=True: None
-
-import tempfile
+sys.modules["calibre.ebooks.metadata.meta"].get_metadata = lambda stream, stream_type: Metadata(
+    "Test", ["Author"]
+)
+sys.modules["calibre.ebooks.metadata.book.base"].Metadata = Metadata
+if "calibre.utils.date" not in sys.modules:
+    sys.modules["calibre.utils.date"] = types.ModuleType("calibre.utils.date")
+sys.modules["calibre.utils.date"].parse_date = lambda d, assume_utc=True: None
 
 _orig_cleanup = tempfile.TemporaryDirectory.cleanup
 
@@ -132,3 +162,14 @@ def _safe_cleanup(self):
 tempfile.TemporaryDirectory.cleanup = _safe_cleanup
 
 
+@pytest.fixture(autouse=True)
+def restore_real_modules():
+    yield
+    if _REAL_LXML is not None and isinstance(sys.modules.get("lxml"), MagicMock):
+        sys.modules["lxml"] = _REAL_LXML
+    if _REAL_LXML_ETREE is not None and isinstance(sys.modules.get("lxml.etree"), MagicMock):
+        sys.modules["lxml.etree"] = _REAL_LXML_ETREE
+    if _QT_MOD is not None and "qt" not in sys.modules:
+        sys.modules["qt"] = _QT_MOD
+    if _QT_CORE is not None and "qt.core" not in sys.modules:
+        sys.modules["qt.core"] = _QT_CORE
