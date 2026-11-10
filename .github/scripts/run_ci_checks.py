@@ -97,6 +97,7 @@ def check_tests():
         "scrubber": ["tests/test_scrubber*.py"],
         "scrubber_plugin": ["tests/test_scrubber*.py"],
         "story": ["tests/test_story*.py"],
+        "tagger": ["tests/test_tagger*.py", "tests/test_rule_set_manager*.py"],
         "takeout": ["tests/test_takeout*.py"],
         "takeout_plugin": ["tests/test_takeout*.py"],
     }
