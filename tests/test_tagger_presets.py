@@ -8,13 +8,11 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tagger'))
 
 if 'calibre' not in sys.modules:
-    import types
-    calibre_pkg = types.ModuleType('calibre')
-    calibre_pkg.__path__ = []
-    sys.modules['calibre'] = calibre_pkg
-    sys.modules['calibre.customize'] = types.ModuleType('calibre.customize')
-    sys.modules['calibre.utils'] = types.ModuleType('calibre.utils')
-    sys.modules['calibre.utils.config'] = types.ModuleType('calibre.utils.config')
+    calibre_mock = MagicMock()
+    sys.modules['calibre'] = calibre_mock
+    sys.modules['calibre.customize'] = calibre_mock
+    sys.modules['calibre.utils'] = calibre_mock
+    sys.modules['calibre.utils.config'] = calibre_mock
 
 spec = importlib.util.spec_from_file_location('presets', Path(__file__).resolve().parents[1] / 'tagger/presets.py')
 presets = importlib.util.module_from_spec(spec)

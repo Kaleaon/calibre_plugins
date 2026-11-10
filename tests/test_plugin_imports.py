@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 import build_plugins  # noqa: E402
 
 STUBS = ['calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config',
-         'calibre.utils.date', 'calibre.utils.shared_file', 'calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.meta',
+         'calibre.utils.date', 'calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.meta',
          'calibre.ebooks.metadata.book', 'calibre.ebooks.metadata.book.base', 'qt', 'qt.core']
 
 
@@ -31,10 +31,13 @@ class Meta:
 class PluginImportTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.saved = {k: v for k, v in sys.modules.items() if k.startswith(('calibre', 'qt', 'calibre_plugins', 'lxml'))}
-        for name in STUBS + ['lxml', 'lxml.etree']:
+        self.saved = {
+            k: v
+            for k, v in sys.modules.items()
+            if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))
+        }
+        for name in STUBS + ["lxml", "lxml.etree"]:
             sys.modules[name] = MagicMock()
-        sys.modules['calibre.utils.shared_file'].share_open = lambda p, *a, **kw: open(p, *a, **kw)
         sys.modules['calibre.ebooks.metadata.book.base'].Metadata = Meta
         sys.modules['calibre.gui2.actions'].InterfaceAction = object
         sys.modules['calibre.customize'].InterfaceActionBase = object
@@ -43,13 +46,14 @@ class PluginImportTests(unittest.TestCase):
         sys.modules['calibre_plugins'].__path__ = []
 
     def tearDown(self):
-        for k in [k for k in sys.modules if k.startswith(('calibre', 'qt', 'calibre_plugins', 'lxml'))]:
+        for k in [
+            k
+            for k in sys.modules
+            if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))
+        ]:
             del sys.modules[k]
         sys.modules.update(self.saved)
-        try:
-            self.tmp.cleanup()
-        except OSError:
-            pass
+        self.tmp.cleanup()
 
     def load(self, import_name):
         """Extract the freshly built zip and register it as calibre_plugins.<import_name>."""
