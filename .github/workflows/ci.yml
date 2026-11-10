@@ -55,10 +55,6 @@ jobs:
     permissions:
       contents: read
 
-    defaults:
-      run:
-        shell: bash
-
     env:
       QT_QPA_PLATFORM: offscreen
       PYTHONPATH: .
