@@ -20,9 +20,7 @@ EXPECTED_ZIPS = [
 
 def main() -> int:
     dist_dir = "dist"
-    missing = [
-        z for z in EXPECTED_ZIPS if not os.path.exists(os.path.join(dist_dir, z))
-    ]
+    missing = [z for z in EXPECTED_ZIPS if not os.path.exists(os.path.join(dist_dir, z))]
     if missing:
         print(f"Error: Missing expected zip files in dist/: {missing}", file=sys.stderr)
         return 1

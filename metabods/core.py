@@ -68,11 +68,7 @@ def classify(line):
         return None
     query = parse_qs(parsed.query)
     path = parsed.path.rsplit("/", 1)[-1]
-    if (
-        path in ("story.php", "story_print.php")
-        and query.get("id")
-        and SLUG.match(query["id"][0])
-    ):
+    if path in ("story.php", "story_print.php") and query.get("id") and SLUG.match(query["id"][0]):
         return "story", query["id"][0]
     if path == "archive.php" and query.get("list"):
         return "list", f"{SITE}archive.php?" + parsed.query
@@ -106,9 +102,7 @@ def parse_story_rows(page):
 
 def parse_tag_index(page):
     tags = {}
-    for m in re.finditer(
-        r'<a\s[^>]*href="[^"]*list=tag&(?:amp;)?id=(\d+)"[^>]*>(.*?)</a>', page, re.S
-    ):
+    for m in re.finditer(r'<a\s[^>]*href="[^"]*list=tag&(?:amp;)?id=(\d+)"[^>]*>(.*?)</a>', page, re.S):
         name = strip_tags(m.group(2))
         if name and name.lower() != "all tags":
             tags.setdefault(int(m.group(1)), name)
@@ -139,7 +133,7 @@ def make_thread_fetcher(fetcher=None):
         return tf
     except Exception:
         kwargs = {}
-        for attr in ('min_interval', 'cancelled', 'opener'):
+        for attr in ("min_interval", "cancelled", "opener"):
             val = getattr(fetcher, attr, None)
             if val is not None:
                 kwargs[attr] = val
@@ -171,7 +165,7 @@ def search_tags(fetcher, tag_ids, progress=None, max_workers=5):
             return tf
         except Exception:
             kwargs = {}
-            for attr in ('min_interval', 'cancelled', 'opener'):
+            for attr in ("min_interval", "cancelled", "opener"):
                 val = getattr(fetcher, attr, None)
                 if val is not None:
                     kwargs[attr] = val
@@ -290,9 +284,7 @@ def parse_print_page(page, chapter_range=None):
             indices = set(chapter_range)
         sections = [sec for i, sec in enumerate(sections) if i in indices]
         if not sections:
-            raise ValueError(
-                f'No chapters match range "{chapter_range}" (story has {total_sections} chapter(s))'
-            )
+            raise ValueError(f'No chapters match range "{chapter_range}" (story has {total_sections} chapter(s))')
     return {
         "title": title,
         "author": author,
@@ -303,9 +295,7 @@ def parse_print_page(page, chapter_range=None):
 
 def fetch_story(fetcher, story_id, chapter_range=None):
     """Download one story (all parts) and merge print-page text with story-page metadata."""
-    story = parse_print_page(
-        fetcher.get(print_url(story_id)), chapter_range=chapter_range
-    )
+    story = parse_print_page(fetcher.get(print_url(story_id)), chapter_range=chapter_range)
     story["id"] = story_id
     story["url"] = story_url(story_id)
     try:
@@ -314,9 +304,7 @@ def fetch_story(fetcher, story_id, chapter_range=None):
         raise
     except OSError:
         info = {"tags": [], "categories": [], "summary": ""}
-    story.update(
-        tags=info["tags"], categories=info["categories"], summary=info["summary"]
-    )
+    story.update(tags=info["tags"], categories=info["categories"], summary=info["summary"])
     return story
 
 

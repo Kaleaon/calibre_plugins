@@ -117,9 +117,7 @@ class Http:
                 raise Cancelled()
             gap = MIN_INTERVAL.get(host, 0)
             if host in self.last:
-                self._wait(
-                    self.last[host] + gap - self.clock(), f"pacing requests to {host}"
-                )
+                self._wait(self.last[host] + gap - self.clock(), f"pacing requests to {host}")
             self.last[host] = self.clock()
             try:
                 return self.fetch(url, headers, data, self.timeout)
@@ -127,11 +125,7 @@ class Http:
                 self.last[host] = self.clock()
                 if exc.code in RETRY_STATUS and attempt < self.retries:
                     try:
-                        delay = (
-                            float(exc.headers.get("Retry-After", ""))
-                            if exc.headers
-                            else 0
-                        )
+                        delay = float(exc.headers.get("Retry-After", "")) if exc.headers else 0
                     except ValueError:
                         delay = 0
                     self._wait(
@@ -157,15 +151,11 @@ class Http:
     def json(self, url, params=None, data=None):
         if params:
             url = url + ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
-        raw = self.request(
-            url, data=urllib.parse.urlencode(data).encode() if data else None
-        )
+        raw = self.request(url, data=urllib.parse.urlencode(data).encode() if data else None)
         try:
             return json.loads(raw.decode("utf-8"))
         except ValueError:
-            raise ServiceError(
-                f"{urllib.parse.urlsplit(url).hostname} sent an answer that is not JSON"
-            ) from None
+            raise ServiceError(f"{urllib.parse.urlsplit(url).hostname} sent an answer that is not JSON") from None
 
 
 class HttpStatus(ServiceError):
@@ -175,16 +165,14 @@ class HttpStatus(ServiceError):
 
 
 # -- MusicBrainz ---------------------------------------------------------------------------------------------------------
-UUID_REGEX = re.compile(
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
+UUID_REGEX = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 OLID_REGEX = re.compile(r"^OL\d+[A-Z]$", re.IGNORECASE)
 ISBN_CLEAN_REGEX = re.compile(r"[^0-9X]", re.IGNORECASE)
 
 
 def sanitize_identifier(raw_id):
     """Sanitize and classify a direct ID string.
-    Returns (id_type, cleaned_value) where id_type is 'mb_recording', 'mb_release', 'olid', 'isbn', or 'invalid'.
+    Returns (id_type, cleaned_value) where id_type is 'mb_recording', 'mb_release', 'olid', 'isbn', 'barcode', or 'invalid'.
     """
     if not raw_id:
         return "invalid", ""
@@ -203,15 +191,16 @@ def sanitize_identifier(raw_id):
         val = text.split(":", 1)[1].strip()
         if OLID_REGEX.match(val):
             return "olid", val.upper()
-    elif (
-        low.startswith("isbn:")
-        or low.startswith("isbn10:")
-        or low.startswith("isbn13:")
-    ):
+    elif low.startswith("isbn:") or low.startswith("isbn10:") or low.startswith("isbn13:"):
         val = text.split(":", 1)[1].strip()
         cleaned = ISBN_CLEAN_REGEX.sub("", val)
         if len(cleaned) in (10, 13):
             return "isbn", cleaned.upper()
+    elif low.startswith("barcode:") or low.startswith("upc:") or low.startswith("ean:"):
+        val = text.split(":", 1)[1].strip()
+        cleaned = re.sub(r"\D", "", val)
+        if cleaned:
+            return "barcode", cleaned
 
     if UUID_REGEX.match(text):
         return "mb_recording", text.lower()
@@ -221,10 +210,14 @@ def sanitize_identifier(raw_id):
 
     cleaned_isbn = ISBN_CLEAN_REGEX.sub("", text)
     if len(cleaned_isbn) in (10, 13) and (
-        cleaned_isbn[:-1].isdigit()
-        and (cleaned_isbn[-1].isdigit() or cleaned_isbn[-1].upper() == "X")
+        cleaned_isbn[:-1].isdigit() and (cleaned_isbn[-1].isdigit() or cleaned_isbn[-1].upper() == "X")
     ):
+        if len(cleaned_isbn) == 13 and not cleaned_isbn.startswith(("978", "979")) and cleaned_isbn.isdigit():
+            return "barcode", cleaned_isbn
         return "isbn", cleaned_isbn.upper()
+
+    if len(cleaned_isbn) == 12 and cleaned_isbn.isdigit():
+        return "barcode", cleaned_isbn
 
     return "invalid", ""
 
@@ -243,10 +236,13 @@ def mb_search_recordings(
     release_id="",
     limit=25,
     recording_ids=None,
+    barcode="",
 ):
     """Recording search results (each with its releases and the track's place on them). Searches the more specific
     title+artist+album first; the caller decides whether to broaden."""
-    if release_id:
+    if barcode:
+        query = f"barcode:{str(barcode).strip()}"
+    elif release_id:
         query = f"reid:{release_id}"
     else:
         raw_ids = recording_ids if recording_ids is not None else recording_id
@@ -277,13 +273,9 @@ def mb_search_recordings(
             return []
         query = " AND ".join(parts)
     try:
-        data = http.json(
-            MB_ROOT + "/recording/", {"query": query, "fmt": "json", "limit": limit}
-        )
+        data = http.json(MB_ROOT + "/recording/", {"query": query, "fmt": "json", "limit": limit})
     except HttpStatus as exc:
-        if (
-            exc.code == 400
-        ):  # a query MusicBrainz cannot parse is a "no result", not a failure of the whole run
+        if exc.code == 400:  # a query MusicBrainz cannot parse is a "no result", not a failure of the whole run
             return []
         raise
     return data.get("recordings", [])
@@ -343,18 +335,14 @@ def fingerprint(path, fpcalc, runner=subprocess.run):
     """-> (duration seconds int, fingerprint str) using `fpcalc -json`. Raises ServiceError if it fails."""
     kwargs = {"capture_output": True, "timeout": 120}
     if sys.platform == "win32":
-        kwargs["creationflags"] = (
-            0x08000000  # CREATE_NO_WINDOW: no console flash from the GUI
-        )
+        kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW: no console flash from the GUI
     try:
         done = runner([fpcalc, "-json", path], **kwargs)
     except (OSError, subprocess.SubprocessError) as exc:
         raise FingerprintError(f"fpcalc could not be run: {exc}") from None
     if done.returncode != 0:
         message = (done.stderr or b"").decode("utf-8", "replace").strip().splitlines()
-        raise FingerprintError(
-            "fpcalc could not read this file" + (f": {message[-1]}" if message else "")
-        )
+        raise FingerprintError("fpcalc could not read this file" + (f": {message[-1]}" if message else ""))
     try:
         data = json.loads(done.stdout.decode("utf-8"))
         return int(float(data["duration"])), data["fingerprint"]
@@ -379,9 +367,7 @@ def acoustid_lookup(http, api_key, duration, fp):
         )
     except HttpStatus as exc:
         if exc.code in (400, 401, 403):
-            raise ServiceError(
-                "AcoustID refused the request; check the application API key in the settings"
-            ) from None
+            raise ServiceError("AcoustID refused the request; check the application API key in the settings") from None
         raise
     if data.get("status") != "ok":
         message = (data.get("error") or {}).get("message", "unknown error")
@@ -403,9 +389,7 @@ def ol_search(http, title, author="", limit=6):
     if author:
         params["author"] = author
     docs = http.json(OL_ROOT + "/search.json", params).get("docs", [])
-    if (
-        not docs and author
-    ):  # an author spelled differently from Open Library's would otherwise hide the book
+    if not docs and author:  # an author spelled differently from Open Library's would otherwise hide the book
         docs = http.json(
             OL_ROOT + "/search.json",
             {"title": title, "limit": limit, "fields": OL_FIELDS},
@@ -433,9 +417,7 @@ def ol_search_by_isbn(http, isbn, limit=6):
 
 def ol_search_by_olid(http, olid, limit=6):
     try:
-        docs = http.json(
-            OL_ROOT + "/search.json", {"q": olid, "limit": limit, "fields": OL_FIELDS}
-        ).get("docs", [])
+        docs = http.json(OL_ROOT + "/search.json", {"q": olid, "limit": limit, "fields": OL_FIELDS}).get("docs", [])
         if not docs:
             docs = http.json(
                 OL_ROOT + "/search.json",

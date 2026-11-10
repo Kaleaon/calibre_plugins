@@ -4,7 +4,6 @@ except ImportError:
     InterfaceActionBase = object
 
 
-
 class EpubPromoScrubber(InterfaceActionBase):
     name = "EPUB Promo Scrubber"
     description = "Remove promotional watermarks, banner pages and links that sites add to EPUB books"

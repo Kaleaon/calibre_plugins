@@ -9,14 +9,7 @@ shows it, and weak matches are not offered at all.
 import difflib
 import re
 import unicodedata
-from datetime import datetime
-
-try:
-    from datetime import UTC
-except ImportError:
-    from datetime import timezone
-
-    UTC = timezone.utc  # noqa: UP017
+from datetime import datetime, timezone
 
 from . import sources
 from . import tags as audio
@@ -45,7 +38,9 @@ DEFAULT_FIELDS = (
 PER_BOOK_STATUS = (400, 404, 422)
 MIN_FINGERPRINT = 0.5  # AcoustID results scoring less than this are ignored
 MIN_SIMILAR_TITLE = 0.75  # a new title less alike than this is flagged as a big change and starts unticked
-MIN_TITLE_SIM = 0.5  # a candidate whose title is less alike than this is never offered (unless a fingerprint vouches for it)
+MIN_TITLE_SIM = (
+    0.5  # a candidate whose title is less alike than this is never offered (unless a fingerprint vouches for it)
+)
 MIN_SCORE = 0.6  # below this a match is not offered
 TICK_SCORE = 0.85  # at or above this the suggestion starts ticked
 MAX_BOOK_TAGS = 5
@@ -64,14 +59,8 @@ DASH_NOISE = re.compile(
 
 def norm(text):
     text = unicodedata.normalize("NFKD", text or "")
-    text = (
-        "".join(c for c in text if not unicodedata.combining(c))
-        .lower()
-        .replace("&", " and ")
-    )
-    text = re.sub(
-        r"^(.+?),\s*(the|a|an)$", r"\2 \1", text.strip()
-    )  # "Beatles, The" -> "the beatles"
+    text = "".join(c for c in text if not unicodedata.combining(c)).lower().replace("&", " and ")
+    text = re.sub(r"^(.+?),\s*(the|a|an)$", r"\2 \1", text.strip())  # "Beatles, The" -> "the beatles"
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", text)).strip()
 
 
@@ -115,18 +104,12 @@ def classify(book, forced="auto"):
 
 # -- MusicBrainz candidates ----------------------------------------------------------------------------------------------
 def credit_names(credit):
-    return [
-        c.get("name") or (c.get("artist") or {}).get("name", "")
-        for c in credit or []
-        if isinstance(c, dict)
-    ]
+    return [c.get("name") or (c.get("artist") or {}).get("name", "") for c in credit or [] if isinstance(c, dict)]
 
 
 def credit_text(credit):
     return "".join(
-        (c.get("name") or "") + (c.get("joinphrase") or "")
-        for c in credit or []
-        if isinstance(c, dict)
+        (c.get("name") or "") + (c.get("joinphrase") or "") for c in credit or [] if isinstance(c, dict)
     ).strip()
 
 
@@ -150,11 +133,7 @@ def _track_in(release):
 
 def release_rank(release, want):
     """How well this release of a recording fits what we know. Prefers the matching album, then official studio albums."""
-    rank = (
-        similarity(want["album"], release.get("title", ""))
-        if want.get("album")
-        else 0.5
-    )
+    rank = similarity(want["album"], release.get("title", "")) if want.get("album") else 0.5
     if release.get("status") == "Official":
         rank += 0.15
     group = release.get("release-group") or {}
@@ -175,11 +154,7 @@ def score_recording(rec, want, acoustid_score=None, exact_ids=()):
     want_title = (want.get("title") or "").strip()
     if want_title:
         title_sim = similarity(want_title, title)
-        if (
-            title_sim < MIN_TITLE_SIM
-            and acoustid_score is None
-            and rec.get("id") not in exact_ids
-        ):
+        if title_sim < MIN_TITLE_SIM and acoustid_score is None and rec.get("id") not in exact_ids:
             return None  # same artist and album but a different song is not a match, however well the rest agrees
         parts = [
             (0.1 if acoustid_score is not None else 0.4, title_sim)
@@ -190,8 +165,7 @@ def score_recording(rec, want, acoustid_score=None, exact_ids=()):
         parts = []
     if want.get("artist"):
         artist_sim = max(
-            [similarity(want["artist"], credit_text(credit))]
-            + [similarity(want["artist"], n) for n in names]
+            [similarity(want["artist"], credit_text(credit))] + [similarity(want["artist"], n) for n in names]
         )
         parts.append((0.3, artist_sim))
     release = None
@@ -223,11 +197,7 @@ def score_recording(rec, want, acoustid_score=None, exact_ids=()):
         "title": title,
         "authors": names,
         "artist_credit": credit_text(credit),
-        "artist_ids": [
-            (c.get("artist") or {}).get("id", "")
-            for c in credit or []
-            if isinstance(c, dict)
-        ],
+        "artist_ids": [(c.get("artist") or {}).get("id", "") for c in credit or [] if isinstance(c, dict)],
         "album": (release or {}).get("title", ""),
         "track": number,
         "disc": disc,
@@ -236,11 +206,7 @@ def score_recording(rec, want, acoustid_score=None, exact_ids=()):
         "recording_id": rec.get("id", ""),
         "release_id": (release or {}).get("id", ""),
         "group_id": group.get("id", ""),
-        "cover_urls": sources.cover_art_url(
-            (release or {}).get("id", ""), group.get("id", "")
-        )
-        if release
-        else [],
+        "cover_urls": sources.cover_art_url((release or {}).get("id", ""), group.get("id", "")) if release else [],
         "length": length / 1000 if length else None,
         "rank": rank,
         "year": _release_year(release) if release else None,
@@ -253,9 +219,7 @@ AMBIGUOUS_MARGIN = 0.03
 def top_music_candidates(recordings, want, acoustid_scores=None, exact_ids=(), limit=5):
     scored = []
     for rec in recordings:
-        cand = score_recording(
-            rec, want, (acoustid_scores or {}).get(rec.get("id")), exact_ids=exact_ids
-        )
+        cand = score_recording(rec, want, (acoustid_scores or {}).get(rec.get("id")), exact_ids=exact_ids)
         if cand is None:
             continue
         if rec.get("id") in exact_ids:
@@ -279,11 +243,7 @@ def top_music_candidates(recordings, want, acoustid_scores=None, exact_ids=(), l
         and c["score"] >= best["score"] - AMBIGUOUS_MARGIN
         and outcome(c) != outcome(best)
     ]  # a rival that would change nothing (same song on the same album) is no doubt
-    best["ambiguous"] = (
-        bool(rivals)
-        and not best.get("by_id")
-        and not (acoustid_scores or {}).get(best["recording_id"])
-    )
+    best["ambiguous"] = bool(rivals) and not best.get("by_id") and not (acoustid_scores or {}).get(best["recording_id"])
     best["rivals"] = len(rivals)
     return scored[:limit] if limit is not None else scored
 
@@ -294,9 +254,7 @@ def best_music_candidate(recordings, want, acoustid_scores=None, exact_ids=()):
 
     The winner is marked 'ambiguous' when a different recording scores almost as well and nothing (the file's own ids, a
     fingerprint) singles it out: with only a title and artist, a popular song has hundreds of near-identical recordings."""
-    cands = top_music_candidates(
-        recordings, want, acoustid_scores, exact_ids, limit=None
-    )
+    cands = top_music_candidates(recordings, want, acoustid_scores, exact_ids, limit=None)
     return cands[0] if cands else None
 
 
@@ -308,9 +266,7 @@ def score_book(doc, want):
         return None
     parts = [(0.6, title_sim)]
     if want.get("artist"):
-        parts.append(
-            (0.4, max([similarity(want["artist"], a) for a in authors] or [0.0]))
-        )
+        parts.append((0.4, max([similarity(want["artist"], a) for a in authors] or [0.0])))
     score = sum(w * v for w, v in parts) / sum(w for w, _ in parts)
     year = doc.get("first_publish_year")
     subjects = [s for s in (doc.get("subject") or []) if len(s) < 40][:MAX_BOOK_TAGS]
@@ -348,7 +304,10 @@ def parse_date(text):
         return None
     try:
         return datetime(
-            int(m.group(1)), int(m.group(2) or 1), int(m.group(3) or 1), tzinfo=UTC
+            int(m.group(1)),
+            int(m.group(2) or 1),
+            int(m.group(3) or 1),
+            tzinfo=timezone.utc,
         )
     except ValueError:
         return None
@@ -409,18 +368,12 @@ def plan_changes(book, kind, cand, fields):
     whole_book = kind == "book" or (
         kind == "audiobook" and not book.get("series")
     )  # a chapter file's title is not the book's
-    if (
-        "title" in fields
-        and cand["title"]
-        and (kind == "music" or whole_book)
-        and cand["title"] != book.get("title")
-    ):
+    if "title" in fields and cand["title"] and (kind == "music" or whole_book) and cand["title"] != book.get("title"):
         changes["title"] = (book.get("title", ""), cand["title"])
     if (
         "authors" in fields
         and cand["authors"]
-        and sorted(map(norm, cand["authors"]))
-        != sorted(map(norm, book.get("authors") or []))
+        and sorted(map(norm, cand["authors"])) != sorted(map(norm, book.get("authors") or []))
     ):
         changes["authors"] = (list(book.get("authors") or []), list(cand["authors"]))
     if "album" in fields and kind == "music" and cand.get("album"):
@@ -429,18 +382,14 @@ def plan_changes(book, kind, cand, fields):
             cand["album"],
             float(cand["track"]) if cand.get("track") else book.get("series_index"),
         ]
-        if old != new and (
-            old[0] != new[0] or (new[1] is not None and old[1] != new[1])
-        ):
+        if old != new and (old[0] != new[0] or (new[1] is not None and old[1] != new[1])):
             changes["album"] = (old, new)
     new_date = parse_date(cand.get("date")) if "date" in fields else None
     if new_date:
         old_date = book.get("pubdate")  # ISO string or None
         year_only = len(cand["date"]) < 10
         same = bool(old_date) and (
-            old_date[:4] == str(new_date.year)
-            if year_only
-            else old_date[:10] == new_date.isoformat()[:10]
+            old_date[:4] == str(new_date.year) if year_only else old_date[:10] == new_date.isoformat()[:10]
         )
         if not same:  # a year-only date never replaces a full date from the same year
             changes["date"] = (old_date, new_date.isoformat())
@@ -448,9 +397,7 @@ def plan_changes(book, kind, cand, fields):
     if "subjects" in fields:
         wanted += list(cand.get("subjects") or [])
     have = list(book.get("tags") or [])
-    add = [
-        t for t in dict.fromkeys(wanted) if t.lower() not in {h.lower() for h in have}
-    ]
+    add = [t for t in dict.fromkeys(wanted) if t.lower() not in {h.lower() for h in have}]
     if add:
         changes["tags"] = (have, have + add)
     if "identifiers" in fields:
@@ -484,9 +431,7 @@ def describe(book):
     return f"{book.get('title') or '(no title)'} — {authors}{album}"
 
 
-def plan_matches(
-    books, http, options, cancelled=lambda: False, on_event=lambda kind, **info: None
-):
+def plan_matches(books, http, options, cancelled=lambda: False, on_event=lambda kind, **info: None):
     """books: record dicts (id, title, authors, series, series_index, tags, formats, identifiers, pubdate, publisher,
     has_cover, path). options: kind ('auto'|'music'|'audiobook'|'book'), fields, min_score, acoustid_key, fpcalc, fingerprint.
 
@@ -513,9 +458,7 @@ def plan_matches(
         except sources.Cancelled:
             break
         except sources.HttpStatus as exc:
-            if (
-                exc.code in PER_BOOK_STATUS
-            ):  # this one lookup was refused; the rest of the run is fine
+            if exc.code in PER_BOOK_STATUS:  # this one lookup was refused; the rest of the run is fine
                 skipped.append(f"{name}: {exc}")
                 on_event("error", name=name, text=str(exc))
                 continue
@@ -604,14 +547,10 @@ def search_single_book(
     name = describe(book)
 
     if kind == "music":
-        return _match_music(
-            want, book, http, options, on_event, name, recording_id=override_id
-        )
+        return _match_music(want, book, http, options, on_event, name, recording_id=override_id)
     else:
         if override_id:
-            docs = sources.ol_search(
-                http, want.get("title", "") or override_id, want.get("artist", "")
-            )
+            docs = sources.ol_search(http, want.get("title", "") or override_id, want.get("artist", ""))
             return top_book_candidates(docs, want, limit=5)
         return _match_book(want, http, on_event, name)
 
@@ -630,11 +569,7 @@ def _match_music(want, book, http, options, on_event, name, recording_id=None):
                         acoustid_scores.setdefault(rid, score)
         except sources.FingerprintError as exc:
             on_event("notice", text=f"{name}: fingerprint not used ({exc})")
-    exact = tuple(
-        dict.fromkeys(
-            list(want.get("ids") or ()) + ([recording_id] if recording_id else [])
-        )
-    )
+    exact = tuple(dict.fromkeys(list(want.get("ids") or ()) + ([recording_id] if recording_id else [])))
 
     def add(found):
         if not found:
@@ -645,13 +580,7 @@ def _match_music(want, book, http, options, on_event, name, recording_id=None):
             if isinstance(rec, dict) and rec.get("id"):
                 recs.setdefault(rec.get("id"), rec)
 
-    rids = list(
-        dict.fromkeys(
-            ([recording_id] if recording_id else [])
-            + list(exact)
-            + list(acoustid_scores)
-        )
-    )[:4]
+    rids = list(dict.fromkeys(([recording_id] if recording_id else []) + list(exact) + list(acoustid_scores)))[:4]
     if rids:
         add(sources.mb_search_recordings(http, recording_id=rids, limit=len(rids)))
     want_title = (want.get("title") or "").strip()
@@ -661,14 +590,8 @@ def _match_music(want, book, http, options, on_event, name, recording_id=None):
             name=name,
             query=f"{want_title} / {want.get('artist', '')} / {want.get('album', '')}",
         )
-        add(
-            sources.mb_search_recordings(
-                http, want_title, want.get("artist", ""), want.get("album", "")
-            )
-        )
-        cands = top_music_candidates(
-            recs.values(), want, acoustid_scores, exact, limit=5
-        )
+        add(sources.mb_search_recordings(http, want_title, want.get("artist", ""), want.get("album", "")))
+        cands = top_music_candidates(recs.values(), want, acoustid_scores, exact, limit=5)
         cand = cands[0] if cands else None
         if want.get("album") and (cand is None or cand["score"] < TICK_SCORE):
             # the album name may be spelled differently on MusicBrainz, or the track may be on other releases only
@@ -685,17 +608,11 @@ def _match_music(want, book, http, options, on_event, name, recording_id=None):
 def _match_book(want, http, on_event, name):
     if not want.get("title"):
         return []
-    on_event(
-        "searching", name=name, query=f"{want['title']} / {want.get('artist', '')}"
-    )
-    return top_book_candidates(
-        sources.ol_search(http, want["title"], want.get("artist", "")), want, limit=5
-    )
+    on_event("searching", name=name, query=f"{want['title']} / {want.get('artist', '')}")
+    return top_book_candidates(sources.ol_search(http, want["title"], want.get("artist", "")), want, limit=5)
 
 
-def manual_search(
-    http, options=None, title="", artist="", album="", direct_id="", media_kind="auto"
-):
+def manual_search(http, options=None, title="", artist="", album="", direct_id="", media_kind="auto"):
     """Performs manual lookup using search terms or direct identifier.
     Returns list of candidate dicts sorted by score.
     """
@@ -712,11 +629,12 @@ def manual_search(
     candidates = []
 
     if id_type != "invalid":
-        if id_type in ("mb_recording", "mb_release"):
+        if id_type in ("mb_recording", "mb_release", "barcode"):
             recs = sources.mb_search_recordings(
                 http,
                 recording_id=cleaned_id if id_type == "mb_recording" else "",
                 release_id=cleaned_id if id_type == "mb_release" else "",
+                barcode=cleaned_id if id_type == "barcode" else "",
                 limit=25,
             )
             for rec in recs:
@@ -727,9 +645,7 @@ def manual_search(
                     names = credit_names(credit)
                     releases = rec.get("releases") or []
                     release = releases[0] if releases else None
-                    disc, number, total = (
-                        _track_in(release) if release else (None, None, None)
-                    )
+                    disc, number, total = _track_in(release) if release else (None, None, None)
                     group = (release or {}).get("release-group") or {}
                     cand = {
                         "source": "musicbrainz",
@@ -738,28 +654,20 @@ def manual_search(
                         "authors": names,
                         "artist_credit": credit_text(credit),
                         "artist_ids": [
-                            (c.get("artist") or {}).get("id", "")
-                            for c in credit or []
-                            if isinstance(c, dict)
+                            (c.get("artist") or {}).get("id", "") for c in credit or [] if isinstance(c, dict)
                         ],
                         "album": (release or {}).get("title", ""),
                         "track": number,
                         "disc": disc,
                         "track_total": total,
-                        "date": (release or {}).get("date")
-                        or rec.get("first-release-date")
-                        or "",
+                        "date": (release or {}).get("date") or rec.get("first-release-date") or "",
                         "recording_id": rec.get("id", ""),
                         "release_id": (release or {}).get("id", ""),
                         "group_id": group.get("id", ""),
-                        "cover_urls": sources.cover_art_url(
-                            (release or {}).get("id", ""), group.get("id", "")
-                        )
+                        "cover_urls": sources.cover_art_url((release or {}).get("id", ""), group.get("id", ""))
                         if release
                         else [],
-                        "length": rec.get("length", 0) / 1000
-                        if rec.get("length")
-                        else None,
+                        "length": rec.get("length", 0) / 1000 if rec.get("length") else None,
                         "rank": 1.0,
                         "year": _release_year(release) if release else None,
                         "by_id": True,
@@ -785,11 +693,7 @@ def manual_search(
             candidates.sort(key=lambda c: -c["score"])
             return candidates
 
-    kind = (
-        media_kind
-        if media_kind in ("music", "audiobook", "book")
-        else options.get("kind", "auto")
-    )
+    kind = media_kind if media_kind in ("music", "audiobook", "book") else options.get("kind", "auto")
 
     if kind in ("music", "auto"):
         recs_map = {}

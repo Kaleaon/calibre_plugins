@@ -182,9 +182,7 @@ class TemplateManagerDialog(QDialog):
         )
         ref_label = QLabel(ref_text)
         ref_label.setWordWrap(True)
-        ref_label.setStyleSheet(
-            "font-size: 11px; color: #555; background: #f0f0f0; padding: 4px; border-radius: 4px;"
-        )
+        ref_label.setStyleSheet("font-size: 11px; color: #555; background: #f0f0f0; padding: 4px; border-radius: 4px;")
         right_layout.addWidget(ref_label)
 
         action_row = QHBoxLayout()
@@ -304,9 +302,7 @@ class TemplateManagerDialog(QDialog):
         text = self.text_edit.toPlainText().strip()
 
         if not name:
-            return error_dialog(
-                self, "Template Manager", "Please enter a template name.", show=True
-            )
+            return error_dialog(self, "Template Manager", "Please enter a template name.", show=True)
         if name in engine.BUILTIN_PRESETS:
             return error_dialog(
                 self,
@@ -315,9 +311,7 @@ class TemplateManagerDialog(QDialog):
                 show=True,
             )
         if not text:
-            return error_dialog(
-                self, "Template Manager", "Template content cannot be empty.", show=True
-            )
+            return error_dialog(self, "Template Manager", "Template content cannot be empty.", show=True)
 
         try:
             sample_vars = self.sample_vars_fn()
@@ -336,11 +330,7 @@ class TemplateManagerDialog(QDialog):
         if not data or data.get("read_only"):
             return
         name = data.get("name")
-        if not question_dialog(
-            self,
-            "Delete Template",
-            f'Are you sure you want to delete custom template "{name}"?',
-        ):
+        if not question_dialog(self, "Delete Template", f'Are you sure you want to delete custom template "{name}"?'):
             return
         customs = dict(prefs.get("custom_templates", {}))
         customs.pop(name, None)
@@ -366,10 +356,7 @@ def prepare_image(data, max_side=1000):
         return None
     if max(image.width(), image.height()) > max_side:
         image = image.scaled(
-            max_side,
-            max_side,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
+            max_side, max_side, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
         )
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -381,9 +368,7 @@ def prepare_image(data, max_side=1000):
 def show_value(field, value):
     if field == "series":
         name, index = value
-        return (
-            f"{name} #{index:g}" if name and index is not None else (name or "(none)")
-        )
+        return f"{name} #{index:g}" if name and index is not None else (name or "(none)")
     if isinstance(value, list):
         return ", ".join(value) if value else "(none)"
     return value or "(none)"
@@ -453,7 +438,10 @@ def load_undo():
 
 
 def save_undo(undo):
-    prefs["undo"] = dict(undo or {})
+    try:
+        prefs["undo"] = dict(undo or {})
+    except Exception:
+        pass
     path = _undo_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -544,17 +532,11 @@ class GeminiRecoveryDialog(_DialogBase):
         self.model_combo = QComboBox()
         valid_models = list(engine.MODEL_COST_PER_1M.keys())
         self.model_combo.addItems(valid_models)
-        current_model = (
-            state.model_config.get("model") if state else ""
-        ) or engine.DEFAULT_MODEL
+        current_model = (state.model_config.get("model") if state else "") or engine.DEFAULT_MODEL
         default_selection = (
             "gemini-flash-lite-latest"
             if "gemini-flash-lite-latest" in valid_models
-            else (
-                "gemini-2.5-flash-lite"
-                if "gemini-2.5-flash-lite" in valid_models
-                else current_model
-            )
+            else ("gemini-2.5-flash-lite" if "gemini-2.5-flash-lite" in valid_models else current_model)
         )
         if default_selection in valid_models:
             self.model_combo.setCurrentText(default_selection)
@@ -567,9 +549,7 @@ class GeminiRecoveryDialog(_DialogBase):
         row2.addWidget(QLabel("Request delay (seconds):"))
         self.interval_spin = QSpinBox()
         self.interval_spin.setRange(0, 120)
-        current_interval = int(
-            state.model_config.get("min_interval", 7) if state else 7
-        )
+        current_interval = int(state.model_config.get("min_interval", 7) if state else 7)
         self.interval_spin.setValue(max(10, current_interval))
         row2.addWidget(self.interval_spin)
         row2.addStretch(1)
@@ -686,9 +666,7 @@ class GeminiFixerAction(DialogAction):
                             try:
                                 fmt_path = db.format_abspath(book_id, fmt)
                                 if fmt_path:
-                                    desc = engine.find_back_cover_descriptor(
-                                        fmt_path, fmt
-                                    )
+                                    desc = engine.find_back_cover_descriptor(fmt_path, fmt)
                                     if desc:
                                         images.append(desc)
                                         break
@@ -698,16 +676,10 @@ class GeminiFixerAction(DialogAction):
                     "id": book_id,
                     "title": (getattr(mi, "title", "") if mi else "") or "",
                     "authors": list(getattr(mi, "authors", []) or []) if mi else [],
-                    "identifiers": dict(getattr(mi, "identifiers", {}) or {})
-                    if mi
-                    else {},
+                    "identifiers": dict(getattr(mi, "identifiers", {}) or {}) if mi else {},
                     "images": images,
                     "series": (getattr(mi, "series", "") if mi else "") or "",
-                    "series_index": (
-                        getattr(mi, "series_index", None)
-                        if mi and getattr(mi, "series", "")
-                        else None
-                    ),
+                    "series_index": (getattr(mi, "series_index", None) if mi and getattr(mi, "series", "") else None),
                     "tags": list(getattr(mi, "tags", []) or []) if mi else [],
                     "languages": list(getattr(mi, "languages", []) or []) if mi else [],
                     "publisher": (getattr(mi, "publisher", "") if mi else "") or "",
@@ -789,28 +761,19 @@ class GeminiFixerAction(DialogAction):
 
     @staticmethod
     def _apply_field_batches(db, per_book):
-        """per_book: {book_id: {db_field: value}}. Writes each field for all books in one set_field call (one transaction
-        instead of one per book); if a batch fails, that field is retried book by book so one bad book does not sink the rest.
+        """per_book: {book_id: {db_field: value}}. Writes fields for each book;
+        if any write fails, records error for that book.
         Returns {book_id: error_text} for the books that failed."""
         failed = {}
-        fields = {}
         for book_id, values in per_book.items():
-            for name, value in values.items():
-                fields.setdefault(name, {})[book_id] = value
-        # series must exist before its index is set
-        order = sorted(fields, key=lambda n: (n == "series_index", n))
-        for name in order:
-            mapping = {bid: v for bid, v in fields[name].items() if bid not in failed}
-            if not mapping:
-                continue
-            try:
-                db.set_field(name, mapping)
-            except Exception:
-                for bid, v in mapping.items():
-                    try:
-                        db.set_field(name, {bid: v})
-                    except Exception as exc:
-                        failed[bid] = f"{name}: {exc}"
+            order = sorted(values, key=lambda n: (n == "series_index", n))
+            for name in order:
+                v = values[name]
+                try:
+                    db.set_field(name, {book_id: v})
+                except Exception as exc:
+                    failed[book_id] = f"{name}: {exc}"
+                    break
         return failed
 
     def write_changes(self, items, on_progress=None):
@@ -847,11 +810,7 @@ class GeminiFixerAction(DialogAction):
                         db.set_field("identifiers", {book_id: current_ids})
                     else:
                         continue
-                    saved[field] = (
-                        [old[0], old[1] if old[1] is not None else 1.0]
-                        if field == "series"
-                        else old
-                    )
+                    saved[field] = [old[0], old[1] if old[1] is not None else 1.0] if field == "series" else old
                 except Exception as exc:
                     book_failed = True
                     errors.append(f"{book_label}: {field}: {exc}")
@@ -880,10 +839,7 @@ class GeminiFixerAction(DialogAction):
                         db.set_field("authors", {book_id: tuple(old)})
                     elif field == "series":
                         db.set_field("series", {book_id: old[0] or None})
-                        db.set_field(
-                            "series_index",
-                            {book_id: old[1] if old[1] is not None else 1.0},
-                        )
+                        db.set_field("series_index", {book_id: old[1] if old[1] is not None else 1.0})
                     elif field == "tags":
                         db.set_field("tags", {book_id: tuple(old)})
                     elif field == "language":
@@ -946,12 +902,8 @@ class GeminiFixerAction(DialogAction):
         note.setWordWrap(True)
         layout.addWidget(note)
 
-        scope_selected = QRadioButton(
-            _("Selected books ({count})").format(count=len(selected))
-        )
-        scope_all = QRadioButton(
-            _("Entire library (uses many requests; start with a few selected books)")
-        )
+        scope_selected = QRadioButton(_("Selected books ({count})").format(count=len(selected)))
+        scope_all = QRadioButton(_("Entire library (uses many requests; start with a few selected books)"))
         (scope_selected if selected else scope_all).setChecked(True)
         scope_selected.setEnabled(bool(selected))
         layout.addWidget(scope_selected)
@@ -962,9 +914,7 @@ class GeminiFixerAction(DialogAction):
         key = QLineEdit(prefs["api_key"])
         key.setEchoMode(QLineEdit.EchoMode.Password)
         key.setPlaceholderText(
-            _(
-                "Free key from https://aistudio.google.com/apikey — no billing needed (or set GEMINI_API_KEY)"
-            )
+            _("Free key from https://aistudio.google.com/apikey — no billing needed (or set GEMINI_API_KEY)")
         )
         row.addWidget(key, 1)
         layout.addLayout(row)
@@ -975,9 +925,7 @@ class GeminiFixerAction(DialogAction):
         model.addItem(prefs["model"])
         model.setCurrentText(prefs["model"])
         row.addWidget(model, 1)
-        models_btn = create_token_button(
-            _("List models"), tool_tip=_("Ask Google which models your key can use")
-        )
+        models_btn = create_token_button(_("List models"), tool_tip=_("Ask Google which models your key can use"))
         row.addWidget(models_btn)
         layout.addLayout(row)
 
@@ -987,9 +935,7 @@ class GeminiFixerAction(DialogAction):
             template_combo = QComboBox()
             row.addWidget(template_combo, 1)
             manage_templates_btn = QPushButton(_("Manage templates..."))
-            manage_templates_btn.setToolTip(
-                _("Create, edit, or delete instruction templates and presets")
-            )
+            manage_templates_btn.setToolTip(_("Create, edit, or delete instruction templates and presets"))
             row.addWidget(manage_templates_btn)
             settings_layout.addLayout(row)
             return template_combo, manage_templates_btn
@@ -1004,9 +950,7 @@ class GeminiFixerAction(DialogAction):
         fallback_model = QComboBox()
         fallback_model.setEditable(True)
         fallback_model.addItem(prefs.get("fallback_model", "gemini-flash-lite-latest"))
-        fallback_model.setCurrentText(
-            prefs.get("fallback_model", "gemini-flash-lite-latest")
-        )
+        fallback_model.setCurrentText(prefs.get("fallback_model", "gemini-flash-lite-latest"))
         fallback_model.setEnabled(enable_fallback.isChecked())
         enable_fallback.toggled.connect(fallback_model.setEnabled)
         row.addWidget(fallback_model, 1)
@@ -1017,9 +961,7 @@ class GeminiFixerAction(DialogAction):
             boxes[field] = QCheckBox(label)
             boxes[field].setChecked(field in prefs["fields"])
             layout.addWidget(boxes[field])
-        tags_remove = QCheckBox(
-            _("Let it remove or rename existing tags (otherwise it can only add tags)")
-        )
+        tags_remove = QCheckBox(_("Let it remove or rename existing tags (otherwise it can only add tags)"))
         tags_remove.setChecked(bool(prefs["tags_remove"]))
         layout.addWidget(tags_remove)
         excerpt = QCheckBox(
@@ -1041,9 +983,7 @@ class GeminiFixerAction(DialogAction):
             )
         )
         layout.addWidget(covers)
-        embed_updated = QCheckBox(
-            _("Embed updated metadata into book files (EPUB/AZW3/MOBI) on Apply")
-        )
+        embed_updated = QCheckBox(_("Embed updated metadata into book files (EPUB/AZW3/MOBI) on Apply"))
         embed_updated.setChecked(bool(prefs.get("embed_updated", True)))
         embed_updated.setToolTip(
             _(
@@ -1051,11 +991,7 @@ class GeminiFixerAction(DialogAction):
             )
         )
         layout.addWidget(embed_updated)
-        provider_enrich = QCheckBox(
-            _(
-                "Query metadata providers (FanFicFare, Nifty, Metabods) when metadata is sparse"
-            )
-        )
+        provider_enrich = QCheckBox(_("Query metadata providers (FanFicFare, Nifty, Metabods) when metadata is sparse"))
         provider_enrich.setChecked(bool(prefs.get("provider_metadata", True)))
         provider_enrich.setToolTip(
             _(
@@ -1074,9 +1010,7 @@ class GeminiFixerAction(DialogAction):
         batch.setRange(1, 50)
         batch.setValue(int(prefs["batch_size"]))
         batch.setToolTip(
-            _(
-                "Number of books processed in each separate batch request (default 10). Each batch is saved separately."
-            )
+            _("Number of books processed in each separate batch request (default 10). Each batch is saved separately.")
         )
         row.addWidget(batch)
         row.addWidget(QLabel(_("Seconds between requests:")))
@@ -1095,9 +1029,7 @@ class GeminiFixerAction(DialogAction):
         row = QHBoxLayout()
         row.addWidget(QLabel("System instructions mode:"))
         instruction_mode = QComboBox()
-        instruction_mode.addItem(
-            "Append custom rules to default instructions", "append"
-        )
+        instruction_mode.addItem("Append custom rules to default instructions", "append")
         instruction_mode.addItem("Override default instructions completely", "override")
         current_mode = prefs.get("system_instruction_mode", "append")
         if current_mode == "override":
@@ -1107,9 +1039,7 @@ class GeminiFixerAction(DialogAction):
         row.addWidget(instruction_mode)
 
         reset_instructions_btn = QPushButton("Reset to default instructions")
-        reset_instructions_btn.setToolTip(
-            "Clear custom instruction text and restore mode to append"
-        )
+        reset_instructions_btn.setToolTip("Clear custom instruction text and restore mode to append")
         row.addWidget(reset_instructions_btn)
         layout.addLayout(row)
 
@@ -1119,17 +1049,12 @@ class GeminiFixerAction(DialogAction):
         custom_instructions_edit.setPlaceholderText(
             'e.g. Always prefix genre tags with "Genre: " or preserve custom series names.'
         )
-        custom_instructions_edit.setPlainText(
-            prefs.get("custom_system_instructions", "")
-        )
+        custom_instructions_edit.setPlainText(prefs.get("custom_system_instructions", ""))
         layout.addWidget(custom_instructions_edit)
         layout = main
         row = QHBoxLayout()
         settings_btn = create_token_button(
-            _("Hide settings"),
-            tool_tip=_(
-                "Hide the settings above to make room for the log and the suggested changes"
-            ),
+            _("Hide settings"), tool_tip=_("Hide the settings above to make room for the log and the suggested changes")
         )
         row.addWidget(settings_btn)
         bar = QProgressBar()
@@ -1184,9 +1109,7 @@ class GeminiFixerAction(DialogAction):
         splitter.setSizes([180, 520])
         layout.addWidget(splitter, 1)
         status = QLabel(
-            _(
-                "Press Check books to ask Gemini. Big changes (a very different title or author) are left unticked."
-            )
+            _("Press Check books to ask Gemini. Big changes (a very different title or author) are left unticked.")
         )
         status.setWordWrap(True)
         layout.addWidget(status)
@@ -1195,13 +1118,10 @@ class GeminiFixerAction(DialogAction):
         check_btn = create_token_button(_("Check books"))
         compile_btn = create_token_button(
             _("Compile saved batches"),
-            tool_tip=_(
-                "Compile separate batch output files from disk into the suggestions list"
-            ),
+            tool_tip=_("Compile separate batch output files from disk into the suggestions list"),
         )
         open_batch_dir_btn = create_token_button(
-            _("Open batch folder"),
-            tool_tip=_("Open the directory where separate batch outputs are saved"),
+            _("Open batch folder"), tool_tip=_("Open the directory where separate batch outputs are saved")
         )
         apply_btn = create_token_button(_("Apply ticked changes"))
         apply_btn.setEnabled(False)
@@ -1228,20 +1148,14 @@ class GeminiFixerAction(DialogAction):
         overlay.show_empty()
 
         def api_key():
-            return (
-                key.text().strip()
-                or os.environ.get("GEMINI_API_KEY", "")
-                or os.environ.get("GOOGLE_API_KEY", "")
-            )
+            return key.text().strip() or os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
 
         def chosen_fields():
             return guikit_chosen_fields(boxes, FIELD_LABELS)
 
         def update_template_combo():
             all_tpls = engine.get_all_templates(prefs.get("custom_templates", {}))
-            current = template_combo.currentText().strip() or prefs.get(
-                "active_template", "Default Ebook Cleanup"
-            )
+            current = template_combo.currentText().strip() or prefs.get("active_template", "Default Ebook Cleanup")
             template_combo.clear()
             for tname in all_tpls:
                 template_combo.addItem(tname)
@@ -1280,16 +1194,13 @@ class GeminiFixerAction(DialogAction):
         def save_prefs():
             mode_data = instruction_mode.currentData()
             if not mode_data:
-                mode_data = (
-                    "override" if instruction_mode.currentIndex() == 1 else "append"
-                )
+                mode_data = "override" if instruction_mode.currentIndex() == 1 else "append"
             update_prefs(
                 {
                     "api_key": key.text().strip(),
                     "model": model.currentText().strip() or engine.DEFAULT_MODEL,
                     "enable_fallback": enable_fallback.isChecked(),
-                    "fallback_model": fallback_model.currentText().strip()
-                    or "gemini-flash-lite-latest",
+                    "fallback_model": fallback_model.currentText().strip() or "gemini-flash-lite-latest",
                     "fields": list(chosen_fields()),
                     "tags_remove": tags_remove.isChecked(),
                     "excerpt": excerpt.isChecked(),
@@ -1299,8 +1210,7 @@ class GeminiFixerAction(DialogAction):
                     "min_confidence": confidence.currentText(),
                     "batch_size": batch.value(),
                     "min_interval": interval.value(),
-                    "active_template": template_combo.currentText().strip()
-                    or "Default Ebook Cleanup",
+                    "active_template": template_combo.currentText().strip() or "Default Ebook Cleanup",
                     "system_instruction_mode": mode_data,
                     "custom_system_instructions": custom_instructions_edit.toPlainText(),
                 }
@@ -1325,29 +1235,18 @@ class GeminiFixerAction(DialogAction):
                         child = top.child(j)
                         res = choose_child_fn(child, top)
                         if isinstance(res, bool):
-                            child.setCheckState(
-                                0,
-                                Qt.CheckState.Checked
-                                if res
-                                else Qt.CheckState.Unchecked,
-                            )
+                            child.setCheckState(0, Qt.CheckState.Checked if res else Qt.CheckState.Unchecked)
                         else:
                             child.setCheckState(0, res)
                 elif choose_top is not None:
-                    state = (
-                        Qt.CheckState.Checked
-                        if choose_top(top)
-                        else Qt.CheckState.Unchecked
-                    )
+                    state = Qt.CheckState.Checked if choose_top(top) else Qt.CheckState.Unchecked
                     for j in range(top.childCount()):
                         top.child(j).setCheckState(0, state)
 
                 child_count = top.childCount()
                 if child_count > 0:
                     checked_count = sum(
-                        1
-                        for j in range(child_count)
-                        if top.child(j).checkState(0) == Qt.CheckState.Checked
+                        1 for j in range(child_count) if top.child(j).checkState(0) == Qt.CheckState.Checked
                     )
                     if checked_count == child_count:
                         top.setCheckState(0, Qt.CheckState.Checked)
@@ -1387,8 +1286,7 @@ class GeminiFixerAction(DialogAction):
                 act = field_menu.addAction(_("Check only {field}").format(field=flabel))
                 act.triggered.connect(
                     lambda _, field=f: set_checks(
-                        choose_child_fn=lambda c, t: c.data(0, Qt.ItemDataRole.UserRole)
-                        == field
+                        choose_child_fn=lambda c, t: c.data(0, Qt.ItemDataRole.UserRole) == field
                     )
                 )
 
@@ -1399,9 +1297,9 @@ class GeminiFixerAction(DialogAction):
                 act = field_menu.addAction(_("Check all {field}").format(field=flabel))
                 act.triggered.connect(
                     lambda _, field=f: set_checks(
-                        choose_child_fn=lambda c, t: Qt.CheckState.Checked
-                        if c.data(0, Qt.ItemDataRole.UserRole) == field
-                        else c.checkState(0)
+                        choose_child_fn=lambda c, t: (
+                            Qt.CheckState.Checked if c.data(0, Qt.ItemDataRole.UserRole) == field else c.checkState(0)
+                        )
                     )
                 )
 
@@ -1409,14 +1307,12 @@ class GeminiFixerAction(DialogAction):
 
             for f in fields:
                 flabel = SHOW.get(f, f.title())
-                act = field_menu.addAction(
-                    _("Uncheck all {field}").format(field=flabel)
-                )
+                act = field_menu.addAction(_("Uncheck all {field}").format(field=flabel))
                 act.triggered.connect(
                     lambda _, field=f: set_checks(
-                        choose_child_fn=lambda c, t: Qt.CheckState.Unchecked
-                        if c.data(0, Qt.ItemDataRole.UserRole) == field
-                        else c.checkState(0)
+                        choose_child_fn=lambda c, t: (
+                            Qt.CheckState.Unchecked if c.data(0, Qt.ItemDataRole.UserRole) == field else c.checkState(0)
+                        )
                     )
                 )
 
@@ -1432,35 +1328,26 @@ class GeminiFixerAction(DialogAction):
             flabel = SHOW.get(field, field.title())
             ctx_menu = QMenu(tree)
 
-            act_only = ctx_menu.addAction(
-                _("Check only '{field}' across all books").format(field=flabel)
-            )
+            act_only = ctx_menu.addAction(_("Check only '{field}' across all books").format(field=flabel))
             act_only.triggered.connect(
-                lambda _, f=field: set_checks(
-                    choose_child_fn=lambda c, t: c.data(0, Qt.ItemDataRole.UserRole)
-                    == f
-                )
+                lambda _, f=field: set_checks(choose_child_fn=lambda c, t: c.data(0, Qt.ItemDataRole.UserRole) == f)
             )
 
-            act_all = ctx_menu.addAction(
-                _("Check all '{field}' across all books").format(field=flabel)
-            )
+            act_all = ctx_menu.addAction(_("Check all '{field}' across all books").format(field=flabel))
             act_all.triggered.connect(
                 lambda _, f=field: set_checks(
-                    choose_child_fn=lambda c, t: Qt.CheckState.Checked
-                    if c.data(0, Qt.ItemDataRole.UserRole) == f
-                    else c.checkState(0)
+                    choose_child_fn=lambda c, t: (
+                        Qt.CheckState.Checked if c.data(0, Qt.ItemDataRole.UserRole) == f else c.checkState(0)
+                    )
                 )
             )
 
-            act_none = ctx_menu.addAction(
-                _("Uncheck all '{field}' across all books").format(field=flabel)
-            )
+            act_none = ctx_menu.addAction(_("Uncheck all '{field}' across all books").format(field=flabel))
             act_none.triggered.connect(
                 lambda _, f=field: set_checks(
-                    choose_child_fn=lambda c, t: Qt.CheckState.Unchecked
-                    if c.data(0, Qt.ItemDataRole.UserRole) == f
-                    else c.checkState(0)
+                    choose_child_fn=lambda c, t: (
+                        Qt.CheckState.Unchecked if c.data(0, Qt.ItemDataRole.UserRole) == f else c.checkState(0)
+                    )
                 )
             )
 
@@ -1475,30 +1362,18 @@ class GeminiFixerAction(DialogAction):
                 for j in range(top.childCount()):
                     total += 1
                     count += top.child(j).checkState(0) == Qt.CheckState.Checked
-            ticked.setText(
-                _("{count} of {total} change(s) ticked").format(
-                    count=count, total=total
-                )
-                if total
-                else ""
-            )
+            ticked.setText(_("{count} of {total} change(s) ticked").format(count=count, total=total) if total else "")
             apply_btn.setEnabled(count > 0 and not run_busy[0])
 
         run_busy = [False]
         all_btn.clicked.connect(lambda: set_checks(lambda top: True))
         none_btn.clicked.connect(lambda: set_checks(lambda top: False))
-        safe_btn.clicked.connect(
-            lambda: set_checks(
-                lambda top: not top.data(0, Qt.ItemDataRole.UserRole + 2)
-            )
-        )
+        safe_btn.clicked.connect(lambda: set_checks(lambda top: not top.data(0, Qt.ItemDataRole.UserRole + 2)))
         tree.itemChanged.connect(lambda item, column: update_ticked())
 
         def toggle_settings():
             scroll.setHidden(not scroll.isHidden())
-            settings_btn.setText(
-                _("Show settings") if scroll.isHidden() else _("Hide settings")
-            )
+            settings_btn.setText(_("Show settings") if scroll.isHidden() else _("Hide settings"))
 
         settings_btn.clicked.connect(toggle_settings)
 
@@ -1509,36 +1384,20 @@ class GeminiFixerAction(DialogAction):
             run_busy[0] = busy
             for w in (all_btn, none_btn, safe_btn, field_btn):
                 w.setEnabled(not busy)
-            for w in (
-                check_btn,
-                apply_btn,
-                undo_btn,
-                models_btn,
-                compile_btn,
-                open_batch_dir_btn,
-            ):
-                w.setEnabled(
-                    not busy
-                    and (w is not apply_btn)
-                    and (w is not undo_btn or bool(undo_state[0]))
-                )
+            for w in (check_btn, apply_btn, undo_btn, models_btn, compile_btn, open_batch_dir_btn):
+                w.setEnabled(not busy and (w is not apply_btn) and (w is not undo_btn or bool(undo_state[0])))
             stop_btn.setEnabled(busy)
             buttons.button(QDialogButtonBox.StandardButton.Close).setEnabled(not busy)
 
         stop_btn.clicked.connect(
-            lambda: (
-                cancel_flag.set(),
-                log(_("Cancel pressed; stopping after the current step.")),
-            )
+            lambda: (cancel_flag.set(), log(_("Cancel pressed; stopping after the current step.")))
         )
         dialog.finished.connect(lambda _result: cancel_flag.set())
 
         def do_list_models():
             save_prefs()
             if not api_key():
-                return error_dialog(
-                    dialog, _("Gemini"), _("Enter your API key first."), show=True
-                )
+                return error_dialog(dialog, _("Gemini"), _("Enter your API key first."), show=True)
             task = run_task(
                 dialog,
                 _("Asking Google for the model list…"),
@@ -1556,9 +1415,7 @@ class GeminiFixerAction(DialogAction):
                 model.addItems(task.result)
                 if current and current not in task.result:
                     model.addItem(current)
-                model.setCurrentText(
-                    current or (task.result[0] if task.result else engine.DEFAULT_MODEL)
-                )
+                model.setCurrentText(current or (task.result[0] if task.result else engine.DEFAULT_MODEL))
 
                 current_fb = fallback_model.currentText().strip()
                 fallback_model.clear()
@@ -1567,27 +1424,19 @@ class GeminiFixerAction(DialogAction):
                     fallback_model.addItem(current_fb)
                 fallback_model.setCurrentText(
                     current_fb
-                    or (
-                        "gemini-flash-lite-latest"
-                        if "gemini-flash-lite-latest" in task.result
-                        else task.result[0]
-                    )
+                    or ("gemini-flash-lite-latest" if "gemini-flash-lite-latest" in task.result else task.result[0])
                 )
                 info_dialog(
                     dialog,
                     _("Gemini"),
-                    _("Retrieved {count} model(s) from Google.").format(
-                        count=len(task.result)
-                    ),
+                    _("Retrieved {count} model(s) from Google.").format(count=len(task.result)),
                     show=True,
                 )
             else:
                 info_dialog(
                     dialog,
                     _("Gemini"),
-                    _(
-                        "No models supporting content generation were found for this API key."
-                    ),
+                    _("No models supporting content generation were found for this API key."),
                     show=True,
                 )
 
@@ -1606,9 +1455,7 @@ class GeminiFixerAction(DialogAction):
                 return info_dialog(
                     dialog,
                     _("Gemini Batches"),
-                    _(
-                        "The saved batch files did not contain any suggestions or skipped items."
-                    ),
+                    _("The saved batch files did not contain any suggestions or skipped items."),
                     show=True,
                 )
             finish_run(
@@ -1621,9 +1468,7 @@ class GeminiFixerAction(DialogAction):
                 ).format(
                     s_count=len(compiled.suggestions),
                     b_count=len(files),
-                    books_count=compiled.metadata.get(
-                        "total_books", len(compiled.suggestions)
-                    ),
+                    books_count=compiled.metadata.get("total_books", len(compiled.suggestions)),
                 )
             )
 
@@ -1642,23 +1487,14 @@ class GeminiFixerAction(DialogAction):
         def do_check():
             save_prefs()
             if not api_key():
-                return error_dialog(
-                    dialog,
-                    _("Gemini"),
-                    _("Enter your Google AI API key first."),
-                    show=True,
-                )
+                return error_dialog(dialog, _("Gemini"), _("Enter your Google AI API key first."), show=True)
             if not chosen_fields():
-                return error_dialog(
-                    dialog, _("Gemini"), _("Tick at least one thing to fix."), show=True
-                )
+                return error_dialog(dialog, _("Gemini"), _("Tick at least one thing to fix."), show=True)
             all_lib_ids = sorted(self.gui.current_db.new_api.all_book_ids())
             ids = selected if scope_selected.isChecked() else all_lib_ids
             current_scope = "selected" if scope_selected.isChecked() else "all"
             if not ids:
-                return info_dialog(
-                    dialog, _("Gemini"), _("No books found to check."), show=True
-                )
+                return info_dialog(dialog, _("Gemini"), _("No books found to check."), show=True)
 
             b_dir = get_batch_dir()
             existing_batches = engine.list_batch_files(b_dir)
@@ -1672,23 +1508,15 @@ class GeminiFixerAction(DialogAction):
                     completed_ids = engine.get_completed_batch_book_ids(b_dir)
 
                 # Check if there was an interrupted full library scan, but scope_selected is currently active
-                if (
-                    scan_state
-                    and scan_state.get("scope") == "all"
-                    and scope_selected.isChecked()
-                ):
-                    interrupted_rem = [
-                        bid for bid in all_lib_ids if bid not in completed_ids
-                    ]
+                if scan_state and scan_state.get("scope") == "all" and scope_selected.isChecked():
+                    interrupted_rem = [bid for bid in all_lib_ids if bid not in completed_ids]
                     if interrupted_rem and completed_ids:
                         msg = _(
                             "A previous complete library scan was interrupted with {done_count} of {total_count} books completed ({rem_count} remaining).\n\n"
                             "You currently have 'Selected books' chosen in the dialog.\n\n"
                             "Would you like to switch to 'Entire library' and resume the interrupted complete library scan?"
                         ).format(
-                            done_count=len(completed_ids),
-                            total_count=len(all_lib_ids),
-                            rem_count=len(interrupted_rem),
+                            done_count=len(completed_ids), total_count=len(all_lib_ids), rem_count=len(interrupted_rem)
                         )
                         if question_dialog(
                             dialog,
@@ -1736,9 +1564,7 @@ class GeminiFixerAction(DialogAction):
                             "All {total_count} book(s) in the chosen scope have already been checked in {batch_count} saved batch(es).\n\n"
                             "• Click Review Suggestions: compile and display the results collected so far.\n"
                             "• Click Start Fresh: clear saved batches and check these books again from scratch."
-                        ).format(
-                            total_count=len(ids), batch_count=len(existing_batches)
-                        )
+                        ).format(total_count=len(ids), batch_count=len(existing_batches))
                         if question_dialog(
                             dialog,
                             _("Books Already Checked"),
@@ -1757,9 +1583,7 @@ class GeminiFixerAction(DialogAction):
                         "Found {batch_count} saved batch output(s) from another run ({done_count} other books checked).\n\n"
                         "Starting a new check will clear previous batches.\n\n"
                         "Do you want to clear previous batches and continue?"
-                    ).format(
-                        batch_count=len(existing_batches), done_count=len(completed_ids)
-                    )
+                    ).format(batch_count=len(existing_batches), done_count=len(completed_ids))
                     if question_dialog(
                         dialog,
                         _("Clear Previous Batches?"),
@@ -1825,23 +1649,13 @@ class GeminiFixerAction(DialogAction):
                     model=m_name,
                     batch_dir=b_dir,
                 )
-                if not question_dialog(
-                    dialog, _("Gemini Pre-Flight Confirmation"), msg
-                ):
-                    log(
-                        _(
-                            "Cancelled at pre-flight confirmation. Nothing was sent to Google."
-                        )
-                    )
+                if not question_dialog(dialog, _("Gemini Pre-Flight Confirmation"), msg):
+                    log(_("Cancelled at pre-flight confirmation. Nothing was sent to Google."))
                     return finish_run(None, len(ids))
 
                 while True:
                     result, error = ask_gemini_batched(
-                        ids,
-                        b_dir,
-                        resume=resume_mode,
-                        all_scan_ids=all_scan_ids,
-                        scan_scope=current_scope,
+                        ids, b_dir, resume=resume_mode, all_scan_ids=all_scan_ids, scan_scope=current_scope
                     )
                     if isinstance(error, engine.GeminiBatchPausedError):
                         rec_dialog = GeminiRecoveryDialog(dialog, paused_error=error)
@@ -1853,9 +1667,7 @@ class GeminiFixerAction(DialogAction):
                             interval.setValue(new_interval)
                             save_prefs()
                             completed_ids = engine.get_completed_batch_book_ids(b_dir)
-                            remaining_ids = [
-                                bid for bid in all_scan_ids if bid not in completed_ids
-                            ]
+                            remaining_ids = [bid for bid in all_scan_ids if bid not in completed_ids]
                             if remaining_ids:
                                 ids = remaining_ids
                                 resume_mode = True
@@ -1867,9 +1679,7 @@ class GeminiFixerAction(DialogAction):
                             else:
                                 break
                         elif choice == "save":
-                            log(
-                                "Scan state saved on disk. Retaining current suggestions."
-                            )
+                            log("Scan state saved on disk. Retaining current suggestions.")
                             break
                         else:  # cancel
                             log("Recovery cancelled. Retaining current suggestions.")
@@ -1880,9 +1690,7 @@ class GeminiFixerAction(DialogAction):
                 set_busy(False)
             return finish_run(result, len(ids), error)
 
-        def ask_gemini_batched(
-            target_ids, b_dir, resume=False, all_scan_ids=None, scan_scope="selected"
-        ):
+        def ask_gemini_batched(target_ids, b_dir, resume=False, all_scan_ids=None, scan_scope="selected"):
             """Processes books in batches, saves each batch output separately to disk, then compiles them together."""
             messages = queue.Queue()
             box = {}
@@ -1891,10 +1699,7 @@ class GeminiFixerAction(DialogAction):
                 all_scan_ids = list(target_ids)
             bsize = max(1, batch.value())
             per_request = min(bsize, 8) if covers.isChecked() else bsize
-            chunks = [
-                target_ids[i : i + per_request]
-                for i in range(0, len(target_ids), per_request)
-            ]
+            chunks = [target_ids[i : i + per_request] for i in range(0, len(target_ids), per_request)]
             total_chunks = len(chunks)
 
             existing = engine.list_batch_files(b_dir) if resume else []
@@ -1912,11 +1717,7 @@ class GeminiFixerAction(DialogAction):
             log(
                 _(
                     "Processing {total_books} book(s) in {total_chunks} batch(es) of {per_request}. Each batch is saved separately to disk."
-                ).format(
-                    total_books=total_books,
-                    total_chunks=total_chunks,
-                    per_request=per_request,
-                )
+                ).format(total_books=total_books, total_chunks=total_chunks, per_request=per_request)
             )
             bar.setRange(0, max(1, total_books))
             bar.setValue(0)
@@ -1933,18 +1734,8 @@ class GeminiFixerAction(DialogAction):
                     active_text = get_active_template_text()
                     tpl_vars = get_current_sample_vars()
                     books_done = 0
-                    completed_ids_set = (
-                        set(engine.get_completed_batch_book_ids(b_dir))
-                        if resume
-                        else set()
-                    )
-                    engine.save_scan_state(
-                        b_dir,
-                        all_scan_ids,
-                        completed_ids_set,
-                        scope=scan_scope,
-                        status="running",
-                    )
+                    completed_ids_set = set(engine.get_completed_batch_book_ids(b_dir)) if resume else set()
+                    engine.save_scan_state(b_dir, all_scan_ids, completed_ids_set, scope=scan_scope, status="running")
 
                     for offset, chunk_ids in enumerate(chunks):
                         if cancel_flag.is_set():
@@ -1966,9 +1757,7 @@ class GeminiFixerAction(DialogAction):
                         batch_books = self.books_for(
                             chunk_ids,
                             excerpt.isChecked(),
-                            on_book=lambda index, total, book: messages.put(
-                                ("read_progress", (index, total, book))
-                            ),
+                            on_book=lambda index, total, book: messages.put(("read_progress", (index, total, book))),
                             should_stop=cancel_flag.is_set,
                             with_covers=covers.isChecked(),
                             with_providers=provider_enrich.isChecked(),
@@ -2009,11 +1798,7 @@ class GeminiFixerAction(DialogAction):
                         books_done += len(chunk_ids)
                         completed_ids_set.update(chunk_ids)
                         engine.save_scan_state(
-                            b_dir,
-                            all_scan_ids,
-                            completed_ids_set,
-                            scope=scan_scope,
-                            status="running",
+                            b_dir, all_scan_ids, completed_ids_set, scope=scan_scope, status="running"
                         )
 
                         messages.put(
@@ -2041,11 +1826,7 @@ class GeminiFixerAction(DialogAction):
                     box["result"] = (compiled.suggestions, compiled.skipped)
                     if not cancel_flag.is_set():
                         engine.save_scan_state(
-                            b_dir,
-                            all_scan_ids,
-                            completed_ids_set,
-                            scope=scan_scope,
-                            status="completed",
+                            b_dir, all_scan_ids, completed_ids_set, scope=scan_scope, status="completed"
                         )
                 except Exception as exc:
                     compiled = engine.compile_batch_outputs(b_dir)
@@ -2080,36 +1861,22 @@ class GeminiFixerAction(DialogAction):
                 if kind == "batch_start":
                     phase.setText(
                         _("Batch {idx} of {total}: reading {count} books…").format(
-                            idx=info["batch_idx"],
-                            total=info["total_batches"],
-                            count=info["count"],
+                            idx=info["batch_idx"], total=info["total_batches"], count=info["count"]
                         )
                     )
                     log(
                         _("→ Batch {idx}/{total}: reading {count} book(s)…").format(
-                            idx=info["batch_idx"],
-                            total=info["total_batches"],
-                            count=info["count"],
+                            idx=info["batch_idx"], total=info["total_batches"], count=info["count"]
                         )
                     )
                 elif kind == "read_progress":
                     index, tot, book = info
-                    title = (
-                        book.get("title") or ""
-                    ).strip() or f"book {book.get('id', '')}"
+                    title = (book.get("title") or "").strip() or f"book {book.get('id', '')}"
                     clean_title = title.replace("%", "%%")
-                    disp_title = (
-                        (clean_title[:32] + "…")
-                        if len(clean_title) > 32
-                        else clean_title
-                    )
-                    bar.setFormat(
-                        _("Reading: {title} (%v/%m)").format(title=disp_title)
-                    )
+                    disp_title = (clean_title[:32] + "…") if len(clean_title) > 32 else clean_title
+                    bar.setFormat(_("Reading: {title} (%v/%m)").format(title=disp_title))
                     phase.setText(
-                        _("Reading book {index} of {total}: {title}…").format(
-                            index=index, total=tot, title=title
-                        )
+                        _("Reading book {index} of {total}: {title}…").format(index=index, total=tot, title=title)
                     )
                     log(
                         _("  read {index}/{total}: {desc}").format(
@@ -2133,9 +1900,7 @@ class GeminiFixerAction(DialogAction):
                     bar.setValue(info["done"])
                     bar.setFormat(_("Fixing books: %v of %m (%p%)"))
                     phase.setText(
-                        _(
-                            "Batch {idx} of {total} completed ({done}/{all_books} books)"
-                        ).format(
+                        _("Batch {idx} of {total} completed ({done}/{all_books} books)").format(
                             idx=info["batch_idx"],
                             total=info["total_batches"],
                             done=completed_books,
@@ -2150,24 +1915,15 @@ class GeminiFixerAction(DialogAction):
                     waiting["since"], waiting["count"] = time.time(), len(batch_books)
                     bar.setRange(0, 0)
                     bar.setFormat(
-                        _("Asking Gemini for {count} book(s)…")
-                        .format(count=len(batch_books))
-                        .replace("%", "%%")
+                        _("Asking Gemini for {count} book(s)…").format(count=len(batch_books)).replace("%", "%%")
                     )
-                    log(
-                        _("→ Sending {count} book(s) to Gemini:").format(
-                            count=len(batch_books)
-                        )
-                    )
+                    log(_("→ Sending {count} book(s) to Gemini:").format(count=len(batch_books)))
                     for b in batch_books:
                         log(f"     {engine.describe_book(b)}")
                 elif kind == "received":
                     log(
-                        _(
-                            "← Gemini answered after {duration:.0f}s ({count} entries)"
-                        ).format(
-                            duration=time.time() - (waiting["since"] or time.time()),
-                            count=info["count"],
+                        _("← Gemini answered after {duration:.0f}s ({count} entries)").format(
+                            duration=time.time() - (waiting["since"] or time.time()), count=info["count"]
                         )
                     )
                     waiting["since"] = None
@@ -2176,15 +1932,9 @@ class GeminiFixerAction(DialogAction):
                     bar.setFormat(_("Fixing books: %v of %m (%p%)"))
                 elif kind == "answer":
                     book, changes = info["book"], info["changes"]
-                    raw_title = (book.get("title") or "").strip() or str(
-                        book.get("id", "")
-                    )
+                    raw_title = (book.get("title") or "").strip() or str(book.get("id", ""))
                     clean_title = raw_title.replace("%", "%%")
-                    disp_title = (
-                        (clean_title[:32] + "…")
-                        if len(clean_title) > 32
-                        else clean_title
-                    )
+                    disp_title = (clean_title[:32] + "…") if len(clean_title) > 32 else clean_title
                     name = f"“{book.get('title') or book['id']}”"
                     if info.get("cover_text"):
                         log(
@@ -2193,45 +1943,20 @@ class GeminiFixerAction(DialogAction):
                             )
                         )
                     if info["kept"]:
-                        bar.setFormat(
-                            _("Fixing: {title} (%v/%m)").format(title=disp_title)
-                        )
-                        phase.setText(
-                            _("Fixed {name} [{confidence}]").format(
-                                name=name, confidence=info["confidence"]
-                            )
-                        )
+                        bar.setFormat(_("Fixing: {title} (%v/%m)").format(title=disp_title))
+                        phase.setText(_("Fixed {name} [{confidence}]").format(name=name, confidence=info["confidence"]))
                         log(
-                            _("   ✔ {name} [{confidence}]: ").format(
-                                name=name, confidence=info["confidence"]
-                            )
-                            + "; ".join(
-                                engine.describe_change(f, o, n)
-                                for f, (o, n) in changes.items()
-                            )
+                            _("   ✔ {name} [{confidence}]: ").format(name=name, confidence=info["confidence"])
+                            + "; ".join(engine.describe_change(f, o, n) for f, (o, n) in changes.items())
                             + (f" — {info['reason']}" if info["reason"] else "")
                         )
                     elif changes:
-                        bar.setFormat(
-                            _("Checked: {title} (%v/%m)").format(title=disp_title)
-                        )
-                        phase.setText(
-                            _("Checked {name} (dropped: {why})").format(
-                                name=name, why=info["dropped_why"]
-                            )
-                        )
-                        log(
-                            _("   ✖ {name}: suggestion dropped, {why}").format(
-                                name=name, why=info["dropped_why"]
-                            )
-                        )
+                        bar.setFormat(_("Checked: {title} (%v/%m)").format(title=disp_title))
+                        phase.setText(_("Checked {name} (dropped: {why})").format(name=name, why=info["dropped_why"]))
+                        log(_("   ✖ {name}: suggestion dropped, {why}").format(name=name, why=info["dropped_why"]))
                     else:
-                        bar.setFormat(
-                            _("Checked: {title} (%v/%m)").format(title=disp_title)
-                        )
-                        phase.setText(
-                            _("Checked {name}: no change needed").format(name=name)
-                        )
+                        bar.setFormat(_("Checked: {title} (%v/%m)").format(title=disp_title))
+                        phase.setText(_("Checked {name}: no change needed").format(name=name))
                         log(_("   – {name}: no change needed").format(name=name))
                 elif kind == "notice":
                     log(_("⚠ {text}").format(text=info["text"]))
@@ -2252,10 +1977,7 @@ class GeminiFixerAction(DialogAction):
                     phase.setText(
                         _(
                             "Waiting for Gemini… {duration:.0f}s so far ({count} books in this request; usually 5–60s)"
-                        ).format(
-                            duration=time.time() - waiting["since"],
-                            count=waiting["count"],
-                        )
+                        ).format(duration=time.time() - waiting["since"], count=waiting["count"])
                     )
                 else:
                     phase.setText(_("Working…"))
@@ -2274,20 +1996,10 @@ class GeminiFixerAction(DialogAction):
             bar.setFormat(_("%v of %m books checked (%p%)"))
             partial_error = None
             if error:
-                if (
-                    hasattr(error, "suggestions")
-                    and getattr(error, "suggestions") is not None
-                ):
+                if hasattr(error, "suggestions") and getattr(error, "suggestions") is not None:
                     partial_error = error
-                    result = (
-                        getattr(error, "suggestions", []),
-                        getattr(error, "skipped", []),
-                    )
-                    log(
-                        _("⚠ Stopped early due to an error: {error}").format(
-                            error=error
-                        )
-                    )
+                    result = (getattr(error, "suggestions", []), getattr(error, "skipped", []))
+                    log(_("⚠ Stopped early due to an error: {error}").format(error=error))
                 else:
                     log(_("✖ Stopped: {error}").format(error=error))
                     return error_dialog(dialog, _("Gemini"), str(error), show=True)
@@ -2321,16 +2033,11 @@ class GeminiFixerAction(DialogAction):
                         [
                             s["title"] or _("book {id}").format(id=s["id"]),
                             _("{confidence} confidence{big}").format(
-                                confidence=s["confidence"],
-                                big=_("; BIG CHANGE") if s["big"] else "",
+                                confidence=s["confidence"], big=_("; BIG CHANGE") if s["big"] else ""
                             ),
                         ],
                     )
-                    top.setFlags(
-                        top.flags()
-                        | Qt.ItemFlag.ItemIsUserCheckable
-                        | Qt.ItemFlag.ItemIsAutoTristate
-                    )
+                    top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
                     want = (
                         Qt.CheckState.Unchecked if s["big"] else Qt.CheckState.Checked
                     )  # adding a child resets an auto-tristate parent, so set the parent last
@@ -2394,9 +2101,7 @@ class GeminiFixerAction(DialogAction):
         def do_apply():
             items = collect()
             if not items:
-                return error_dialog(
-                    dialog, _("Gemini"), _("Nothing is ticked."), show=True
-                )
+                return error_dialog(dialog, _("Gemini"), _("Nothing is ticked."), show=True)
             set_busy(True)
             total = len(items)
             bar.setRange(0, max(1, total))
@@ -2410,27 +2115,13 @@ class GeminiFixerAction(DialogAction):
                 def on_apply_progress(idx, tot, book_id, title):
                     bar.setValue(idx)
                     clean_title = str(title).replace("%", "%%")
-                    disp_title = (
-                        (clean_title[:32] + "…")
-                        if len(clean_title) > 32
-                        else clean_title
-                    )
+                    disp_title = (clean_title[:32] + "…") if len(clean_title) > 32 else clean_title
                     bar.setFormat(_("Fixing: {title} (%v/%m)").format(title=disp_title))
-                    phase.setText(
-                        _("Fixing book {idx} of {total}: {title}…").format(
-                            idx=idx, total=tot, title=title
-                        )
-                    )
-                    log(
-                        _("  ✔ Fixed book {idx}/{total}: {title}").format(
-                            idx=idx, total=tot, title=title
-                        )
-                    )
+                    phase.setText(_("Fixing book {idx} of {total}: {title}…").format(idx=idx, total=tot, title=title))
+                    log(_("  ✔ Fixed book {idx}/{total}: {title}").format(idx=idx, total=tot, title=title))
                     QApplication.processEvents()
 
-                done, errors, undo = self.write_changes(
-                    items, on_progress=on_apply_progress
-                )
+                done, errors, undo = self.write_changes(items, on_progress=on_apply_progress)
                 if undo:
                     undo_state[0] = undo
                     save_undo(undo)
@@ -2440,16 +2131,8 @@ class GeminiFixerAction(DialogAction):
                     try:
                         bar.setRange(0, 0)
                         bar.setFormat(_("Embedding metadata into fixed books…"))
-                        phase.setText(
-                            _("Embedding metadata into {count} fixed book(s)…").format(
-                                count=len(done)
-                            )
-                        )
-                        log(
-                            _("Embedding metadata into {count} fixed book(s)…").format(
-                                count=len(done)
-                            )
-                        )
+                        phase.setText(_("Embedding metadata into {count} fixed book(s)…").format(count=len(done)))
+                        log(_("Embedding metadata into {count} fixed book(s)…").format(count=len(done)))
                         QApplication.processEvents()
                         embed_action = self.gui.iactions.get("Embed Metadata")
                         if embed_action and hasattr(embed_action, "do_embed"):
@@ -2459,14 +2142,10 @@ class GeminiFixerAction(DialogAction):
                 bar.setRange(0, max(1, total))
                 bar.setValue(len(done))
                 bar.setFormat(_("Fixed %v of %m books (100%)"))
-                phase.setText(
-                    _("Fixing complete: {count} book(s) updated.").format(
-                        count=len(done)
-                    )
+                phase.setText(_("Fixing complete: {count} book(s) updated.").format(count=len(done)))
+                text = _('Updated {count} book(s). "Undo last run" can put the old values back.').format(
+                    count=len(done)
                 )
-                text = _(
-                    'Updated {count} book(s). "Undo last run" can put the old values back.'
-                ).format(count=len(done))
                 if errors:
                     text += _("\n\nProblems:\n") + "\n".join(errors[:10])
                 info_dialog(self.gui, _("Gemini"), text, show=True)
@@ -2487,9 +2166,7 @@ class GeminiFixerAction(DialogAction):
             if not undo or not question_dialog(
                 dialog,
                 _("Gemini"),
-                _(
-                    "Put back the old values for {count} book(s) changed in the last run?"
-                ).format(count=len(undo)),
+                _("Put back the old values for {count} book(s) changed in the last run?").format(count=len(undo)),
             ):
                 return
             set_busy(True)
@@ -2504,9 +2181,7 @@ class GeminiFixerAction(DialogAction):
                 def on_undo_progress(idx, tot, book_id):
                     bar.setValue(idx)
                     bar.setFormat(_("Restoring: book {id} (%v/%m)").format(id=book_id))
-                    phase.setText(
-                        _("Restoring book {idx} of {total}…").format(idx=idx, total=tot)
-                    )
+                    phase.setText(_("Restoring book {idx} of {total}…").format(idx=idx, total=tot))
                     QApplication.processEvents()
 
                 done, errors = self.restore(undo, on_progress=on_undo_progress)
@@ -2525,9 +2200,7 @@ class GeminiFixerAction(DialogAction):
             finally:
                 set_busy(False)
 
-        key.editingFinished.connect(
-            save_prefs
-        )  # the key is remembered as soon as it is typed, not only after a check
+        key.editingFinished.connect(save_prefs)  # the key is remembered as soon as it is typed, not only after a check
         dialog.finished.connect(lambda _result: save_prefs())
         models_btn.clicked.connect(do_list_models)
         compile_btn.clicked.connect(do_compile_saved)
@@ -2550,9 +2223,7 @@ class GeminiFixerAction(DialogAction):
                     _(
                         '⚠ Detected an interrupted {scope} scan ({done} of {total} books completed, {rem} remaining). Click "Check books" to resume where it stopped.'
                     ).format(
-                        scope=_("complete library")
-                        if saved_scope == "all"
-                        else _("selected books"),
+                        scope=_("complete library") if saved_scope == "all" else _("selected books"),
                         done=len(initial_scan_state.get("completed_ids", [])),
                         total=len(all_bids),
                         rem=len(rem),

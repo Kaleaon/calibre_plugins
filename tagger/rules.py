@@ -7,13 +7,6 @@ import functools
 import re
 
 try:
-    from datetime import UTC
-except ImportError:
-    from datetime import timezone
-
-    UTC = timezone.utc  # noqa: UP017
-
-try:
     from .fff_sites import FFF_SITES
 except ImportError:  # tests load this file directly
     from fff_sites import FFF_SITES
@@ -64,18 +57,8 @@ def _key_covered(key, claimed_hosts, claimed_keys):
 
 def merge_sites(core, extra):
     """Curated entries win; extra/generated entries only add hosts/keys not already covered (subdomains count)."""
-    claimed_hosts = {
-        str(h).strip().lower()
-        for _, hosts, _ in core
-        for h in hosts
-        if h and str(h).strip()
-    }
-    claimed_keys = {
-        str(k).strip().lower()
-        for _, _, keys in core
-        for k in keys
-        if k and str(k).strip()
-    }
+    claimed_hosts = {str(h).strip().lower() for _, hosts, _ in core for h in hosts if h and str(h).strip()}
+    claimed_keys = {str(k).strip().lower() for _, _, keys in core for k in keys if k and str(k).strip()}
     merged = list(core)
 
     for name, hosts, keys in extra:
@@ -90,22 +73,14 @@ def merge_sites(core, extra):
         if primary_covered:
             continue
 
-        fresh_hosts = [
-            h for h in hosts if not _host_covered(h, claimed_hosts, claimed_keys)
-        ]
-        fresh_keys = [
-            k for k in keys if not _key_covered(k, claimed_hosts, claimed_keys)
-        ]
+        fresh_hosts = [h for h in hosts if not _host_covered(h, claimed_hosts, claimed_keys)]
+        fresh_keys = [k for k in keys if not _key_covered(k, claimed_hosts, claimed_keys)]
 
         if not fresh_hosts and not fresh_keys:
             continue
 
-        claimed_hosts.update(
-            str(h).strip().lower() for h in fresh_hosts if h and str(h).strip()
-        )
-        claimed_keys.update(
-            str(k).strip().lower() for k in fresh_keys if k and str(k).strip()
-        )
+        claimed_hosts.update(str(h).strip().lower() for h in fresh_hosts if h and str(h).strip())
+        claimed_keys.update(str(k).strip().lower() for k in fresh_keys if k and str(k).strip())
         merged.append((name, fresh_hosts, fresh_keys))
 
     return merged
@@ -196,9 +171,7 @@ def _host_pattern(host):
 
 def detect_sites(book, sites, scan_comments=False):
     """Names of the sites a book appears to come from, in table order."""
-    idents = {
-        str(k).lower(): str(v) for k, v in (book.get("identifiers") or {}).items()
-    }
+    idents = {str(k).lower(): str(v) for k, v in (book.get("identifiers") or {}).items()}
     haystacks = list(idents.values()) + [book.get("publisher") or ""]
     if scan_comments:
         haystacks.append(book.get("comments") or "")
@@ -206,12 +179,7 @@ def detect_sites(book, sites, scan_comments=False):
     for name, hosts, keys in sites:
         if name not in found and (
             any(k.lower() in idents for k in keys)
-            or any(
-                _host_pattern(h).search(text)
-                for h in hosts
-                for text in haystacks
-                if text
-            )
+            or any(_host_pattern(h).search(text) for h in hosts for text in haystacks if text)
         ):
             found.append(name)
     return found
@@ -231,11 +199,7 @@ def rule_hits(book, rule, sources):
     elif field in (None, "any"):
         texts = [t for f in DEFAULT_FIELDS for t in _values(book, f)]
         if field == "any":
-            texts += (
-                _values(book, "authors")
-                + _values(book, "comments")
-                + _values(book, "publisher")
-            )
+            texts += _values(book, "authors") + _values(book, "comments") + _values(book, "publisher")
     else:
         texts = _values(book, field)
     return any(rule.match(t) for t in texts)
@@ -319,9 +283,7 @@ class TagSelectionState:
             book_id = p["id"]
             add_tags = p.get("add", [])
             existing_count = len(p.get("tags", [])) - len(add_tags)
-            existing_tags = (
-                p.get("tags", [])[:existing_count] if existing_count >= 0 else []
-            )
+            existing_tags = p.get("tags", [])[:existing_count] if existing_count >= 0 else []
 
             active_add = [t for t in add_tags if self.is_tag_active(book_id, t)]
             if active_add:
@@ -349,9 +311,7 @@ class TagSelectionState:
         affected_books = 0
         for p in self.plan:
             book_id = p["id"]
-            book_active = [
-                t for t in p.get("add", []) if self.is_tag_active(book_id, t)
-            ]
+            book_active = [t for t in p.get("add", []) if self.is_tag_active(book_id, t)]
             if book_active:
                 affected_books += 1
                 active_assignments += len(book_active)
@@ -361,12 +321,16 @@ class TagSelectionState:
 RULE_SET_SCHEMA_VERSION = 1
 
 
-def export_rule_set_data(
-    rules_text, sites_text, title="Exported Rule Set", description=""
-):
+def export_rule_set_data(rules_text, sites_text, title="Exported Rule Set", description=""):
     """Serializes rules and extra sites multiline text into a versioned JSON-compatible dictionary."""
     from datetime import datetime
 
+    try:
+        from datetime import UTC
+    except ImportError:
+        from datetime import timezone
+
+        UTC = timezone.utc  # noqa: UP017
     parsed_rules, _ = parse_rules(rules_text)
     parsed_sites, _ = parse_sites(sites_text)
 
@@ -374,9 +338,7 @@ def export_rule_set_data(
     for r in parsed_rules:
         field_prefix = f"{r.field}:" if r.field else ""
         raw = f"{field_prefix}{r.pattern} => {', '.join(r.tags)}"
-        rules_list.append(
-            {"field": r.field, "pattern": r.pattern, "tags": r.tags, "raw": raw}
-        )
+        rules_list.append({"field": r.field, "pattern": r.pattern, "tags": r.tags, "raw": raw})
 
     sites_list = []
     for name, hosts, _ in parsed_sites:
@@ -409,9 +371,7 @@ def import_rule_set_data(data):
         return (
             [],
             [],
-            [
-                f"Unsupported schema version '{version}'. Expected version {RULE_SET_SCHEMA_VERSION}."
-            ],
+            [f"Unsupported schema version '{version}'. Expected version {RULE_SET_SCHEMA_VERSION}."],
         )
 
     rule_lines = []
@@ -426,11 +386,7 @@ def import_rule_set_data(data):
                     fld = item.get("field")
                     field_prefix = f"{fld}:" if fld else ""
                     tags_val = item["tags"]
-                    tags_str = (
-                        ", ".join(tags_val)
-                        if isinstance(tags_val, list)
-                        else str(tags_val)
-                    )
+                    tags_str = ", ".join(tags_val) if isinstance(tags_val, list) else str(tags_val)
                     rule_lines.append(f"{field_prefix}{item['pattern']} => {tags_str}")
                 else:
                     return (
@@ -453,11 +409,7 @@ def import_rule_set_data(data):
                     site_lines.append(str(item["raw"]))
                 elif "name" in item and "hosts" in item:
                     hosts_val = item["hosts"]
-                    hosts_str = (
-                        ", ".join(hosts_val)
-                        if isinstance(hosts_val, list)
-                        else str(hosts_val)
-                    )
+                    hosts_str = ", ".join(hosts_val) if isinstance(hosts_val, list) else str(hosts_val)
                     site_lines.append(f"{hosts_str} => {item['name']}")
                 else:
                     return (
@@ -548,11 +500,7 @@ def merge_text_lines(current_text, imported_text):
         return current_text or ""
 
     current_lines = [line for line in current_text.splitlines()]
-    existing_set = {
-        line.strip()
-        for line in current_lines
-        if line.strip() and not line.strip().startswith("#")
-    }
+    existing_set = {line.strip() for line in current_lines if line.strip() and not line.strip().startswith("#")}
 
     merged_lines = list(current_lines)
     for line in imported_text.splitlines():

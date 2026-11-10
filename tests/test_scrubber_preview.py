@@ -18,9 +18,7 @@ for name in ("calibre", "calibre.customize", "calibre.gui2", "calibre.utils"):
         sys.modules[name] = types.ModuleType(name)
 sys.modules["calibre.customize"].InterfaceActionBase = object
 
-spec = importlib.util.spec_from_file_location(
-    "scrub_core", ROOT / "scrubber_plugin/core.py"
-)
+spec = importlib.util.spec_from_file_location("scrub_core", ROOT / "scrubber_plugin/core.py")
 core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
 
@@ -46,8 +44,7 @@ OPF = """<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" vers
 <item id="promo" href="promo.xhtml" media-type="application/xhtml+xml"/><item id="c1" href="c1.xhtml" media-type="application/xhtml+xml"/></manifest>
 <spine><itemref idref="promo"/><itemref idref="c1"/></spine></package>"""
 NAV = (
-    XHTML
-    % '<nav><ol><li><a href="promo.xhtml">Downloaded</a></li><li><a href="c1.xhtml">Chapter 1</a></li></ol></nav>'
+    XHTML % '<nav><ol><li><a href="promo.xhtml">Downloaded</a></li><li><a href="c1.xhtml">Chapter 1</a></li></ol></nav>'
 )
 
 
@@ -68,9 +65,7 @@ def make_epub(
 
 class ScrubberPreviewCoreTests(unittest.TestCase):
     def test_dry_run_scan_returns_candidates_without_modifying_bytes(self):
-        data = make_epub(
-            '<p>Chapter 1. Visit <a href="https://oceanofpdf.com">OceanofPDF.com</a> for more.</p>'
-        )
+        data = make_epub('<p>Chapter 1. Visit <a href="https://oceanofpdf.com">OceanofPDF.com</a> for more.</p>')
         out, report = core.scrub_epub(data, dry_run=True)
         self.assertIsNone(out)  # Dry run returns None for new bytes
         self.assertGreater(len(report["changes"]), 0)
@@ -92,18 +87,14 @@ class ScrubberPreviewCoreTests(unittest.TestCase):
         self.assertNotIn("OceanofPDF.com", buf["scrubbed"])
 
     def test_selective_item_filtering(self):
-        data = make_epub(
-            '<p>Story text. <a href="https://oceanofpdf.com">Get free ebooks</a> at site.</p>'
-        )
+        data = make_epub('<p>Story text. <a href="https://oceanofpdf.com">Get free ebooks</a> at site.</p>')
         _, dry_report = core.scrub_epub(data, dry_run=True)
         all_changes = dry_report["changes"]
         self.assertGreater(len(all_changes), 1)
 
         # Select ONLY the title metadata change item, excluding publisher metadata / page drop / link items
         title_item = next(
-            c
-            for c in all_changes
-            if c["file"] == "OEBPS/content.opf" and "metadata trimmed" in c["action"]
+            c for c in all_changes if c["file"] == "OEBPS/content.opf" and "metadata trimmed" in c["action"]
         )
         allowed = {title_item["id"]}
 
@@ -128,9 +119,7 @@ class ScrubPreviewDialogUITests(unittest.TestCase):
         cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
     def test_preview_dialog_hierarchy_and_checkbox_propagation(self):
-        spec_ui = importlib.util.spec_from_file_location(
-            "scrub_ui", ROOT / "scrubber_plugin/ui.py"
-        )
+        spec_ui = importlib.util.spec_from_file_location("scrub_ui", ROOT / "scrubber_plugin/ui.py")
         scrub_ui = importlib.util.module_from_spec(spec_ui)
         spec_ui.loader.exec_module(scrub_ui)
 
@@ -194,9 +183,7 @@ class ScrubPreviewDialogUITests(unittest.TestCase):
         self.assertEqual(len(dialog.get_selected_change_ids()), 0)
 
     def test_compute_side_by_side_html_highlighting_and_modes(self):
-        spec_ui = importlib.util.spec_from_file_location(
-            "scrub_ui", ROOT / "scrubber_plugin/ui.py"
-        )
+        spec_ui = importlib.util.spec_from_file_location("scrub_ui", ROOT / "scrubber_plugin/ui.py")
         scrub_ui = importlib.util.module_from_spec(spec_ui)
         spec_ui.loader.exec_module(scrub_ui)
 
@@ -204,9 +191,7 @@ class ScrubPreviewDialogUITests(unittest.TestCase):
         scrub_str = "line 1\nline 2: promo link  here\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10"
 
         # Full mode
-        l_html, r_html = scrub_ui.compute_side_by_side_html(
-            orig_str, scrub_str, mode="full"
-        )
+        l_html, r_html = scrub_ui.compute_side_by_side_html(orig_str, scrub_str, mode="full")
         self.assertIn("line 1", l_html)
         self.assertIn('class="line delete"', l_html)
         self.assertIn('class="line insert"', r_html)
@@ -214,22 +199,16 @@ class ScrubPreviewDialogUITests(unittest.TestCase):
         self.assertIn("https://oceanofpdf.com", l_html)
 
         # Block mode
-        l_block_html, r_block_html = scrub_ui.compute_side_by_side_html(
-            orig_str, scrub_str, mode="block"
-        )
+        l_block_html, r_block_html = scrub_ui.compute_side_by_side_html(orig_str, scrub_str, mode="block")
         self.assertIn('class="line delete"', l_block_html)
         self.assertIn('class="line insert"', r_block_html)
 
     def test_side_by_side_diff_dialog_structure_and_checkbox_toggling(self):
-        spec_ui = importlib.util.spec_from_file_location(
-            "scrub_ui", ROOT / "scrubber_plugin/ui.py"
-        )
+        spec_ui = importlib.util.spec_from_file_location("scrub_ui", ROOT / "scrubber_plugin/ui.py")
         scrub_ui = importlib.util.module_from_spec(spec_ui)
         spec_ui.loader.exec_module(scrub_ui)
 
-        orig_html = (
-            "<p>Original XHTML <a href='http://oceanofpdf.com'>Promo Link</a></p>"
-        )
+        orig_html = "<p>Original XHTML <a href='http://oceanofpdf.com'>Promo Link</a></p>"
         scrub_html = "<p>Original XHTML Promo Link</p>"
         changes = [
             {
@@ -268,9 +247,7 @@ class ScrubPreviewDialogUITests(unittest.TestCase):
         self.assertNotIn("c1:link:0", diff_dialog.checked_change_ids)
 
     def test_preview_dialog_compare_html_button_and_sync(self):
-        spec_ui = importlib.util.spec_from_file_location(
-            "scrub_ui", ROOT / "scrubber_plugin/ui.py"
-        )
+        spec_ui = importlib.util.spec_from_file_location("scrub_ui", ROOT / "scrubber_plugin/ui.py")
         scrub_ui = importlib.util.module_from_spec(spec_ui)
         spec_ui.loader.exec_module(scrub_ui)
 

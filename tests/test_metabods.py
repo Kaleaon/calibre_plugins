@@ -9,9 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 import storykit
 
-spec = importlib.util.spec_from_file_location(
-    "mcore", Path(__file__).resolve().parents[1] / "metabods/core.py"
-)
+spec = importlib.util.spec_from_file_location("mcore", Path(__file__).resolve().parents[1] / "metabods/core.py")
 core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
 
@@ -56,12 +54,8 @@ class InputTests(unittest.TestCase):
             core.classify("https://www.metabods.com/mbxy/site/story.php?id=a-b-1"),
             ("story", "a-b-1"),
         )
-        self.assertEqual(
-            core.classify("metabods.com/mbxy/site/story_print.php?id=x"), ("story", "x")
-        )
-        kind, url = core.classify(
-            "https://metabods.com/mbxy/site/archive.php?list=author&id=368"
-        )
+        self.assertEqual(core.classify("metabods.com/mbxy/site/story_print.php?id=x"), ("story", "x"))
+        kind, url = core.classify("https://metabods.com/mbxy/site/archive.php?list=author&id=368")
         self.assertEqual(kind, "list")
         self.assertTrue(url.endswith("list=author&id=368"))
         self.assertIsNone(core.classify("https://example.com/story.php?id=x"))
@@ -90,19 +84,13 @@ class ListTests(unittest.TestCase):
             return [{"id": i, "title": i.upper(), "author": ""} for i in ids]
 
         results = {1: r("a", "b"), 2: r("b", "c")}
-        self.assertEqual(
-            [x["id"] for x in core.combine_tag_results(results, True)], ["b"]
-        )
-        self.assertEqual(
-            [x["id"] for x in core.combine_tag_results(results, False)], ["a", "b", "c"]
-        )
+        self.assertEqual([x["id"] for x in core.combine_tag_results(results, True)], ["b"])
+        self.assertEqual([x["id"] for x in core.combine_tag_results(results, False)], ["a", "b", "c"])
         self.assertEqual(core.combine_tag_results({}, True), [])
 
 
 class ConcurrentFakeFetcher:
-    def __init__(
-        self, min_interval=0, cancelled=lambda: False, delays=None, errors=None
-    ):
+    def __init__(self, min_interval=0, cancelled=lambda: False, delays=None, errors=None):
         self.min_interval = min_interval
         self.cancelled = cancelled
         self.delays = delays or {}
@@ -156,9 +144,7 @@ class SearchTagsTests(unittest.TestCase):
         def is_cancelled():
             return cancel_flag
 
-        fetcher = ConcurrentFakeFetcher(
-            cancelled=is_cancelled, delays={str(i): 0.1 for i in range(1, 6)}
-        )
+        fetcher = ConcurrentFakeFetcher(cancelled=is_cancelled, delays={str(i): 0.1 for i in range(1, 6)})
         cancel_flag = True
         with self.assertRaises(core.Cancelled):
             core.search_tags(fetcher, [1, 2, 3])
@@ -191,7 +177,7 @@ class SearchTagsTests(unittest.TestCase):
 
         seen_locks = set()
 
-        class LockTrackingFetcher(getattr(core, 'Fetcher', storykit.Fetcher)):
+        class LockTrackingFetcher(getattr(core, "Fetcher", storykit.Fetcher)):
             def get(self, url):
                 seen_locks.add(self._lock)
                 time.sleep(0.02)
@@ -226,7 +212,7 @@ class SearchTagsTests(unittest.TestCase):
             return False
 
         def custom_opener(req, timeout=60):
-            return FakeResponse(b'test')
+            return FakeResponse(b"test")
 
         class UncopyableFetcher:
             def __init__(self):
@@ -263,17 +249,15 @@ class SearchTagsTests(unittest.TestCase):
         duck_fetcher = UncopyableDuckFetcher()
         results = core.search_tags(duck_fetcher, [101, 102], max_workers=2)
         self.assertEqual(len(results), 2)
-        self.assertEqual(results[101][0]['id'], 'fallback_story')
-        self.assertEqual(results[102][0]['id'], 'fallback_story')
+        self.assertEqual(results[101][0]["id"], "fallback_story")
+        self.assertEqual(results[102][0]["id"], "fallback_story")
 
 
 class StoryTests(unittest.TestCase):
     def test_print_page(self):
         s = core.parse_print_page(PRINT)
         self.assertEqual((s["title"], s["author"]), ("Big & Bold", "Some Author"))
-        self.assertEqual(
-            [h for h, _ in s["sections"]], ["Author's Note", "Part 1", "Part 2"]
-        )
+        self.assertEqual([h for h, _ in s["sections"]], ["Author's Note", "Part 1", "Part 2"])
         with self.assertRaises(ValueError):
             core.parse_print_page("<html></html>")
 
@@ -288,9 +272,7 @@ class StoryTests(unittest.TestCase):
         self.assertEqual([h for h, _ in s2_plus["sections"]], ["Part 1", "Part 2"])
 
         s_all = core.parse_print_page(PRINT, chapter_range="")
-        self.assertEqual(
-            [h for h, _ in s_all["sections"]], ["Author's Note", "Part 1", "Part 2"]
-        )
+        self.assertEqual([h for h, _ in s_all["sections"]], ["Author's Note", "Part 1", "Part 2"])
 
         with self.assertRaises(ValueError) as ctx:
             core.parse_print_page(PRINT, chapter_range="99")
@@ -317,9 +299,7 @@ class StoryTests(unittest.TestCase):
         self.assertNotIn("javascript", out)
         self.assertNotIn("<p></p>", out)
         self.assertIn("stray", out)
-        styled = storykit.clean_fragment(
-            '<p style="margin-left:40px;color:red;background:url(x)">t</p>'
-        )
+        styled = storykit.clean_fragment('<p style="margin-left:40px;color:red;background:url(x)">t</p>')
         self.assertIn("margin-left:40px", styled)
         self.assertNotIn("color", styled)
 
@@ -339,24 +319,16 @@ class StoryTests(unittest.TestCase):
             '<div class="xyp_section"><h3>Part 2</h3>',
             '<div class="xyp_section"><h3 class="x">Skip</h3>',
         )
-        s = core.parse_print_page(
-            one.split('<div class="xyp_section"><h3 class="x">')[0] + "</body>"
-        )
+        s = core.parse_print_page(one.split('<div class="xyp_section"><h3 class="x">')[0] + "</body>")
         s.update(id="x", url="u", tags=[], categories=[], summary="")
         ncx = check_epub(self, core.build_epub([s])).read("OEBPS/toc.ncx").decode()
         self.assertIn("<text>Big &amp; Bold</text>", ncx)
 
     def test_combined_epub_nests_parts(self):
-        z = check_epub(
-            self, core.build_epub([story("one"), story("two")], title="Omnibus")
-        )
+        z = check_epub(self, core.build_epub([story("one"), story("two")], title="Omnibus"))
         ncx = z.read("OEBPS/toc.ncx").decode()
-        self.assertEqual(
-            ncx.count("<navPoint"), 1 + 2 + 6
-        )  # title page, two stories, six parts
-        self.assertIn(
-            "<dc:title>Omnibus</dc:title>", z.read("OEBPS/content.opf").decode()
-        )
+        self.assertEqual(ncx.count("<navPoint"), 1 + 2 + 6)  # title page, two stories, six parts
+        self.assertIn("<dc:title>Omnibus</dc:title>", z.read("OEBPS/content.opf").decode())
         with self.assertRaises(ValueError):
             core.build_epub([])
 
@@ -386,16 +358,12 @@ class FetcherTests(unittest.TestCase):
             return FakeResponse("café".encode())
 
         self.assertEqual(
-            storykit.Fetcher(min_interval=0, opener=opener).get(
-                "https://metabods.com/x"
-            ),
+            storykit.Fetcher(min_interval=0, opener=opener).get("https://metabods.com/x"),
             "café",
         )
         self.assertEqual(len(calls), 2)
         with self.assertRaises(storykit.Cancelled):
-            storykit.Fetcher(min_interval=0, cancelled=lambda: True, opener=opener).get(
-                "https://metabods.com/x"
-            )
+            storykit.Fetcher(min_interval=0, cancelled=lambda: True, opener=opener).get("https://metabods.com/x")
 
 
 if __name__ == "__main__":
