@@ -43,6 +43,9 @@ jobs:
   build-and-test:
     name: Build & Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -51,10 +54,6 @@ jobs:
 
     permissions:
       contents: read
-
-    defaults:
-      run:
-        shell: bash
 
     env:
       QT_QPA_PLATFORM: offscreen
@@ -100,7 +99,7 @@ jobs:
       - name: Upload plugin packages artifact
         uses: actions/upload-artifact@v4
         with:
-          name: calibre-plugin-packages-${{ matrix.os }}-py${{ matrix.python-version }}
+          name: calibre-plugin-packages-${{ matrix.os }}-${{ matrix.python-version }}
           path: dist/*.zip
           retention-days: 14
           overwrite: true
@@ -109,4 +108,3 @@ jobs:
         run: python .github/scripts/run_ci_checks.py test
         env:
           BASE_REF: ${{ github.base_ref }}
-

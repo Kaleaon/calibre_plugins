@@ -9,7 +9,7 @@ import sys
 
 def get_changed_files(base_ref=None):
     """Determine changed files against base branch or upstream."""
-    base = base_ref or os.environ.get("BASE_REF") or "main"
+    base = base_ref or os.environ.get("BASE_REF")
     diff_succeeded = False
     files = []
 
@@ -66,16 +66,18 @@ def check_lint():
     changed_files, is_pr = get_changed_files()
     python_files = [f for f in changed_files if f.endswith(".py") and os.path.exists(f)]
 
-    if not python_files:
-        print(f"No Python files changed (base: {os.environ.get('BASE_REF', 'HEAD~1')}). Skipping ruff checks.")
-        return 0
+    if is_pr:
+        if not python_files:
+            print(f"No Python files changed in this PR (base: {os.environ.get('BASE_REF')}). Skipping ruff checks.")
+            return 0
+        targets = python_files
+    else:
+        # On push without PR base_ref
+        targets = python_files if python_files else ["."]
 
-    targets = python_files
     print(f"Running ruff checks on {len(targets)} target(s): {targets}")
-    env = dict(os.environ)
-    env.setdefault("PYTHONPATH", ".")
-    subprocess.run(["ruff", "check"] + targets, env=env, check=True)
-    subprocess.run(["ruff", "format", "--check"] + targets, env=env, check=True)
+    subprocess.run(["ruff", "check"] + targets, check=True)
+    subprocess.run(["ruff", "format", "--check"] + targets, check=True)
     return 0
 
 
@@ -117,19 +119,17 @@ def check_tests():
 
     test_targets = sorted(list(set(test_targets)))
 
-    if not test_targets:
-        print(
-            f"No unit test suites affected by changes (base: {os.environ.get('BASE_REF', 'HEAD~1')}). Skipping tests."
-        )
-        return 0
+    if is_pr:
+        if not test_targets:
+            print(f"No unit test suites affected by PR changes (base: {os.environ.get('BASE_REF')}). Skipping tests.")
+            return 0
+        targets = test_targets
+    else:
+        targets = test_targets if test_targets else ["tests/"]
 
-    targets = test_targets
     print(f"Running unit tests on {len(targets)} target(s): {targets}")
-    env = dict(os.environ)
-    env.setdefault("QT_QPA_PLATFORM", "offscreen")
-    env.setdefault("PYTHONPATH", ".")
     cmd = [sys.executable, "-m", "pytest"] + targets
-    subprocess.run(cmd, env=env, check=True)
+    subprocess.run(cmd, check=True)
     return 0
 
 
