@@ -9,6 +9,7 @@ import json
 import os
 import posixpath
 import re
+import shutil
 import zipfile
 from pathlib import Path
 from urllib.parse import unquote, urldefrag
@@ -77,9 +78,7 @@ except ImportError:
 
             img_path = Path(__file__).parent / "image_classifier.py"
             if img_path.exists():
-                spec = importlib.util.spec_from_file_location(
-                    "image_classifier", img_path
-                )
+                spec = importlib.util.spec_from_file_location("image_classifier", img_path)
                 img_mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(img_mod)
                 classify_image_context = img_mod.classify_image_context
@@ -157,9 +156,7 @@ MEDIA_TAGS = {
     "embed",
     "canvas",
 }
-URLISH = re.compile(
-    r"https?://|www\.|\b[a-z0-9-]+\.(?:com|net|org|info|io|me|cc|to|ru|biz)\b", re.I
-)
+URLISH = re.compile(r"https?://|www\.|\b[a-z0-9-]+\.(?:com|net|org|info|io|me|cc|to|ru|biz)\b", re.I)
 PROMO = re.compile(
     r"downloaded\s+from|free\s+(?:e-?)?books?|(?:e-?)?books?\s+for\s+free|download\s+(?:free\s+)?(?:e-?)?books?",
     re.I,
@@ -181,8 +178,7 @@ class Matcher:
         core = "|".join(f"(?:{p})" for p in parts)
         self.name = re.compile(core, re.I)
         self.span = re.compile(
-            r'(?:https?://)?(?:www\.)?(?:[a-z0-9-]+\.)*(?:%s)(?:\.[a-z]{2,6})?(?:[/?#][^\s<>"\']*)?'
-            % core,
+            rf'(?:https?://)?(?:www\.)?(?:[a-z0-9-]+\.)*(?:{core})(?:\.[a-z]{{2,6}})?(?:[/?#][^\s<>"\']*)?',
             re.I,
         )
         self.heuristic = heuristic
@@ -257,10 +253,7 @@ def _unwrap(el):
 
 
 def _has_media(el):
-    return (
-        any(_local(d) in MEDIA_TAGS for d in el.iter() if d is not el)
-        or _local(el) in MEDIA_TAGS
-    )
+    return any(_local(d) in MEDIA_TAGS for d in el.iter() if d is not el) or _local(el) in MEDIA_TAGS
 
 
 def _is_empty(el):
@@ -290,11 +283,7 @@ def scrub_document(
 
     # 1. comments and processing instructions
     for node in list(root.iter()):
-        if (
-            not isinstance(node.tag, str)
-            and node.getparent() is not None
-            and matcher.hit(node.text or "")
-        ):
+        if not isinstance(node.tag, str) and node.getparent() is not None and matcher.hit(node.text or ""):
             text = node.text or ""
             candidates.append(
                 {
@@ -319,11 +308,7 @@ def scrub_document(
         if tag == "img":
             src = img_el.get("src") or ""
         else:
-            src = (
-                img_el.get("{http://www.w3.org/1999/xlink}href")
-                or img_el.get("href")
-                or ""
-            )
+            src = img_el.get("{http://www.w3.org/1999/xlink}href") or img_el.get("href") or ""
 
         if not src:
             continue
@@ -333,9 +318,7 @@ def scrub_document(
         link_href = unquote(a_parent.get("href") or "") if is_linked else ""
         alt_text = img_el.get("alt") or img_el.get("title") or ""
 
-        block_parent = next(
-            (p for p in img_el.iterancestors() if _local(p) in BLOCK_TAGS), root
-        )
+        block_parent = next((p for p in img_el.iterancestors() if _local(p) in BLOCK_TAGS), root)
         surrounding_text = _norm("".join(block_parent.itertext()))
 
         img_ctx = {
@@ -355,14 +338,10 @@ def scrub_document(
         classification = classify_image_context(img_data, src, img_ctx)
 
         # Also trigger if user matcher pattern matches the image src or link href
-        if not classification.get("is_promo") and (
-            matcher.hit(src) or (is_linked and matcher.hit(link_href))
-        ):
+        if not classification.get("is_promo") and (matcher.hit(src) or (is_linked and matcher.hit(link_href))):
             classification["is_promo"] = True
             classification["category"] = "ad"
-            classification["reason"] = (
-                f"Image source or link matches promotional filter ({src})"
-            )
+            classification["reason"] = f"Image source or link matches promotional filter ({src})"
 
         cat = classification.get("category", "illustration")
         if image_stats_collector is not None:
@@ -385,18 +364,12 @@ def scrub_document(
 
     # 3. short blocks that are promotion from top to bottom, innermost first
     for el in [e for e in body.iter() if _local(e) in LEAF_BLOCKS]:
-        if el.getparent() is None or any(
-            _local(d) in BLOCK_TAGS for d in el.iterdescendants()
-        ):
+        if el.getparent() is None or any(_local(d) in BLOCK_TAGS for d in el.iterdescendants()):
             continue
         text = _norm("".join(el.itertext()))
-        hrefs = " ".join(
-            unquote(d.get("href") or "") for d in el.iter() if _local(d) == "a"
-        )
+        hrefs = " ".join(unquote(d.get("href") or "") for d in el.iter() if _local(d) == "a")
         if (
-            matcher.promo_block(text)
-            or matcher.promo_block(hrefs)
-            and len(text) <= MAX_BLOCK_CHARS
+            matcher.promo_block(text) or matcher.promo_block(hrefs) and len(text) <= MAX_BLOCK_CHARS
         ) and not _has_media(el):
             candidates.append(
                 {
@@ -498,8 +471,7 @@ def scrub_document(
                     and parent is not body
                     and parent.getparent() is not None
                     and _is_empty(parent)
-                    and _local(parent)
-                    in BLOCK_TAGS | {"span", "p", "div", "center", "figure"}
+                    and _local(parent) in BLOCK_TAGS | {"span", "p", "div", "center", "figure"}
                 ):
                     grand = parent.getparent()
                     _remove(parent)
@@ -525,12 +497,7 @@ def scrub_document(
             a = cand["node"]
             if a.getparent() is not None:
                 text = cand["original_text"]
-                if (
-                    not text
-                    or matcher.hit(text)
-                    or URLISH.fullmatch(text)
-                    or len(text) <= 3
-                ):
+                if not text or matcher.hit(text) or URLISH.fullmatch(text) or len(text) <= 3:
                     if _has_media(a):
                         del a.attrib["href"]
                     else:
@@ -559,9 +526,7 @@ def _parse(data):
 def _serialize(root, original):
     declaration = original.lstrip().startswith(b"<?xml")
     doctype = etree.ElementTree(_parse(original)).docinfo.doctype
-    body = etree.tostring(
-        root, encoding="utf-8", xml_declaration=declaration, doctype=doctype or None
-    )
+    body = etree.tostring(root, encoding="utf-8", xml_declaration=declaration, doctype=doctype or None)
     return body
 
 
@@ -578,16 +543,10 @@ def _opf_path(zf):
 
 def _resolve(base, href):
     href = unquote(urldefrag(href)[0])
-    return (
-        posixpath.normpath(posixpath.join(posixpath.dirname(base), href))
-        if href
-        else base
-    )
+    return posixpath.normpath(posixpath.join(posixpath.dirname(base), href)) if href else base
 
 
-def _scrub_metadata(
-    opf_root, matcher, changes, opf_name="", allowed_change_ids=None, dry_run=False
-):
+def _scrub_metadata(opf_root, matcher, changes, opf_name="", allowed_change_ids=None, dry_run=False):
     metadata = next((e for e in opf_root.iter() if _local(e) == "metadata"), None)
     if metadata is None:
         return
@@ -600,9 +559,7 @@ def _scrub_metadata(
         content = el.get("content") or ""
         if not matcher.hit(text) and not matcher.hit(content):
             continue
-        if name in DC_SINGLE or (
-            name == "meta" and not el.get("refines") and not content.strip()
-        ):
+        if name in DC_SINGLE or (name == "meta" and not el.get("refines") and not content.strip()):
             action = "metadata removed"
             text_val = text or content
             snippet = f"{name}: {_snippet(text_val)}"
@@ -610,7 +567,9 @@ def _scrub_metadata(
         elif name == "meta":
             action = "metadata trimmed"
             snippet = f"meta: {_snippet(content)}"
-            detail = f"Metadata <meta> tag content trimmed:\nBefore: {content}\nAfter: {tidy(matcher.clean_text(content))}"
+            detail = (
+                f"Metadata <meta> tag content trimmed:\nBefore: {content}\nAfter: {tidy(matcher.clean_text(content))}"
+            )
         else:
             action = "metadata trimmed"
             snippet = f"{name}: {_snippet(text)}"
@@ -724,9 +683,7 @@ def get_document_diff_buffers(raw, matcher, file_name="", allowed_change_ids=Non
                 allowed_change_ids=allowed_change_ids,
                 dry_run=False,
             )
-            scrubbed_bytes = etree.tostring(
-                opf_root, encoding="utf-8", xml_declaration=True
-            )
+            scrubbed_bytes = etree.tostring(opf_root, encoding="utf-8", xml_declaration=True)
             scrub_str = scrubbed_bytes.decode("utf-8", "ignore")
         else:
             root_copy = _parse(raw_bytes)
@@ -767,10 +724,7 @@ def scrub_epub(
     except zipfile.BadZipFile as exc:
         raise ValueError("Not a valid EPUB (ZIP) file") from exc
     with zf:
-        if (
-            "mimetype" not in zf.namelist()
-            or zf.read("mimetype").strip() != b"application/epub+zip"
-        ):
+        if "mimetype" not in zf.namelist() or zf.read("mimetype").strip() != b"application/epub+zip":
             raise ValueError("Not a valid EPUB: missing mimetype entry")
         if sum(i.file_size for i in zf.infolist()) > MAX_TOTAL_BYTES:
             raise ValueError("EPUB is too large to process safely")
@@ -826,11 +780,7 @@ def scrub_epub(
                 if _local(itemref) == "itemref":
                     idref = itemref.get("idref")
                     for item in opf_root.iter():
-                        if (
-                            _local(item) == "item"
-                            and item.get("id") == idref
-                            and item.get("href")
-                        ):
+                        if _local(item) == "item" and item.get("id") == idref and item.get("href"):
                             spine_items.append(_resolve(opf_name, item.get("href")))
 
         # Pre-count image frequency across XHTML docs
@@ -868,13 +818,8 @@ def scrub_epub(
             def resolver(page_file, img_src):
                 full_img_path = _resolve(page_file, img_src)
                 freq = image_frequencies.get(full_img_path, 1)
-                is_cover = (
-                    full_img_path in cover_image_paths
-                    or "cover" in full_img_path.lower()
-                )
-                spine_idx = (
-                    spine_items.index(page_file) if page_file in spine_items else None
-                )
+                is_cover = full_img_path in cover_image_paths or "cover" in full_img_path.lower()
+                spine_idx = spine_items.index(page_file) if page_file in spine_items else None
                 img_data = None
                 try:
                     if full_img_path in zf.namelist():
@@ -922,9 +867,7 @@ def scrub_epub(
                 root = _parse(raw)
             except etree.XMLSyntaxError:
                 if matcher.hit(raw.decode("utf-8", "ignore")):
-                    report["skipped"].append(
-                        f"{name}: not well-formed XML, left unchanged but mentions a blocked site"
-                    )
+                    report["skipped"].append(f"{name}: not well-formed XML, left unchanged but mentions a blocked site")
                 continue
 
             found = scrub_document(
@@ -942,20 +885,13 @@ def scrub_epub(
             trees[name] = (root, raw)
             if dry_run:
                 try:
-                    buf = get_document_diff_buffers(
-                        raw, matcher, name, allowed_change_ids=allowed_change_ids
-                    )
+                    buf = get_document_diff_buffers(raw, matcher, name, allowed_change_ids=allowed_change_ids)
                     report["xhtml_buffers"][name] = buf
                     report["buffers"][name] = buf
                 except Exception:
                     pass
             body = next((e for e in root.iter() if _local(e) == "body"), None)
-            if (
-                p_drop
-                and body is not None
-                and name not in nav_names
-                and _is_empty(body)
-            ):
+            if p_drop and body is not None and name not in nav_names and _is_empty(body):
                 change_id = f"{name}:page dropped:0"
                 cand_item = {
                     "file": name,
@@ -976,9 +912,7 @@ def scrub_epub(
         if dropped:
             for name in nav_names | ncx_names:
                 if name not in dropped:
-                    extra_docs[name] = (
-                        trees[name][0] if name in trees else _parse(zf.read(name))
-                    )
+                    extra_docs[name] = trees[name][0] if name in trees else _parse(zf.read(name))
             for name, (root, raw) in trees.items():
                 if name not in dropped and name not in extra_docs:
                     extra_docs[name] = root
@@ -987,10 +921,7 @@ def scrub_epub(
         remaining_docs = [
             n
             for n in zf.namelist()
-            if (
-                manifest.get(n) in DOC_TYPES
-                or n.lower().endswith((".xhtml", ".html", ".htm", ".css"))
-            )
+            if (manifest.get(n) in DOC_TYPES or n.lower().endswith((".xhtml", ".html", ".htm", ".css")))
             and n not in dropped
         ]
         remaining_referenced_images = set()
@@ -1004,9 +935,7 @@ def scrub_epub(
                         if s:
                             remaining_referenced_images.add(_resolve(doc_name, s))
                     elif t == "image":
-                        s = el.get("{http://www.w3.org/1999/xlink}href") or el.get(
-                            "href"
-                        )
+                        s = el.get("{http://www.w3.org/1999/xlink}href") or el.get("href")
                         if s:
                             remaining_referenced_images.add(_resolve(doc_name, s))
             else:
@@ -1048,10 +977,7 @@ def scrub_epub(
 
         if not dry_run and orphaned_images and opf_root is not None:
             for item in list(opf_root.iter()):
-                if (
-                    _local(item) == "item"
-                    and _resolve(opf_name, item.get("href", "")) in orphaned_images
-                ):
+                if _local(item) == "item" and _resolve(opf_name, item.get("href", "")) in orphaned_images:
                     _remove(item)
 
         meta_changes = []
@@ -1081,9 +1007,7 @@ def scrub_epub(
                 _drop_references(dropped, opf_name, opf_root, extra_docs, meta_changes)
         report["changes"] += meta_changes
         report["dropped_pages"] = sorted(dropped)
-        comment_hit = bool(
-            zf.comment and matcher.hit(zf.comment.decode("utf-8", "ignore"))
-        )
+        comment_hit = bool(zf.comment and matcher.hit(zf.comment.decode("utf-8", "ignore")))
         if comment_hit:
             change_id = "(zip):archive comment removed:0"
             cand_item = {
@@ -1107,14 +1031,10 @@ def scrub_epub(
                 continue
             replacements[name] = _serialize(root, raw)
         if (meta_changes or dropped or orphaned_images) and opf_root is not None:
-            replacements[opf_name] = etree.tostring(
-                opf_root, encoding="utf-8", xml_declaration=True
-            )
+            replacements[opf_name] = etree.tostring(opf_root, encoding="utf-8", xml_declaration=True)
         for name, root in extra_docs.items():
             if name not in trees and name != opf_name and (meta_changes or dropped):
-                replacements[name] = etree.tostring(
-                    root, encoding="utf-8", xml_declaration=True
-                )
+                replacements[name] = etree.tostring(root, encoding="utf-8", xml_declaration=True)
         out = io.BytesIO()
         with zipfile.ZipFile(out, "w") as new:
             for info in zf.infolist():
@@ -1124,19 +1044,11 @@ def scrub_epub(
                 if payload is None:
                     payload = zf.read(info.filename)
                 clone = zipfile.ZipInfo(info.filename, info.date_time)
-                clone.compress_type = (
-                    zipfile.ZIP_STORED
-                    if info.filename == "mimetype"
-                    else zipfile.ZIP_DEFLATED
-                )
+                clone.compress_type = zipfile.ZIP_STORED if info.filename == "mimetype" else zipfile.ZIP_DEFLATED
                 clone.external_attr = info.external_attr
                 new.writestr(clone, payload)
             if zf.comment and not (
-                comment_hit
-                and (
-                    allowed_change_ids is None
-                    or "(zip):archive comment removed:0" in allowed_change_ids
-                )
+                comment_hit and (allowed_change_ids is None or "(zip):archive comment removed:0" in allowed_change_ids)
             ):
                 new.comment = zf.comment
         return out.getvalue(), report
@@ -1162,12 +1074,11 @@ def scrub_files(
     if in_place:
         output = source if source.is_dir() else source.parent
     elif output is None:
-        raise ValueError(
-            "An output folder is required unless replacing originals in place"
-        )
+        raise ValueError("An output folder is required unless replacing originals in place")
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     paths = [source] if source.is_file() else sorted(source.rglob("*.epub"))
+    paths = [p for p in paths if not p.name.endswith(".original.epub")]
     rows = []
     for path in paths:
         row = {"input": str(path)}
@@ -1184,10 +1095,13 @@ def scrub_files(
             if data is None:
                 row["status"] = "unchanged"
             elif in_place:
+                sidecar = path.with_name(path.stem + ".original.epub")
+                if not sidecar.exists():
+                    shutil.copy2(path, sidecar)
                 tmp = path.with_name(path.name + ".scrub-tmp")
                 tmp.write_bytes(data)
                 os.replace(tmp, path)
-                row.update(status="replaced", output=str(path))
+                row.update(status="replaced", output=str(path), sidecar=str(sidecar))
             else:
                 target = output / path.name
                 if target.resolve() == path.resolve():
@@ -1198,7 +1112,98 @@ def scrub_files(
             row.update(status="error", error=str(exc))
         rows.append(row)
     report_path = output / "scrub-report.json"
-    report_path.write_text(
-        json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    report_path.write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
     return rows, report_path
+
+
+def parse_opf_metadata(epub_data):
+    """
+    Extracts pre-scrubbed core metadata fields (title, publisher, comments/description)
+    from an EPUB or ORIGINAL_EPUB ZIP package.
+    """
+    if isinstance(epub_data, (str, Path)):
+        epub_data = Path(epub_data).read_bytes()
+    elif hasattr(epub_data, "read"):
+        epub_data = epub_data.read()
+
+    meta = {"title": None, "publisher": None, "comments": None}
+    if not epub_data or not zipfile.is_zipfile(io.BytesIO(epub_data)):
+        return meta
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(epub_data)) as zf:
+            opf_path = _opf_path(zf)
+            if not opf_path or opf_path not in zf.namelist():
+                return meta
+            opf_bytes = zf.read(opf_path)
+            root = _parse(opf_bytes)
+            if root is None:
+                return meta
+            for el in root.iter():
+                name = _local(el)
+                if name == "title" and meta["title"] is None and el.text:
+                    meta["title"] = el.text.strip()
+                elif name == "publisher" and meta["publisher"] is None and el.text:
+                    meta["publisher"] = el.text.strip()
+                elif name in ("description", "comments") and meta["comments"] is None:
+                    desc_text = "".join(el.itertext()).strip() if el is not None else ""
+                    if desc_text:
+                        meta["comments"] = desc_text
+    except Exception:
+        pass
+    return meta
+
+
+def restore_files(source, remove_sidecars=True):
+    """
+    Scans a folder or file path for .original.epub sidecar files,
+    verifies archive integrity, restores original EPUB files,
+    and optionally removes sidecar files upon completion.
+    """
+    source = Path(source)
+    if source.is_file():
+        if source.name.endswith(".original.epub"):
+            sidecars = [source]
+        else:
+            cand = source.with_name(source.stem + ".original.epub")
+            sidecars = [cand] if cand.is_file() else []
+    else:
+        sidecars = sorted(source.rglob("*.original.epub"))
+
+    rows = []
+    for sidecar in sidecars:
+        row = {"sidecar": str(sidecar)}
+        target_name = sidecar.name[: -len(".original.epub")] + ".epub"
+        target = sidecar.parent / target_name
+        row["target"] = str(target)
+        try:
+            if not sidecar.exists() or sidecar.stat().st_size == 0:
+                raise ValueError("Sidecar file is empty or missing")
+            if not zipfile.is_zipfile(sidecar):
+                raise ValueError("Sidecar file is not a valid ZIP archive")
+            with zipfile.ZipFile(sidecar, "r") as zf:
+                if zf.testzip() is not None:
+                    raise ValueError("Corrupt ZIP archive")
+            tmp = target.with_name(target.name + ".restore-tmp")
+            shutil.copy2(sidecar, tmp)
+            os.replace(tmp, target)
+            if remove_sidecars:
+                sidecar.unlink()
+            row["status"] = "restored"
+        except Exception as exc:
+            tmp = target.with_name(target.name + ".restore-tmp")
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except Exception:
+                    pass
+            row.update(status="error", error=str(exc))
+        rows.append(row)
+
+    output_dir = source if source.is_dir() else source.parent
+    report_path = output_dir / "restore-report.json"
+    report_path.write_text(json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
+    return rows, report_path
+
+
+restore_folder = restore_files

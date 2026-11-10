@@ -129,6 +129,26 @@ def _report_progress(progress_cb, completed, total):
         pass
 
 
+def make_thread_fetcher(fetcher=None):
+    if fetcher is None:
+        return Fetcher()
+    try:
+        tf = copy.copy(fetcher)
+        tf._lock = threading.Lock()
+        tf._last = 0.0
+        return tf
+    except Exception:
+        kwargs = {}
+        for attr in ('min_interval', 'cancelled', 'opener'):
+            val = getattr(fetcher, attr, None)
+            if val is not None:
+                kwargs[attr] = val
+        return Fetcher(**kwargs)
+
+
+_make_thread_fetcher = make_thread_fetcher
+
+
 def search_tags(fetcher, tag_ids, progress=None, max_workers=5):
     """Stories carrying each tag; returns {tag_id: [rows]}."""
     tag_ids = list(dict.fromkeys(tag_ids))
@@ -146,10 +166,16 @@ def search_tags(fetcher, tag_ids, progress=None, max_workers=5):
     def make_thread_fetcher():
         try:
             tf = copy.copy(fetcher)
+            tf._lock = threading.Lock()
             tf._last = 0.0
             return tf
         except Exception:
-            return fetcher
+            kwargs = {}
+            for attr in ('min_interval', 'cancelled', 'opener'):
+                val = getattr(fetcher, attr, None)
+                if val is not None:
+                    kwargs[attr] = val
+            return Fetcher(**kwargs)
 
     results = {}
     completed_count = 0
