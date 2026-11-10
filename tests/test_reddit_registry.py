@@ -60,8 +60,8 @@ class SQLiteRegistryTests(unittest.TestCase):
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
             tables = {row["name"] for row in cursor.fetchall()}
-        expected = {"series", "feed_sources", "authors", "chapters", "manifests"}
-        self.assertTrue(expected.issubset(tables), f"Missing tables. Found: {tables}")
+            expected = {"series", "feed_sources", "authors", "chapters", "manifests"}
+            self.assertTrue(expected.issubset(tables), f"Missing tables. Found: {tables}")
 
     def test_crud_multi_source_series(self):
         s_dict = {

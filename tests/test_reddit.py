@@ -816,10 +816,7 @@ class IndexTests(unittest.TestCase):
     def test_real_sheet_rows_keep_seq_ref_era_suffix_and_iso_dates(self):
         rows = core.parse_index(self.REAL_CSV, "KyleKKent")
         self.assertEqual(len(rows), 8, "the ISO-dated row (IAWG 726) is kept, not dropped")
-        self.assertEqual(
-            (rows[0]["seq"], rows[0]["ref"], rows[0]["era"], rows[0]["suffix"]),
-            (1, "OOCS 001", "", ""),
-        )
+        self.assertEqual((rows[0]["seq"], rows[0]["ref"], rows[0]["era"], rows[0]["suffix"]), (1, "OOCS 001", "", ""))
         self.assertEqual(
             (rows[2]["seq"], rows[2]["ref"], rows[2]["era"]),
             (1529, "IAWG 001", "into a wider galaxy"),
@@ -828,10 +825,7 @@ class IndexTests(unittest.TestCase):
         self.assertEqual((rows[3]["suffix"], rows[3]["ref"]), ("Plot", "IAWG 030-P"))
         self.assertEqual((rows[5]["suffix"], rows[6]["suffix"]), ("-A [NSFW]", "-B SFW"))
         self.assertEqual((rows[7]["n"], rows[7]["ref"]), (726, "IAWG 726"))
-        self.assertAlmostEqual(
-            rows[7]["ts"],
-            core.datetime(2026, 7, 19, 18, 44, tzinfo=core.timezone.utc).timestamp(),
-        )
+        self.assertAlmostEqual(rows[7]["ts"], core.datetime(2026, 7, 19, 18, 44, tzinfo=core.timezone.utc).timestamp())
 
     def test_suffixed_and_restarted_chapters_match_their_own_posts(self):
         rows = core.parse_index(self.REAL_CSV, "KyleKKent")
@@ -1037,11 +1031,7 @@ class DiscoveryTests(unittest.TestCase):
         kyle = [g for g in groups if g["author"] == "KyleKKent"]
         merged = [g for g in kyle if g["name"] == "Out of Cruel Space"]
         self.assertEqual(len(merged), 1, "the two title eras are one group, not two series")
-        self.assertEqual(
-            len(merged[0]["posts"]),
-            6,
-            "both eras' parts are in it; the side story stays its own group",
-        )
+        self.assertEqual(len(merged[0]["posts"]), 6, "both eras' parts are in it; the side story stays its own group")
         self.assertTrue(merged[0]["is_series"])
         follow = core.series_follow(merged[0])
         preset = core.PRESETS[0]
@@ -1053,13 +1043,7 @@ class DiscoveryTests(unittest.TestCase):
                 follow["index_url"],
                 follow["title_from_body"],
             ),
-            (
-                preset["name"],
-                preset["title_filter"],
-                preset["author_filter"],
-                preset["index_url"],
-                True,
-            ),
+            (preset["name"], preset["title_filter"], preset["author_filter"], preset["index_url"], True),
             "following the discovered group brings the preset: both eras matched, chapter index attached",
         )
         for title, want in (
@@ -1068,9 +1052,7 @@ class DiscoveryTests(unittest.TestCase):
             ("Out of Cruel Space Side Story: Of Dog, Volpir, and Man", False),
         ):
             self.assertEqual(
-                core.matches({"title": title, "author": "KyleKKent", "html": "<p>x</p>"}, follow),
-                want,
-                title,
+                core.matches({"title": title, "author": "KyleKKent", "html": "<p>x</p>"}, follow), want, title
             )
 
     def test_following_either_era_of_a_retitled_series_counts_as_following_it(self):
@@ -2334,7 +2316,10 @@ def ensure_qt():
     try:
         from qt.core import QApplication
 
-        inst = QApplication.instance()
+        if hasattr(QApplication, "instance") and callable(QApplication.instance):
+            inst = QApplication.instance()
+        else:
+            inst = None
         if not inst:
             _GLOBAL_QT_APP = QApplication([])
         else:
@@ -2354,7 +2339,11 @@ def ensure_qt():
             for module in (QtWidgets, QtGui, QtCore):
                 for name in dir(module):
                     setattr(qtcore, name, getattr(module, name))
-            qtcore._ = lambda s: s
+
+            def _(s):
+                return s
+
+            qtcore._ = _
             sys.modules["qt"] = types.ModuleType("qt")
             sys.modules["qt.core"] = qtcore
         except ImportError:
@@ -2376,6 +2365,8 @@ def ensure_qt():
                 def __init__(self, *args, **kwargs):
                     self._visible = True
                     self._text = args[0] if args and isinstance(args[0], str) else ""
+                    self._children = []
+                    self._row_count = 0
                     self.textChanged = MockSignal()
                     self.accepted = MockSignal()
                     self.rejected = MockSignal()
@@ -2396,13 +2387,24 @@ def ensure_qt():
                     pass
 
                 def addWidget(self, w, *a):
-                    pass
+                    self._children.append(w)
 
-                def addLayout(self, layout, *a):
-                    pass
+                def addLayout(self, layout_item, *a):
+                    self._children.append(layout_item)
 
                 def addRow(self, *a):
-                    pass
+                    for item in a:
+                        if isinstance(item, (MockWidget, str)):
+                            self._children.append(item)
+
+                def findChildren(self, typ, *a, **k):
+                    res = []
+                    for c in self._children:
+                        if isinstance(c, typ):
+                            res.append(c)
+                        if hasattr(c, "findChildren"):
+                            res.extend(c.findChildren(typ))
+                    return res
 
                 def setVisible(self, v):
                     self._visible = bool(v)
@@ -2444,8 +2446,11 @@ def ensure_qt():
                 def setStretchLastSection(self, *a):
                     pass
 
-                def setRowCount(self, *a):
-                    pass
+                def setRowCount(self, count, *a):
+                    self._row_count = count
+
+                def rowCount(self):
+                    return self._row_count
 
                 def setItem(self, *a):
                     pass
@@ -2478,19 +2483,31 @@ def ensure_qt():
             qtcore = types.ModuleType("qt.core")
             for name in [
                 "QAbstractItemView",
+                "QApplication",
                 "QDialog",
                 "QDialogButtonBox",
                 "QDoubleSpinBox",
+                "QEvent",
                 "QFormLayout",
+                "QFrame",
                 "QHBoxLayout",
+                "QHeaderView",
                 "QLineEdit",
                 "QMessageBox",
+                "QObject",
+                "QPalette",
+                "QPlainTextEdit",
                 "QPushButton",
+                "QProgressDialog",
                 "QRadioButton",
                 "QSpinBox",
+                "QSplitter",
                 "QTableWidget",
                 "QTableWidgetItem",
+                "QTreeWidget",
+                "QTreeWidgetItem",
                 "QVBoxLayout",
+                "QWidget",
             ]:
                 setattr(qtcore, name, MockWidget)
             qtcore.QCheckBox = MockCheckBox
@@ -2591,6 +2608,54 @@ class FollowDialogWarningTests(unittest.TestCase):
         dialog3.show()
         dialog3.author_note.setChecked(True)
         self.assertFalse(dialog3.author_note_warning.isVisible())
+
+    def test_single_sources_table_and_buttons(self):
+        self.rui.prefs["mode"] = "rss"
+        self.rui.prefs["client_id"] = ""
+        dialog = self.rui.FollowDialog(None)
+        dialog.show()
+
+        # FollowDialog must contain exactly one QTableWidget (sources_table)
+        tables = dialog.findChildren(self.rui.QTableWidget)
+        self.assertEqual(len(tables), 1)
+        self.assertIs(dialog.sources_table, tables[0])
+
+        # Exactly one pair of Add/Remove feed source buttons
+        buttons = dialog.findChildren(self.rui.QPushButton)
+        add_source_buttons = [b for b in buttons if "Add feed source" in b.text()]
+        rem_source_buttons = [b for b in buttons if "Remove feed source" in b.text()]
+        self.assertEqual(len(add_source_buttons), 1)
+        self.assertEqual(len(rem_source_buttons), 1)
+
+        # Editing an existing follow with multiple sources must populate the single table correctly
+        sample_follow = {
+            "id": "series_multi_source",
+            "name": "Sample Series",
+            "source": {"kind": "subreddit", "subreddit": "HFY"},
+            "sources": [
+                {
+                    "kind": "subreddit",
+                    "subreddit": "HFY",
+                    "title_filter": "Part 1",
+                    "author_filter": "",
+                    "flair_filter": "",
+                },
+                {
+                    "kind": "user",
+                    "user": "AuthorA",
+                    "title_filter": "",
+                    "author_filter": "",
+                    "flair_filter": "",
+                },
+            ],
+            "title_from_body": False,
+            "author_note": False,
+        }
+        edit_dialog = self.rui.FollowDialog(None, follow=sample_follow)
+        edit_tables = edit_dialog.findChildren(self.rui.QTableWidget)
+        self.assertEqual(len(edit_tables), 1)
+        self.assertIs(edit_dialog.sources_table, edit_tables[0])
+        self.assertEqual(edit_dialog.sources_table.rowCount(), 2)
 
 
 if __name__ == "__main__":

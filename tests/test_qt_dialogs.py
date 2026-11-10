@@ -26,9 +26,11 @@ try:
     from PyQt6 import QtCore, QtGui, QtWidgets
 
     HAVE_QT = True
+    _ORIGINAL_QDIALOG_EXEC = QtWidgets.QDialog.__dict__.get("exec")
 except ImportError:  # also raised when system libraries such as libEGL are missing
     HAVE_QT = False
     QtCore = QtGui = QtWidgets = None
+    _ORIGINAL_QDIALOG_EXEC = None
 import build_plugins  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "tests"))
@@ -108,6 +110,8 @@ class QtCase(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        if _ORIGINAL_QDIALOG_EXEC is not None and QtWidgets.QDialog.__dict__.get("exec") is not _ORIGINAL_QDIALOG_EXEC:
+            setattr(QtWidgets.QDialog, "exec", _ORIGINAL_QDIALOG_EXEC)
         cls.tmp.cleanup()
 
     def setUp(self):
@@ -122,16 +126,10 @@ class QtCase(unittest.TestCase):
             sys.modules[name] = MagicMock()
         actions = types.ModuleType("calibre.gui2.actions")
         actions.InterfaceAction = type(
-            "InterfaceAction",
-            (object,),
-            {"__init__": lambda self, gui, name: setattr(self, "gui", gui)},
+            "InterfaceAction", (object,), {"__init__": lambda self, gui=None, name=None: setattr(self, "gui", gui)}
         )
         sys.modules["calibre.gui2.actions"] = actions
-        for name in (
-            "calibre.ebooks",
-            "calibre.ebooks.metadata",
-            "calibre.ebooks.metadata.book",
-        ):
+        for name in ("calibre.ebooks", "calibre.ebooks.metadata", "calibre.ebooks.metadata.book"):
             sys.modules[name] = MagicMock()
         base = types.ModuleType("calibre.ebooks.metadata.book.base")
         base.Metadata = StubMetadata
@@ -148,6 +146,13 @@ class QtCase(unittest.TestCase):
         for key in [k for k in sys.modules if k.startswith(("calibre", "qt", "calibre_plugins"))]:
             del sys.modules[key]
         sys.modules.update(self.saved)
+        if hasattr(self, "app") and self.app is not None:
+            for widget in list(QtWidgets.QApplication.topLevelWidgets()):
+                widget.close()
+                widget.deleteLater()
+            self.app.processEvents()
+        if _ORIGINAL_QDIALOG_EXEC is not None and QtWidgets.QDialog.__dict__.get("exec") is not _ORIGINAL_QDIALOG_EXEC:
+            setattr(QtWidgets.QDialog, "exec", _ORIGINAL_QDIALOG_EXEC)
 
     def load(self, import_name):
         prefix = f"calibre_plugins.{import_name}"
@@ -170,10 +175,7 @@ class TaskAndTagSearchTests(QtCase):
         guikit = importlib.import_module(self.load("metabods_downloader") + ".guikit")
         task = guikit.run_task(None, "Working…", lambda t: (time.sleep(0.3), ["done"])[1])
         self.assertEqual(task.result, ["done"])
-        self.assertFalse(
-            task.cancelled(),
-            "a run nobody cancelled must not look cancelled afterwards",
-        )
+        self.assertFalse(task.cancelled(), "a run nobody cancelled must not look cancelled afterwards")
 
     def test_pressing_cancel_is_still_reported(self):
         guikit = importlib.import_module(self.load("metabods_downloader") + ".guikit")
@@ -220,7 +222,11 @@ class TaskAndTagSearchTests(QtCase):
 
             def accept_options_dialog():
                 for widget in QtWidgets.QApplication.topLevelWidgets():
-                    if isinstance(widget, QtWidgets.QDialog) and not isinstance(widget, QtWidgets.QProgressDialog):
+                    if (
+                        isinstance(widget, QtWidgets.QDialog)
+                        and not isinstance(widget, QtWidgets.QProgressDialog)
+                        and widget.windowTitle() == "Takeout recovery options"
+                    ):
                         widget.accept()
                         return
                 QtCore.QTimer.singleShot(10, accept_options_dialog)
@@ -286,11 +292,7 @@ class TaskAndTagSearchTests(QtCase):
         titles = [dialog.result_list.item(i).text() for i in range(dialog.result_list.count())]
         self.assertEqual(len(titles), 3, titles)
         self.assertTrue(any("Story Three" in t and "already in library" in t for t in titles))
-        self.assertEqual(
-            dialog.selected_ids(),
-            ["one", "two"],
-            "stories already in the library start unchecked",
-        )
+        self.assertEqual(dialog.selected_ids(), ["one", "two"], "stories already in the library start unchecked")
         self.assertIn("3 stories found", dialog.summary.text())
 
         dialog.mode.setCurrentIndex(1)  # all checked tags: only the story in both lists
@@ -345,20 +347,17 @@ class OtherDialogTests(QtCase):
         ui = importlib.import_module(package + ".ui")
         dialog = ui.BrowseDialog(None, existing_ids={"gay/college/my-story"})
         self.assertEqual(
-            [dialog.category.itemData(i) for i in range(dialog.category.count())],
-            ["gay/college", "gay/camping"],
+            [dialog.category.itemData(i) for i in range(dialog.category.count())], ["gay/college", "gay/camping"]
         )
         dialog.load_stories()
         self.assertEqual(dialog.story_list.count(), 2)
         texts = [dialog.story_list.item(i).text() for i in range(dialog.story_list.count())]
         self.assertTrue(
-            any("my-story".replace("-", " ").title() in t and "already in library" in t for t in texts),
-            texts,
+            any("my-story".replace("-", " ").title() in t and "already in library" in t for t in texts), texts
         )
         dialog.set_shown(True)
         self.assertEqual(
-            sorted(r["id"] for r in dialog.selected_refs()),
-            ["gay/college/campus-rivals", "gay/college/my-story"],
+            sorted(r["id"] for r in dialog.selected_refs()), ["gay/college/campus-rivals", "gay/college/my-story"]
         )
         dialog.filter.setText("rivals")
         self.assertEqual(dialog.story_list.count(), 1)
@@ -370,16 +369,12 @@ class OtherDialogTests(QtCase):
         # Direct section loads '[All Stories]' as category and displays stories
         dialog.filter.setText("")
         dialog.section.setCurrentText("journal-entries")
-        self.assertEqual(
-            [dialog.category.itemData(i) for i in range(dialog.category.count())],
-            ["journal-entries"],
-        )
+        self.assertEqual([dialog.category.itemData(i) for i in range(dialog.category.count())], ["journal-entries"])
         self.assertEqual(dialog.category.itemText(0), "[All Stories]")
         dialog.load_stories()
         self.assertEqual(dialog.story_list.count(), 2)
         self.assertEqual(
-            sorted(r["id"] for r in dialog.refs),
-            ["journal-entries/campus-rivals", "journal-entries/my-story"],
+            sorted(r["id"] for r in dialog.refs), ["journal-entries/campus-rivals", "journal-entries/my-story"]
         )
 
     def test_nifty_link_dialog(self):
@@ -395,21 +390,9 @@ class OtherDialogTests(QtCase):
                 "id": "gay/college/saga",
                 "title": "Saga",
                 "chapters": [
-                    {
-                        "file": "gay/college/saga-1",
-                        "title": "Chapter 1",
-                        "enabled": True,
-                    },
-                    {
-                        "file": "gay/college/saga-2",
-                        "title": "Chapter 2",
-                        "enabled": True,
-                    },
-                    {
-                        "file": "gay/college/saga-10",
-                        "title": "Chapter 10",
-                        "enabled": True,
-                    },
+                    {"file": "gay/college/saga-1", "title": "Chapter 1", "enabled": True},
+                    {"file": "gay/college/saga-2", "title": "Chapter 2", "enabled": True},
+                    {"file": "gay/college/saga-10", "title": "Chapter 10", "enabled": True},
                 ],
             },
             {
@@ -518,12 +501,7 @@ class NiftyAuthorDialogTests(QtCase):
         out = []
         for i in range(dialog.tree.topLevelItemCount()):
             parent = dialog.tree.topLevelItem(i)
-            out.append(
-                (
-                    parent.text(0),
-                    [parent.child(j).text(0) for j in range(parent.childCount())],
-                )
-            )
+            out.append((parent.text(0), [parent.child(j).text(0) for j in range(parent.childCount())]))
         return out
 
     def test_authors_list_filter_and_section(self):
@@ -537,8 +515,7 @@ class NiftyAuthorDialogTests(QtCase):
         dialog.filter.setText("")
         dialog.section.setCurrentText("lesbian")
         self.assertEqual(
-            [dialog.author_list.item(i).text() for i in range(dialog.author_list.count())],
-            ["Writer One (1)"],
+            [dialog.author_list.item(i).text() for i in range(dialog.author_list.count())], ["Writer One (1)"]
         )
 
     def test_suggested_set_spans_folders_and_selection_matches(self):
@@ -564,11 +541,7 @@ class NiftyAuthorDialogTests(QtCase):
         selection = dialog.selection()
         self.assertEqual([i["title"] for i in selection], ["Texas Tails"])
         self.assertEqual(
-            selection[0]["addresses"],
-            [
-                core.SITE + "gay/college/texas-tails/",
-                core.SITE + "gay/highschool/jeremiah",
-            ],
+            selection[0]["addresses"], [core.SITE + "gay/college/texas-tails/", core.SITE + "gay/highschool/jeremiah"]
         )
 
         parent.child(1).setCheckState(0, QtCore.Qt.CheckState.Unchecked)
@@ -589,17 +562,13 @@ class NiftyAuthorDialogTests(QtCase):
         self.assertEqual([i["title"] for i in dialog.selection()], [None, None, None])
         dialog.how.setCurrentIndex(1)  # separate books grouped as a Calibre series
         series_items = dialog.selection()
-        self.assertEqual(
-            [(i["title"], i.get("series")) for i in series_items[:1]],
-            [(None, "Texas Tails")],
-        )
+        self.assertEqual([(i["title"], i.get("series")) for i in series_items[:1]], [(None, "Texas Tails")])
         dialog.how.setCurrentIndex(0)
         dialog.combine_all.setChecked(True)
         dialog.combine_title.setText("Everything by Writer")
         selection = dialog.selection()
         self.assertEqual(
-            (len(selection), selection[0]["title"], len(selection[0]["addresses"])),
-            (1, "Everything by Writer", 3),
+            (len(selection), selection[0]["title"], len(selection[0]["addresses"])), (1, "Everything by Writer", 3)
         )
 
     def test_scanning_contents_finds_a_set_the_titles_missed_and_keeps_ticks(self):
@@ -611,10 +580,7 @@ class NiftyAuthorDialogTests(QtCase):
 
         def names():
             return [
-                (
-                    dialog.tree.topLevelItem(i).text(0),
-                    dialog.tree.topLevelItem(i).childCount(),
-                )
+                (dialog.tree.topLevelItem(i).text(0), dialog.tree.topLevelItem(i).childCount())
                 for i in range(dialog.tree.topLevelItemCount())
             ]
 
@@ -625,11 +591,7 @@ class NiftyAuthorDialogTests(QtCase):
 
         dialog.scan_contents()
         after = names()
-        self.assertEqual(
-            after[0][1],
-            3,
-            "the text of Standalone says it continues Texas Tails, so it joins the set",
-        )
+        self.assertEqual(after[0][1], 3, "the text of Standalone says it continues Texas Tails, so it joins the set")
         self.assertEqual(len(after), 1, 'nothing is left over, so there is no "Other stories" group')
         parent = dialog.tree.topLevelItem(0)
         self.assertIn("Found in the stories", parent.toolTip(0))
@@ -643,13 +605,7 @@ class NiftyAuthorDialogTests(QtCase):
         self.assertIn("Standalone", ticked[0], "the story ticked before the scan is still ticked")
         self.assertEqual(
             sorted(dialog.texts),
-            sorted(
-                [
-                    "gay/college/texas-tails",
-                    "gay/highschool/jeremiah",
-                    "gay/camping/standalone",
-                ]
-            ),
+            sorted(["gay/college/texas-tails", "gay/highschool/jeremiah", "gay/camping/standalone"]),
         )
         self.assertIn("contents of 3 read", dialog.summary.text())
         # reading again finds nothing new to fetch
@@ -687,10 +643,7 @@ class FakeDb(BaseMockDb):
     def add_books(self, items, **kwargs):
         ids = []
         for mi, formats in items:
-            self.books[self.next_id] = {
-                "mi": mi,
-                "formats": {k: v.read() for k, v in formats.items()},
-            }
+            self.books[self.next_id] = {"mi": mi, "formats": {k: v.read() for k, v in formats.items()}}
             ids.append(self.next_id)
             self.next_id += 1
             self.writes += 1
@@ -711,11 +664,7 @@ def make_gui():
     gui.db = FakeDb()
     gui.current_db = MagicMock()
     gui.current_db.new_api = gui.db
-    gui.library_view, gui.tags_view, gui.status_bar = (
-        MagicMock(),
-        MagicMock(),
-        MagicMock(),
-    )
+    gui.library_view, gui.tags_view, gui.status_bar = MagicMock(), MagicMock(), MagicMock()
     return gui
 
 
@@ -727,7 +676,6 @@ class RedditPluginTests(QtCase):
         sys.modules["calibre.gui2.actions"].InterfaceAction = object
         self.package = self.load("reddit_follower")
         self.core = importlib.import_module(self.package + ".core")
-        self.addCleanup(setattr, self.core, "Fetcher", self.core.Fetcher)
         self.config = importlib.import_module(self.package + ".config")
         self.ui = importlib.import_module(self.package + ".ui")
         self.ui.QMessageBox = RecordingBox
@@ -777,18 +725,8 @@ class RedditPluginTests(QtCase):
         self.assertEqual(dialog.preset.count(), 1 + len(self.core.PRESETS))
         dialog.preset.setCurrentIndex(1)
         self.assertEqual(
-            (
-                dialog.name.text(),
-                dialog.source.text(),
-                dialog.title_filter.text(),
-                dialog.author_filter.text(),
-            ),
-            (
-                "Out of Cruel Space",
-                "u/KyleKKent",
-                self.core.PRESETS[0]["title_filter"],
-                "KyleKKent",
-            ),
+            (dialog.name.text(), dialog.source.text(), dialog.title_filter.text(), dialog.author_filter.text()),
+            ("Out of Cruel Space", "u/KyleKKent", self.core.PRESETS[0]["title_filter"], "KyleKKent"),
         )
         self.assertIn("Will follow u/KyleKKent", dialog.message.text())
         dialog.try_accept()
@@ -799,15 +737,8 @@ class RedditPluginTests(QtCase):
             ("Out of Cruel Space", "KyleKKent", "KyleKKent"),
         )
         self.assertFalse(follow["author_note"], "author comments are opt-in")
-        self.assertIn(
-            "docs.google.com/spreadsheets",
-            follow["index_url"],
-            "the preset brings the public chapter index",
-        )
-        self.assertTrue(
-            follow["title_from_body"],
-            "the preset names chapters from the title line each post opens with",
-        )
+        self.assertIn("docs.google.com/spreadsheets", follow["index_url"], "the preset brings the public chapter index")
+        self.assertTrue(follow["title_from_body"], "the preset names chapters from the title line each post opens with")
         bad = self.ui.FollowDialog(None)
         bad.source.setText("u/KyleKKent")
         bad.index_url.setText("https://example.com/nope")
@@ -816,12 +747,7 @@ class RedditPluginTests(QtCase):
         self.assertEqual(bad.result(), 0, "a bad index address does not close the dialog")
         self.assertTrue(
             self.core.matches(
-                {
-                    "title": "OOCS, Into A Wider Galaxy, Part 800",
-                    "author": "KyleKKent",
-                    "html": "<p>x</p>",
-                },
-                follow,
+                {"title": "OOCS, Into A Wider Galaxy, Part 800", "author": "KyleKKent", "html": "<p>x</p>"}, follow
             ),
             "the preset keeps following after the series was renamed",
         )
@@ -830,9 +756,7 @@ class RedditPluginTests(QtCase):
         edit = self.ui.FollowDialog(None, follow)
         self.assertFalse(hasattr(edit, "preset"), "editing an existing follow offers no presets")
 
-    def test_settings_dialog_requires_a_client_id_for_the_api_and_clamps_the_interval(
-        self,
-    ):
+    def test_settings_dialog_requires_a_client_id_for_the_api_and_clamps_the_interval(self):
         dialog = self.ui.SettingsDialog(None)
         dialog.api.setChecked(True)
         dialog.save()
@@ -843,10 +767,7 @@ class RedditPluginTests(QtCase):
         dialog.hours.setValue(0.1)
         dialog.save()
         prefs = self.config.prefs
-        self.assertEqual(
-            (prefs["mode"], prefs["client_id"], prefs["username"]),
-            ("api", "abc123", "Reader"),
-        )
+        self.assertEqual((prefs["mode"], prefs["client_id"], prefs["username"]), ("api", "abc123", "Reader"))
         self.assertGreaterEqual(prefs["check_hours"], 1.0, "never faster than hourly")
 
     def test_settings_dialog_logs_in_and_out_with_a_simulated_browser(self):
@@ -868,26 +789,32 @@ class RedditPluginTests(QtCase):
         self.assertFalse(dialog.logout_button.isEnabled())
         dialog.api.setChecked(True)
         dialog.client_id.setText("test-client-id")
-        dialog.login_endpoints = {
-            "token_url": base + "/token",
-            "base": base,
-            "revoke_url": base + "/revoke",
-        }
+        dialog.login_endpoints = {"token_url": base + "/token", "base": base, "revoke_url": base + "/revoke"}
         dialog.login_endpoints["redirect_uri"] = login.REDIRECT_URI
 
         def browser(url):
-            query = parse_qs(urlparse(url).query)
+            parsed = urlparse(url)
+            query = parse_qs(parsed.query)
             state = query["state"][0]
-            cb_url = query.get("redirect_uri", [login.REDIRECT_URI])[0]
-            threading.Thread(target=lambda: urllib.request.urlopen(f"{cb_url}?code=abc&state={state}").read()).start()
+            cb_base = query.get("redirect_uri", [login.REDIRECT_URI])[0]
+            target_url = f"{cb_base}?code=abc&state={state}"
+
+            def ping():
+                for _ in range(50):
+                    try:
+                        urllib.request.urlopen(target_url).read()
+                        return
+                    except Exception:
+                        time.sleep(0.05)
+
+            threading.Thread(target=ping, daemon=True).start()
 
         dialog.open_browser = browser
         dialog.log_in()
         self.assertEqual(RecordingBox.warnings, [])
         self.assertEqual(dialog.login_status.text(), "Logged in as u/Reader")
         self.assertEqual(
-            (self.config.prefs["refresh_token"], self.config.prefs["account_name"]),
-            ("refresh1", "Reader"),
+            (self.config.prefs["refresh_token"], self.config.prefs["account_name"]), ("refresh1", "Reader")
         )
         dialog.log_out()
         self.assertEqual(self.config.prefs["refresh_token"], "")
@@ -907,10 +834,7 @@ class RedditPluginTests(QtCase):
             ("each", "FICTION", "gayincest_stories"),
         )
         edit = self.ui.FollowDialog(None, made)
-        self.assertEqual(
-            (edit.layout_box.currentData(), edit.flair_filter.text()),
-            ("each", "FICTION"),
-        )
+        self.assertEqual((edit.layout_box.currentData(), edit.flair_filter.text()), ("each", "FICTION"))
 
         class FeedFake:
             posts = []
@@ -934,11 +858,7 @@ class RedditPluginTests(QtCase):
         action.check_now([follow])
         titles = sorted((b["mi"].title, b["mi"].series, b["mi"].series_index) for b in db.books.values())
         self.assertEqual(
-            titles,
-            [
-                ("Weekend away, Part 1", "Weekend away", 1.0),
-                ("Weekend away, Part 2", "Weekend away", 2.0),
-            ],
+            titles, [("Weekend away, Part 1", "Weekend away", 1.0), ("Weekend away, Part 2", "Weekend away", 2.0)]
         )
         self.assertTrue(all(b["formats"].get("EPUB") for b in db.books.values()))
         writes = db.writes
@@ -960,20 +880,8 @@ class RedditPluginTests(QtCase):
             def get(self, url, headers=None, **kwargs):
                 FeedFake.urls.append(url)
                 return feed(
-                    entry(
-                        "s3",
-                        "Saga of Ash 3",
-                        "<p>three</p>",
-                        author="/u/Writer",
-                        stamp="2026-10-03T10:00:00+00:00",
-                    ),
-                    entry(
-                        "s1",
-                        "Saga of Ash 1",
-                        "<p>one</p>",
-                        author="/u/Writer",
-                        stamp="2026-10-01T10:00:00+00:00",
-                    ),
+                    entry("s3", "Saga of Ash 3", "<p>three</p>", author="/u/Writer", stamp="2026-10-03T10:00:00+00:00"),
+                    entry("s1", "Saga of Ash 1", "<p>one</p>", author="/u/Writer", stamp="2026-10-01T10:00:00+00:00"),
                     entry(
                         "s2",
                         "[OC] Saga of Ash, Part 2",
@@ -981,13 +889,7 @@ class RedditPluginTests(QtCase):
                         author="/u/Writer",
                         stamp="2026-10-02T10:00:00+00:00",
                     ),
-                    entry(
-                        "x1",
-                        "A lone tale",
-                        "<p>alone</p>",
-                        author="/u/Other",
-                        stamp="2026-10-04T10:00:00+00:00",
-                    ),
+                    entry("x1", "A lone tale", "<p>alone</p>", author="/u/Other", stamp="2026-10-04T10:00:00+00:00"),
                 )
 
         core.Fetcher = FeedFake
@@ -1006,16 +908,10 @@ class RedditPluginTests(QtCase):
         self.assertTrue(any("/r/HFY/search.rss" in u and "q=saga" in u for u in FeedFake.urls))
         names = [dialog.table.item(r, 0).text() for r in range(dialog.table.rowCount())]
         self.assertEqual(
-            names,
-            ["Saga of Ash", "A lone tale  (single story)"],
-            "the series first, the lone story marked",
+            names, ["Saga of Ash", "A lone tale  (single story)"], "the series first, the lone story marked"
         )
         self.assertEqual(
-            (
-                dialog.table.item(0, 1).text(),
-                dialog.table.item(0, 2).text(),
-                dialog.table.item(0, 3).text(),
-            ),
+            (dialog.table.item(0, 1).text(), dialog.table.item(0, 2).text(), dialog.table.item(0, 3).text()),
             ("Writer", "3", "1\u20133"),
         )
         dialog.follow_selected()
@@ -1024,8 +920,7 @@ class RedditPluginTests(QtCase):
         dialog.follow_selected()
         chosen = dialog.chosen
         self.assertEqual(
-            (chosen["name"], chosen["source"]["user"], chosen["author_filter"]),
-            ("Saga of Ash", "Writer", "Writer"),
+            (chosen["name"], chosen["source"]["user"], chosen["author_filter"]), ("Saga of Ash", "Writer", "Writer")
         )
         self.assertTrue(
             any("/user/Writer/submitted.rss" in u for u in FeedFake.urls),
@@ -1136,11 +1031,7 @@ class RedditPluginTests(QtCase):
         action.discover()
         self.assertEqual([f["name"] for f in self.config.prefs["follows"]], ["Big Saga", "Mid Epic"])
         titles = sorted(b["mi"].title for b in action.gui.db.books.values())
-        self.assertEqual(
-            titles,
-            ["Big Saga", "Mid Epic"],
-            "one growing book per series, collected straight away",
-        )
+        self.assertEqual(titles, ["Big Saga", "Mid Epic"], "one growing book per series, collected straight away")
         # a second time there is nothing new to add
         AutoTop.exec = lambda self: (
             setattr(self, "groups", core.group_series(entries)),
@@ -1167,8 +1058,7 @@ class RedditPluginTests(QtCase):
             ],
         )
         self.assertFalse(
-            any("re:" in t or "\\" in t or "(?" in t for t in text),
-            "no regular expression is shown to the user",
+            any("re:" in t or "\\" in t or "(?" in t for t in text), "no regular expression is shown to the user"
         )
 
     def test_manage_dialog_lists_and_removes_follows_and_their_cache(self):
@@ -1198,10 +1088,7 @@ class RedditPluginTests(QtCase):
         act.core = self.core
         dialog = self.ui.ManageDialog(None, act)
         self.assertEqual(dialog.table.rowCount(), 1)
-        self.assertEqual(
-            [dialog.table.item(0, c).text() for c in (0, 2, 3)],
-            ["Series", "1", "never"],
-        )
+        self.assertEqual([dialog.table.item(0, c).text() for c in (0, 2, 3)], ["Series", "1", "never"])
         self.assertIn("u/writer", dialog.table.item(0, 1).text())
         self.assertIn("Chapter", dialog.table.item(0, 1).text())
         dialog.table.selectRow(0)
@@ -1222,10 +1109,7 @@ class RedditPluginTests(QtCase):
                 seen.append(url)
                 if FeedFake.limited:
                     raise core.RateLimited(url, 300)
-                return feed(
-                    entry("a1", "Chapter 1", "<p>One.</p>"),
-                    entry("a2", "Chapter 2", "<p>Two.</p>"),
-                )
+                return feed(entry("a1", "Chapter 1", "<p>One.</p>"), entry("a2", "Chapter 2", "<p>Two.</p>"))
 
             limited = False
 
@@ -1242,8 +1126,7 @@ class RedditPluginTests(QtCase):
         FeedFake.limited = True
         dialog.test_connection()
         self.assertTrue(
-            dialog.test_result.text().startswith("Problem: Reddit asked us to slow down"),
-            dialog.test_result.text(),
+            dialog.test_result.text().startswith("Problem: Reddit asked us to slow down"), dialog.test_result.text()
         )
         dialog.api.setChecked(True)  # no client id typed: the test says so instead of crashing
         dialog.test_connection()
@@ -1270,18 +1153,11 @@ class RedditPluginTests(QtCase):
         dialog = self.ui.ManageDialog(None, action)
         dialog.table.selectRow(0)
         dialog.test_selected()
-        title, text = (
-            action_module.info_dialog.call_args[0][1],
-            action_module.info_dialog.call_args[0][2],
-        )
+        title, text = action_module.info_dialog.call_args[0][1], action_module.info_dialog.call_args[0][2]
         self.assertIn("Out of Cruel Space", title)
         self.assertIn("3 post(s)", text)
         self.assertIn("2 match your filters", text)
-        self.assertEqual(
-            self.config.prefs["follows"][0]["last_checked"],
-            0.0,
-            "a test is not a check",
-        )
+        self.assertEqual(self.config.prefs["follows"][0]["last_checked"], 0.0, "a test is not a check")
         self.assertEqual(action.gui.db.books, {}, "a test never touches the library")
 
     def test_manage_dialog_export_opml_saves_file(self):
@@ -1294,11 +1170,7 @@ class RedditPluginTests(QtCase):
         self.addCleanup(lambda: shutil.rmtree(tmp_dir, ignore_errors=True))
         out_file = os.path.join(tmp_dir, "export.opml")
 
-        with patch.object(
-            self.ui.QFileDialog,
-            "getSaveFileName",
-            return_value=(out_file, "OPML Files (*.opml *.xml)"),
-        ):
+        with patch.object(self.ui.QFileDialog, "getSaveFileName", return_value=(out_file, "OPML Files (*.opml *.xml)")):
             dialog.export_opml()
 
         self.assertTrue(os.path.isfile(out_file))
@@ -1320,11 +1192,7 @@ class RedditPluginTests(QtCase):
         f2 = core.new_follow("New Author Series", "u/NewAuthor")
         core.export_opml([f1, f2], in_file)
 
-        with patch.object(
-            self.ui.QFileDialog,
-            "getOpenFileName",
-            return_value=(in_file, "OPML Files (*.opml *.xml)"),
-        ):
+        with patch.object(self.ui.QFileDialog, "getOpenFileName", return_value=(in_file, "OPML Files (*.opml *.xml)")):
             dialog.import_opml()
 
         self.assertEqual(len(self.config.prefs["follows"]), 2)
@@ -1340,11 +1208,7 @@ class RedditPluginTests(QtCase):
         with open(bad_file, "w", encoding="utf-8") as f:
             f.write("<html>Malformed XML</html>")
 
-        with patch.object(
-            self.ui.QFileDialog,
-            "getOpenFileName",
-            return_value=(bad_file, "OPML Files (*.opml *.xml)"),
-        ):
+        with patch.object(self.ui.QFileDialog, "getOpenFileName", return_value=(bad_file, "OPML Files (*.opml *.xml)")):
             with patch.object(self.ui, "show_friendly_error_dialog") as mock_err:
                 dialog.import_opml()
                 self.assertTrue(mock_err.called)
@@ -1395,17 +1259,9 @@ class RedditPluginTests(QtCase):
         mi = db.books[book_id]["mi"]
         self.assertEqual(
             (mi.title, mi.authors, mi.ids),
-            (
-                "Out of Cruel Space",
-                ["Writer"],
-                {"redditfollow": "reddit-" + follow["id"]},
-            ),
+            ("Out of Cruel Space", ["Writer"], {"redditfollow": "reddit-" + follow["id"]}),
         )
-        self.assertEqual(
-            len(epub_chapters(book_id)),
-            3,
-            "three matching chapters, the unrelated post left out",
-        )
+        self.assertEqual(len(epub_chapters(book_id)), 3, "three matching chapters, the unrelated post left out")
         self.assertEqual(self.config.prefs["follows"][0]["last_status"], "3 new chapter(s)")
         self.assertGreater(self.config.prefs["follows"][0]["last_checked"], 0)
 
@@ -1429,11 +1285,7 @@ class RedditPluginTests(QtCase):
         # Reddit says slow down: stop, remember, and leave the library alone
         FeedFake.limited = True
         action.check_now(list(self.config.prefs["follows"]))
-        self.assertGreater(
-            action.backoff_until,
-            time.time() + 14 * 60,
-            "at least a quarter of an hour of peace",
-        )
+        self.assertGreater(action.backoff_until, time.time() + 14 * 60, "at least a quarter of an hour of peace")
         self.assertIn("slow down", self.config.prefs["follows"][0]["last_status"])
         self.assertEqual(len(db.books), 1)
 
@@ -1683,22 +1535,8 @@ class GeminiDb(BaseMockDb):
                 tags=["Sci-Fi"],
                 languages=[],
             ),
-            2: dict(
-                title="Fine Book",
-                authors=["A B"],
-                series="",
-                series_index=1.0,
-                tags=[],
-                languages=["eng"],
-            ),
-            3: dict(
-                title="Cooking Today",
-                authors=["C D"],
-                series="",
-                series_index=1.0,
-                tags=[],
-                languages=["eng"],
-            ),
+            2: dict(title="Fine Book", authors=["A B"], series="", series_index=1.0, tags=[], languages=["eng"]),
+            3: dict(title="Cooking Today", authors=["C D"], series="", series_index=1.0, tags=[], languages=["eng"]),
         }
         super().__init__(books=books)
         self.cover_bytes = None
@@ -1732,12 +1570,7 @@ class GeminiDialogTests(QtCase):
                 "reason": "junk in title",
             },
             {"id": 2, "confidence": "high", "reason": "already fine"},
-            {
-                "id": 3,
-                "title": "Totally Different Novel",
-                "confidence": "high",
-                "reason": "guess",
-            },
+            {"id": 3, "title": "Totally Different Novel", "confidence": "high", "reason": "guess"},
         ]
         canned = json.dumps({"candidates": [{"content": {"parts": [{"text": json.dumps(answers)}]}}]}).encode()
         engine._post = lambda url, headers, body, timeout: (
@@ -1767,11 +1600,7 @@ class GeminiDialogTests(QtCase):
             seen["bar"] = (bar.value(), bar.maximum())
             seen["cancel_enabled_after"] = button("Cancel").isEnabled()
             seen["rows"] = [
-                (
-                    tree.topLevelItem(i).text(0),
-                    tree.topLevelItem(i).checkState(0),
-                    tree.topLevelItem(i).childCount(),
-                )
+                (tree.topLevelItem(i).text(0), tree.topLevelItem(i).checkState(0), tree.topLevelItem(i).childCount())
                 for i in range(tree.topLevelItemCount())
             ]
             self.assertTrue(button("Apply ticked changes").isEnabled())
@@ -1795,9 +1624,7 @@ class GeminiDialogTests(QtCase):
         self.assertIn("Sending 3 book(s) to Gemini", log)
         self.assertIn("→ Sending 3 book(s) to Gemini:", log)
         self.assertIn(
-            "✔ “dune messiah [epub]” [high]: title “dune messiah [epub]” → “Dune Messiah”",
-            log,
-            "each answer is shown",
+            "✔ “dune messiah [epub]” [high]: title “dune messiah [epub]” → “Dune Messiah”", log, "each answer is shown"
         )
         self.assertIn("– “Fine Book”: no change needed", log)
         self.assertIn("Done: 2 of 3 book(s) have suggested changes", log)
@@ -1810,9 +1637,7 @@ class GeminiDialogTests(QtCase):
         self.assertEqual(set(rows), {"dune messiah [epub]", "Cooking Today"})
         self.assertEqual(rows["dune messiah [epub]"], T.Checked, "a tidy-up starts ticked")
         self.assertEqual(
-            rows["Cooking Today"],
-            T.Unchecked,
-            "a very different title is a BIG CHANGE and starts unticked",
+            rows["Cooking Today"], T.Unchecked, "a very different title is a BIG CHANGE and starts unticked"
         )
         writes = dict(((n, tuple(m.items())) for n, m in seen["writes_after_apply"]))
         self.assertEqual(writes["title"], ((1, "Dune Messiah"),))
@@ -1822,8 +1647,7 @@ class GeminiDialogTests(QtCase):
         self.assertEqual(writes["tags"], ((1, ("Sci-Fi", "Science Fiction")),))
         self.assertEqual(writes["languages"], ((1, ("eng",)),))
         self.assertFalse(
-            any(list(m)[0] == 3 for _, m in seen["writes_after_apply"]),
-            "the unticked book must not be written",
+            any(list(m)[0] == 3 for _, m in seen["writes_after_apply"]), "the unticked book must not be written"
         )
         self.assertEqual(seen["undo"]["1"]["title"], "dune messiah [epub]")
         restored = {n: list(m.values())[0] for n, m in db.writes[len(seen["writes_after_apply"]) :]}
@@ -1885,12 +1709,8 @@ class GeminiDialogTests(QtCase):
 
             dialog.reject()
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, "exec", drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
 
         self.assertEqual(seen["initial_mode_index"], 1, "Started in override mode index 1")
         self.assertEqual(seen["initial_text"], "Custom test instruction prompt")
@@ -1926,6 +1746,7 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs["min_interval"] = 0
         action_mod.prefs["fields"] = list(engine.FIELDS)
         action_mod.prefs["batch_dir"] = self.tmp_batch_dir.name
+        action_mod.prefs["provider_metadata"] = False
 
         def run(drive):
             with patch.object(QtWidgets.QDialog, "exec", drive):
@@ -1955,11 +1776,7 @@ class GeminiDialogTests(QtCase):
                 tree.topLevelItem(i).text(0): tree.topLevelItem(i).child(0).checkState(0)
                 for i in range(tree.topLevelItemCount())
             }
-            return (
-                text,
-                states,
-                self._button(dialog, "Apply ticked changes").isEnabled(),
-            )
+            return text, states, self._button(dialog, "Apply ticked changes").isEnabled()
 
         def drive(dialog):
             self._button(dialog, "Check books").click()
@@ -1984,11 +1801,7 @@ class GeminiDialogTests(QtCase):
         run(drive)
         T = QtCore.Qt.CheckState
         self.assertEqual(seen["start"][0], "1 of 2 change(s) ticked")
-        self.assertEqual(
-            seen["none"][0:3:2],
-            ("0 of 2 change(s) ticked", False),
-            "nothing ticked, so Apply is off",
-        )
+        self.assertEqual(seen["none"][0:3:2], ("0 of 2 change(s) ticked", False), "nothing ticked, so Apply is off")
         self.assertEqual(seen["all"][0], "2 of 2 change(s) ticked")
         self.assertEqual(set(seen["all"][1].values()), {T.Checked})
         self.assertTrue(seen["all"][2])
@@ -1998,15 +1811,10 @@ class GeminiDialogTests(QtCase):
             "the big change stays unticked",
         )
         self.assertEqual(seen["safe"][0], "1 of 2 change(s) ticked")
-        self.assertTrue(
-            seen["settings_hidden"],
-            "the settings fold away during a run, leaving the results room",
-        )
+        self.assertTrue(seen["settings_hidden"], "the settings fold away during a run, leaving the results room")
         self.assertTrue(seen["settings_back"], "and the button brings them back")
         self.assertGreater(
-            seen["sizes"][1],
-            seen["sizes"][0],
-            "the list of changes is the larger part once results are in",
+            seen["sizes"][1], seen["sizes"][0], "the list of changes is the larger part once results are in"
         )
 
     def test_covers_are_sent_as_pictures_and_the_isbn_is_applied_and_undone(self):
@@ -2063,22 +1871,13 @@ class GeminiDialogTests(QtCase):
         raw = __import__("base64").b64decode(parts[2]["inlineData"]["data"])
         probe = QtGui.QImage()
         self.assertTrue(probe.loadFromData(raw))
-        self.assertEqual(
-            max(probe.width(), probe.height()),
-            1000,
-            "big covers are shrunk before upload",
-        )
+        self.assertEqual(max(probe.width(), probe.height()), 1000, "big covers are shrunk before upload")
         self.assertIn("picture: front cover", seen["log"])
-        self.assertIn(
-            "📖 read from the pictures for “dune messiah [epub]”: DUNE MESSIAH Frank Herbert",
-            seen["log"],
-        )
+        self.assertIn("📖 read from the pictures for “dune messiah [epub]”: DUNE MESSIAH Frank Herbert", seen["log"])
         self.assertIn("ISBN 9999999999999 → 9780306406157", seen["log"])
         written = {(n, tuple(m)): list(m.values())[0] for n, m in seen["after_apply"]}
         self.assertEqual(
-            written[("identifiers", (1,))],
-            {"isbn": "9780306406157", "goodreads": "5"},
-            "other identifiers are kept",
+            written[("identifiers", (1,))], {"isbn": "9780306406157", "goodreads": "5"}, "other identifiers are kept"
         )
         self.assertEqual(written[("identifiers", (2,))], {"isbn": "0306406152"})
         restored = [list(m.values())[0] for n, m in db.writes[len(seen["after_apply"]) :] if n == "identifiers"]
@@ -2110,6 +1909,7 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs["api_key"] = "k"
         action_mod.prefs["batch_size"] = 1
         action_mod.prefs["min_interval"] = 0
+        action_mod.prefs["provider_metadata"] = False
         action_mod.prefs["batch_dir"] = self.tmp_batch_dir.name
         seen = {}
 
@@ -2145,9 +1945,7 @@ class GeminiDialogTests(QtCase):
             }
         ]
         partial_err = engine.GeminiPartialError(
-            "Batch 2 failed due to network error",
-            suggestions=partial_suggestions,
-            skipped=["Book 2: network error"],
+            "Batch 2 failed due to network error", suggestions=partial_suggestions, skipped=["Book 2: network error"]
         )
 
         db = GeminiDb()
@@ -2175,11 +1973,7 @@ class GeminiDialogTests(QtCase):
         with patch.object(QtWidgets.QDialog, "exec", drive):
             action.show_dialog()
 
-        self.assertEqual(
-            seen["tree_count"],
-            1,
-            "partial suggestion for book 1 rendered in results tree",
-        )
+        self.assertEqual(seen["tree_count"], 1, "partial suggestion for book 1 rendered in results tree")
         self.assertIn("Stopped early due to an error", seen["log"])
         self.assertEqual(len(warnings_shown), 1)
         self.assertIn("Batch 2 failed due to network error", warnings_shown[0][1])
@@ -2232,15 +2026,7 @@ class FanficDialogTests(QtCase):
         for key in [
             k
             for k in sys.modules
-            if k.startswith(
-                (
-                    "fanficfare",
-                    "cloudscraper",
-                    "requests_file",
-                    "requests_toolbelt",
-                    "brotlidecpy",
-                )
-            )
+            if k.startswith(("fanficfare", "cloudscraper", "requests_file", "requests_toolbelt", "brotlidecpy"))
         ]:
             del sys.modules[key]
         super().tearDown()
@@ -2267,9 +2053,7 @@ class FanficDialogTests(QtCase):
         advanced = QtWidgets.QPlainTextEdit("[archiveofourown.org]\nis_adult:true\n")
         dialog = ui.RoyalRoadSetupDialog(None, advanced)
         self.assertIn(
-            "FlareSolverr",
-            dialog.findChild(QtWidgets.QTextBrowser).toPlainText(),
-            "the bundled guide should be shown",
+            "FlareSolverr", dialog.findChild(QtWidgets.QTextBrowser).toPlainText(), "the bundled guide should be shown"
         )
         self.assertIn("not switched on", dialog.status.text())
         self.assertFalse(dialog.start_button.isEnabled(), "no program chosen yet")
@@ -2284,15 +2068,8 @@ class FanficDialogTests(QtCase):
             advanced.toPlainText() + "\n[defaults]\nflaresolverr_proxy_port:1\n"
         )  # nothing listens on port 1
         dialog.test_server()
-        self.assertTrue(
-            dialog.status.text().startswith("Problem: Nothing answered"),
-            dialog.status.text(),
-        )
-        self.assertIn(
-            "localhost:1/v1",
-            dialog.status.text(),
-            "the port from Advanced settings should be used",
-        )
+        self.assertTrue(dialog.status.text().startswith("Problem: Nothing answered"), dialog.status.text())
+        self.assertIn("localhost:1/v1", dialog.status.text(), "the port from Advanced settings should be used")
 
     def test_flaresolverr_wizard_pages(self):
         ui = importlib.import_module(self.package + ".ui")
@@ -2403,20 +2180,15 @@ class GuikitHelpersTests(QtCase):
         self.assertEqual(format_field_value("series", (None, None)), "(none)")
         self.assertEqual(format_field_value("album", ("Album", 2.0)), "Album #2")
         self.assertEqual(format_field_value("date", "2026-10-20T12:00:00Z"), "2026-10-20")
-        self.assertEqual(
-            format_field_value("authors", ["Author A", "Author B"]),
-            "Author A, Author B",
-        )
+        self.assertEqual(format_field_value("authors", ["Author A", "Author B"]), "Author A, Author B")
         self.assertEqual(format_field_value("tags", []), "(none)")
         self.assertEqual(format_field_value("identifiers", {"isbn": "12345"}), "isbn:12345")
         self.assertEqual(format_field_value("cover", None), "none")
         self.assertEqual(
-            format_field_value("cover", ("http://coverartarchive.org/img.jpg",)),
-            "front cover from Cover Art Archive",
+            format_field_value("cover", ("http://coverartarchive.org/img.jpg",)), "front cover from Cover Art Archive"
         )
         self.assertEqual(
-            format_field_value("cover", ("http://openlibrary.org/img.jpg",)),
-            "front cover from Open Library",
+            format_field_value("cover", ("http://openlibrary.org/img.jpg",)), "front cover from Open Library"
         )
         self.assertEqual(format_field_value("title", None), "(none)")
 
@@ -2433,10 +2205,7 @@ def make_dirty_epub():
         z.writestr("mimetype", "application/epub+zip", zipfile.ZIP_STORED)
         z.writestr("META-INF/container.xml", container)
         z.writestr("OEBPS/content.opf", opf)
-        z.writestr(
-            "OEBPS/c1.xhtml",
-            xhtml % "<p>Downloaded from OceanofPDF.com</p><p>Story text.</p>",
-        )
+        z.writestr("OEBPS/c1.xhtml", xhtml % "<p>Downloaded from OceanofPDF.com</p><p>Story text.</p>")
     return b.getvalue()
 
 
@@ -2504,9 +2273,7 @@ class ScrubberPluginTests(QtCase):
             "formats": {"EPUB": dirty_epub, "ORIGINAL_EPUB": original_epub},
         }
         with unittest.mock.patch.object(
-            self.action_module.QMessageBox,
-            "question",
-            return_value=QtWidgets.QMessageBox.StandardButton.No,
+            self.action_module.QMessageBox, "question", return_value=QtWidgets.QMessageBox.StandardButton.No
         ) as mock_q:
             action.scrub_selected()
             mock_q.assert_called_once()
@@ -2525,23 +2292,102 @@ class ScrubberPluginTests(QtCase):
             "formats": {"EPUB": dirty_epub, "ORIGINAL_EPUB": original_epub},
         }
         with unittest.mock.patch.object(
-            self.action_module.QMessageBox,
-            "question",
-            return_value=QtWidgets.QMessageBox.StandardButton.Yes,
+            self.action_module.QMessageBox, "question", return_value=QtWidgets.QMessageBox.StandardButton.Yes
         ) as mock_q:
             action.scrub_selected()
             mock_q.assert_called_once()
         self.assertNotIn("ORIGINAL_EPUB", db.formats(1))
+
+    def test_restore_action_appears_in_menu(self):
+        action = self.make_action([1])
+        menu = action.qaction.setMenu.call_args[0][0]
+        titles = [a.text() for a in menu.actions()]
+        self.assertIn("Restore selected books from ORIGINAL_EPUB", titles)
+
+    def test_restore_selected_no_backups_shows_info_dialog(self):
+        action = self.make_action([1])
+        db = action.gui.db
+        db.books[1] = {"mi": StubMetadata("Book Title", ["Author"]), "formats": {"EPUB": b"epub_bytes"}}
+        with (
+            unittest.mock.patch.object(self.action_module, "info_dialog") as mock_info,
+            unittest.mock.patch.object(self.action_module.QMessageBox, "question") as mock_q,
+        ):
+            action.restore_selected()
+            mock_q.assert_not_called()
+            mock_info.assert_called_once()
+            self.assertIn("No ORIGINAL_EPUB backup available", mock_info.call_args[0][2])
+
+    def test_restore_selected_confirmed_restores_epub_and_refreshes(self):
+        action = self.make_action([1])
+        db = action.gui.db
+        orig_bytes = b"original_backup_bytes"
+        scrubbed_bytes = b"scrubbed_bytes"
+        db.books[1] = {
+            "mi": StubMetadata("Book Title", ["Author"]),
+            "formats": {"EPUB": scrubbed_bytes, "ORIGINAL_EPUB": orig_bytes},
+        }
+        with (
+            unittest.mock.patch.object(
+                self.action_module.QMessageBox, "question", return_value=QtWidgets.QMessageBox.StandardButton.Yes
+            ) as mock_q,
+            unittest.mock.patch.object(self.action_module, "info_dialog") as mock_info,
+        ):
+            action.restore_selected()
+            mock_q.assert_called_once()
+            self.assertIn("Restore 1 selected book(s)", mock_q.call_args[0][2])
+            mock_info.assert_called_once()
+            self.assertIn("1 book(s) restored", mock_info.call_args[0][2])
+        self.assertEqual(db.format(1, "EPUB"), orig_bytes)
+        action.gui.library_view.model().refresh.assert_called_once()
+        action.gui.tags_view.recount.assert_called_once()
+
+    def test_restore_selected_declined_leaves_primary_epub_intact(self):
+        action = self.make_action([1])
+        db = action.gui.db
+        orig_bytes = b"original_backup_bytes"
+        scrubbed_bytes = b"scrubbed_bytes"
+        db.books[1] = {
+            "mi": StubMetadata("Book Title", ["Author"]),
+            "formats": {"EPUB": scrubbed_bytes, "ORIGINAL_EPUB": orig_bytes},
+        }
+        with unittest.mock.patch.object(
+            self.action_module.QMessageBox, "question", return_value=QtWidgets.QMessageBox.StandardButton.No
+        ) as mock_q:
+            action.restore_selected()
+            mock_q.assert_called_once()
+        self.assertEqual(db.format(1, "EPUB"), scrubbed_bytes)
+
+    def test_restore_selected_partial_backups_skips_books_without_backup(self):
+        action = self.make_action([1, 2])
+        db = action.gui.db
+        orig_bytes = b"original_backup_bytes_1"
+        db.books[1] = {
+            "mi": StubMetadata("Book 1", ["Author"]),
+            "formats": {"EPUB": b"scrubbed_1", "ORIGINAL_EPUB": orig_bytes},
+        }
+        db.books[2] = {"mi": StubMetadata("Book 2", ["Author"]), "formats": {"EPUB": b"scrubbed_2"}}
+        with (
+            unittest.mock.patch.object(
+                self.action_module.QMessageBox, "question", return_value=QtWidgets.QMessageBox.StandardButton.Yes
+            ) as mock_q,
+            unittest.mock.patch.object(self.action_module, "info_dialog") as mock_info,
+        ):
+            action.restore_selected()
+            mock_q.assert_called_once()
+            self.assertIn("Found 1 book(s) with ORIGINAL_EPUB backup(s) out of 2 selected", mock_q.call_args[0][2])
+            mock_info.assert_called_once()
+            self.assertIn("1 book(s) restored", mock_info.call_args[0][2])
+        self.assertEqual(db.format(1, "EPUB"), orig_bytes)
+        self.assertEqual(db.format(2, "EPUB"), b"scrubbed_2")
+        action.gui.library_view.model().refresh.assert_called_once()
+        action.gui.tags_view.recount.assert_called_once()
 
     def test_backup_enabled_saves_original_and_does_not_prompt(self):
         self.action_module.prefs["backup"] = True
         action = self.make_action([1])
         db = action.gui.db
         dirty_epub = make_dirty_epub()
-        db.books[1] = {
-            "mi": StubMetadata("Book Title", ["An Author"]),
-            "formats": {"EPUB": dirty_epub},
-        }
+        db.books[1] = {"mi": StubMetadata("Book Title", ["An Author"]), "formats": {"EPUB": dirty_epub}}
         with unittest.mock.patch.object(self.action_module.QMessageBox, "question") as mock_q:
             action.scrub_selected()
             mock_q.assert_not_called()
@@ -2558,9 +2404,7 @@ class ScrubberPluginTests(QtCase):
                 "formats": {"EPUB": dirty_epub, "ORIGINAL_EPUB": b"backup"},
             }
         with unittest.mock.patch.object(
-            self.action_module.QMessageBox,
-            "question",
-            return_value=QtWidgets.QMessageBox.StandardButton.Yes,
+            self.action_module.QMessageBox, "question", return_value=QtWidgets.QMessageBox.StandardButton.Yes
         ) as mock_q:
             action.scrub_selected()
             self.assertEqual(mock_q.call_count, 1)
@@ -2572,10 +2416,7 @@ class ScrubberPluginTests(QtCase):
         action = self.make_action([1])
         db = action.gui.db
         dirty_epub = make_dirty_epub()
-        db.books[1] = {
-            "mi": StubMetadata("Book Title", ["Author"]),
-            "formats": {"EPUB": dirty_epub},
-        }
+        db.books[1] = {"mi": StubMetadata("Book Title", ["Author"]), "formats": {"EPUB": dirty_epub}}
         with unittest.mock.patch.object(self.action_module.QMessageBox, "question") as mock_q:
             action.scrub_selected()
             mock_q.assert_not_called()
@@ -2601,9 +2442,7 @@ class ScrubberPluginTests(QtCase):
 
         with (
             unittest.mock.patch.object(
-                self.action_module.QMessageBox,
-                "question",
-                return_value=QtWidgets.QMessageBox.StandardButton.Yes,
+                self.action_module.QMessageBox, "question", return_value=QtWidgets.QMessageBox.StandardButton.Yes
             ) as mock_q,
             unittest.mock.patch.object(scrub_ui, "ScrubPreviewDialog", mock_dialog_class),
         ):
@@ -2673,11 +2512,7 @@ class ThemeTokenEngineTests(QtCase):
             self.assertTrue(len(qss) > 0)
         elapsed = (time.perf_counter() - start) / iterations * 1000  # ms per run
 
-        self.assertLess(
-            elapsed,
-            5.0,
-            f"Stylesheet generation took {elapsed:.3f}ms per run, exceeding 5.0ms threshold",
-        )
+        self.assertLess(elapsed, 5.0, f"Stylesheet generation took {elapsed:.3f}ms per run, exceeding 5.0ms threshold")
 
     def test_light_dark_token_resolution(self):
         guikit = importlib.import_module(self.load("gemini_library_fixer") + ".guikit")
