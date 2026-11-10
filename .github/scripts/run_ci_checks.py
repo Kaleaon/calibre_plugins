@@ -35,11 +35,7 @@ def get_changed_files(base_ref=None):
                         text=True,
                         check=True,
                     )
-                    files = [
-                        line.strip().replace("\\", "/")
-                        for line in proc.stdout.splitlines()
-                        if line.strip()
-                    ]
+                    files = [line.strip().replace("\\", "/") for line in proc.stdout.splitlines() if line.strip()]
                     diff_succeeded = True
                     break
                 except Exception:
@@ -57,11 +53,7 @@ def get_changed_files(base_ref=None):
                     text=True,
                     check=True,
                 )
-                files = [
-                    line.strip().replace("\\", "/")
-                    for line in proc.stdout.splitlines()
-                    if line.strip()
-                ]
+                files = [line.strip().replace("\\", "/") for line in proc.stdout.splitlines() if line.strip()]
                 diff_succeeded = True
                 break
             except Exception:
@@ -75,9 +67,7 @@ def check_lint():
     python_files = [f for f in changed_files if f.endswith(".py") and os.path.exists(f)]
 
     if not python_files:
-        print(
-            f"No Python files changed (base: {os.environ.get('BASE_REF', 'HEAD~1')}). Skipping ruff checks."
-        )
+        print(f"No Python files changed (base: {os.environ.get('BASE_REF', 'HEAD~1')}). Skipping ruff checks.")
         return 0
 
     targets = python_files
@@ -111,11 +101,7 @@ def check_tests():
 
     for f in changed_files:
         f_norm = f.replace("\\", "/")
-        if (
-            f_norm.startswith("tests/test_")
-            and f_norm.endswith(".py")
-            and os.path.exists(f_norm)
-        ):
+        if f_norm.startswith("tests/test_") and f_norm.endswith(".py") and os.path.exists(f_norm):
             test_targets.append(f_norm)
         else:
             top_dir = f_norm.split("/")[0].lower()
@@ -162,9 +148,7 @@ def verify_zips():
         "CalibreLink.zip",
     ]
     dist_dir = "dist"
-    missing = [
-        z for z in expected_zips if not os.path.exists(os.path.join(dist_dir, z))
-    ]
+    missing = [z for z in expected_zips if not os.path.exists(os.path.join(dist_dir, z))]
     if missing:
         print(f"Error: Missing expected zip files in dist/: {missing}", file=sys.stderr)
         sys.exit(1)
