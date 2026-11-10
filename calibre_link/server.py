@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Calibre Link bridge server — stdlib only, no calibre imports.
 
 This is the HTTP layer of the Calibre Link plugin. It is deliberately
@@ -33,11 +34,10 @@ unchanged — only /calibredb became a compatibility shim):
 
 Auth: every endpoint except /health needs header  X-Token: <token>.
 """
-
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import urlparse, parse_qs
 
 VERSION = "1.5.0"
 READ_SUBCOMMANDS = {"list", "search", "show_metadata", "check_library"}
@@ -64,9 +64,7 @@ class BridgeServer:
             self._httpd = ThreadingHTTPServer((self.host, self.port), handler)
             self._thread = threading.Thread(
                 target=self._httpd.serve_forever,
-                name="calibre-link-server",
-                daemon=True,
-            )
+                name="calibre-link-server", daemon=True)
             self._thread.start()
             self.last_error = None
             return True
@@ -123,78 +121,57 @@ def _make_handler(bridge):
             if u.path == "/health":
                 try:
                     info = adapter.health()
-                    info.update(
-                        {
-                            "ok": True,
-                            "mode": "plugin",
-                            "version": VERSION,
-                            "server_running": bridge.running,
-                        }
-                    )
+                    info.update({"ok": True, "mode": "plugin",
+                                 "version": VERSION,
+                                 "server_running": bridge.running})
                     return self.send_json(info)
                 except Exception as e:
                     return self.send_json(
-                        {
-                            "ok": False,
-                            "mode": "plugin",
-                            "version": VERSION,
-                            "error": str(e),
-                        },
-                        500,
-                    )
+                        {"ok": False, "mode": "plugin", "version": VERSION,
+                         "error": str(e)}, 500)
             if not self.authed():
                 return self.send_json(
-                    {"ok": False, "error": "bad or missing X-Token"}, 401
-                )
+                    {"ok": False, "error": "bad or missing X-Token"}, 401)
             try:
                 if u.path == "/stats":
                     return self.send_json({"ok": True, "stats": adapter.stats()})
                 if u.path == "/books":
-                    return self.send_json(
-                        {
-                            "ok": True,
-                            "books": adapter.list_books(
-                                qs.get("q", [""])[0],
-                                int(qs.get("limit", ["50"])[0]),
-                                int(qs.get("offset", ["0"])[0]),
-                            ),
-                        }
-                    )
+                    return self.send_json({"ok": True, "books": adapter.list_books(
+                        qs.get("q", [""])[0],
+                        int(qs.get("limit", ["50"])[0]),
+                        int(qs.get("offset", ["0"])[0]))})
                 if u.path.startswith("/book/"):
                     book_id = u.path.rsplit("/", 1)[-1]
                     if not book_id.isdigit():
                         return self.send_json(
-                            {"ok": False, "error": "need numeric id"}, 400
-                        )
+                            {"ok": False, "error": "need numeric id"}, 400)
                     book = adapter.get_book(int(book_id))
                     if book is None:
                         return self.send_json(
-                            {"ok": False, "error": "no such book"}, 404
-                        )
+                            {"ok": False, "error": "no such book"}, 404)
                     return self.send_json({"ok": True, "book": book})
                 if u.path == "/log":
-                    return self.send_json({"ok": True, "ops": adapter.ops_log()})
+                    return self.send_json(
+                        {"ok": True, "ops": adapter.ops_log()})
                 if u.path == "/plugins":
                     return self.send_json(
-                        {"ok": True, "plugins": adapter.plugins_inventory()}
-                    )
+                        {"ok": True, "plugins": adapter.plugins_inventory()})
                 if u.path.startswith("/book-text/"):
                     book_id = u.path.rsplit("/", 1)[-1]
                     if not book_id.isdigit():
                         return self.send_json(
-                            {"ok": False, "error": "need numeric id"}, 400
-                        )
+                            {"ok": False, "error": "need numeric id"}, 400)
                     chars = 8000
                     qs = u.query or ""
                     for part in qs.split("&"):
                         if part.startswith("chars="):
                             try:
-                                chars = max(500, min(50000, int(part[6:])))
+                                chars = max(500, min(50000,
+                                                     int(part[6:])))
                             except ValueError:
                                 pass
                     return self.send_json(
-                        adapter.book_text(int(book_id), max_chars=chars)
-                    )
+                        adapter.book_text(int(book_id), max_chars=chars))
             except Exception as e:
                 return self.send_json({"ok": False, "error": str(e)}, 500)
             return self.send_json({"ok": False, "error": "not found"}, 404)
@@ -202,38 +179,38 @@ def _make_handler(bridge):
         def do_POST(self):
             if not self.authed():
                 return self.send_json(
-                    {"ok": False, "error": "bad or missing X-Token"}, 401
-                )
+                    {"ok": False, "error": "bad or missing X-Token"}, 401)
             u = urlparse(self.path)
             payload = self.read_payload()
             try:
                 if u.path == "/backup":
-                    return self.send_json({"ok": True, "backup": adapter.backup()})
+                    return self.send_json(
+                        {"ok": True, "backup": adapter.backup()})
                 if u.path == "/add-book":
                     import base64
-
                     filename = payload.get("filename") or "book.epub"
                     if not filename.lower().endswith(".epub"):
-                        return self.send_json({"ok": False, "error": "EPUB only"}, 400)
+                        return self.send_json(
+                            {"ok": False, "error": "EPUB only"}, 400)
                     try:
                         data = base64.b64decode(
-                            payload.get("data_base64") or "", validate=True
-                        )
+                            payload.get("data_base64") or "", validate=True)
                     except Exception:
-                        return self.send_json({"ok": False, "error": "bad base64"}, 400)
+                        return self.send_json(
+                            {"ok": False, "error": "bad base64"}, 400)
                     if not data:
-                        return self.send_json({"ok": False, "error": "empty file"}, 400)
+                        return self.send_json(
+                            {"ok": False, "error": "empty file"}, 400)
                     if len(data) > 64 * 1024 * 1024:
                         return self.send_json(
-                            {"ok": False, "error": "file too large"}, 400
-                        )
-                    return self.send_json(
-                        adapter.add_book(filename, data, payload.get("metadata") or {})
-                    )
+                            {"ok": False, "error": "file too large"}, 400)
+                    return self.send_json(adapter.add_book(
+                        filename, data, payload.get("metadata") or {}))
                 if u.path == "/set-metadata-batch":
                     items = payload.get("items", [])
                     if not items:
-                        return self.send_json({"ok": False, "error": "need items"}, 400)
+                        return self.send_json(
+                            {"ok": False, "error": "need items"}, 400)
                     # ONE backup for the whole batch, then writes.
                     backup_name = adapter.backup()
                     results = []
@@ -242,40 +219,37 @@ def _make_handler(bridge):
                         fields = item.get("fields", {})
                         try:
                             book = adapter.set_metadata(int(bid), fields)
-                            results.append({"id": bid, "ok": True, "book": book})
+                            results.append({"id": bid, "ok": True,
+                                            "book": book})
                         except Exception as e:
-                            results.append({"id": bid, "ok": False, "error": str(e)})
-                    return self.send_json(
-                        {"ok": True, "backup": backup_name, "results": results}
-                    )
+                            results.append({"id": bid, "ok": False,
+                                            "error": str(e)})
+                    return self.send_json({"ok": True, "backup": backup_name,
+                                           "results": results})
                 if u.path.startswith("/fetch-metadata/"):
                     book_id = u.path.rsplit("/", 1)[-1]
                     if not book_id.isdigit():
                         return self.send_json(
-                            {"ok": False, "error": "need numeric id"}, 400
-                        )
+                            {"ok": False, "error": "need numeric id"}, 400)
                     found = adapter.fetch_metadata(
                         int(book_id),
                         apply=bool(payload.get("apply", False)),
-                        fields=payload.get("fields"),
-                    )
+                        fields=payload.get("fields"))
                     return self.send_json(found)
                 if u.path.startswith("/set-metadata/"):
                     book_id = u.path.rsplit("/", 1)[-1]
                     fields = payload.get("fields", {})
                     if not book_id.isdigit() or not fields:
                         return self.send_json(
-                            {"ok": False, "error": "need numeric id and fields"}, 400
-                        )
+                            {"ok": False,
+                             "error": "need numeric id and fields"}, 400)
                     backup_name = adapter.backup()
                     book = adapter.set_metadata(int(book_id), fields)
-                    return self.send_json(
-                        {"ok": True, "backup": backup_name, "book": book}
-                    )
+                    return self.send_json({"ok": True, "backup": backup_name,
+                                           "book": book})
                 if u.path == "/calibredb":
                     return self.send_json(
-                        _calibredb_shim(adapter, payload.get("args", []))
-                    )
+                        _calibredb_shim(adapter, payload.get("args", [])))
             except Exception as e:
                 return self.send_json({"ok": False, "error": str(e)}, 500)
             return self.send_json({"ok": False, "error": "not found"}, 404)
@@ -313,40 +287,24 @@ def _calibredb_shim(adapter, args):
             return {"ok": False, "error": "set_metadata needs --field k:v"}
         backup_name = adapter.backup()
         book = adapter.set_metadata(book_id, fields)
-        return {
-            "ok": True,
-            "returncode": 0,
-            "via": "plugin",
-            "backup": backup_name,
-            "stdout": json.dumps(book, ensure_ascii=False),
-            "stderr": "",
-        }
+        return {"ok": True, "returncode": 0, "via": "plugin",
+                "backup": backup_name,
+                "stdout": json.dumps(book, ensure_ascii=False),
+                "stderr": ""}
     if sub in READ_SUBCOMMANDS:
         if sub == "show_metadata":
             ids = [a for a in rest if a.isdigit()]
             if not ids:
                 return {"ok": False, "error": "show_metadata needs an id"}
             book = adapter.get_book(int(ids[0]))
-            return {
-                "ok": True,
-                "returncode": 0,
-                "via": "plugin",
-                "stdout": json.dumps(book, ensure_ascii=False),
-                "stderr": "",
-            }
+            return {"ok": True, "returncode": 0, "via": "plugin",
+                    "stdout": json.dumps(book, ensure_ascii=False),
+                    "stderr": ""}
         q = " ".join(a for a in rest if not a.startswith("--"))
         books = adapter.list_books(q, 200, 0)
-        return {
-            "ok": True,
-            "returncode": 0,
-            "via": "plugin",
-            "stdout": json.dumps(books, ensure_ascii=False),
-            "stderr": "",
-        }
-    return {
-        "ok": False,
-        "via": "plugin",
-        "error": "subcommand %r is not available inside the calibre GUI plugin; "
-        "use /set-metadata/<id> for writes and /books, /book/<id>, "
-        "/stats for reads" % sub,
-    }
+        return {"ok": True, "returncode": 0, "via": "plugin",
+                "stdout": json.dumps(books, ensure_ascii=False), "stderr": ""}
+    return {"ok": False, "via": "plugin", "error":
+            "subcommand %r is not available inside the calibre GUI plugin; "
+            "use /set-metadata/<id> for writes and /books, /book/<id>, "
+            "/stats for reads" % sub}
