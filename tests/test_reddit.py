@@ -18,9 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from reddit_samples import entry, feed, md  # noqa: E402
 
-spec = importlib.util.spec_from_file_location(
-    "rcore", Path(__file__).resolve().parents[1] / "reddit/core.py"
-)
+spec = importlib.util.spec_from_file_location("rcore", Path(__file__).resolve().parents[1] / "reddit/core.py")
 core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "reddit"))
@@ -43,21 +41,15 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(core.parse_source(text)["kind"], "subreddit", text)
         self.assertEqual(core.parse_source("u/Some_Author")["user"], "Some_Author")
         self.assertEqual(
-            core.parse_source("https://www.reddit.com/user/Some_Author/submitted/")[
-                "kind"
-            ],
+            core.parse_source("https://www.reddit.com/user/Some_Author/submitted/")["kind"],
             "user",
         )
-        s = core.parse_source(
-            "https://www.reddit.com/r/HFY/search/?q=Out+of+Cruel+Space&restrict_sr=1"
-        )
+        s = core.parse_source("https://www.reddit.com/r/HFY/search/?q=Out+of+Cruel+Space&restrict_sr=1")
         self.assertEqual(
             (s["kind"], s["subreddit"], s["query"]),
             ("search", "HFY", "Out of Cruel Space"),
         )
-        self.assertEqual(
-            core.parse_source("https://www.reddit.com/search/?q=cruel")["subreddit"], ""
-        )
+        self.assertEqual(core.parse_source("https://www.reddit.com/search/?q=cruel")["subreddit"], "")
 
     def test_source_text_round_trips(self):
         for text in (
@@ -83,37 +75,24 @@ class SourceTests(unittest.TestCase):
 
     def test_addresses_are_built_and_encoded(self):
         sub = core.parse_source("r/HFY")
-        self.assertEqual(
-            core.feed_url(sub, 25), "https://www.reddit.com/r/HFY/new.rss?limit=25"
-        )
+        self.assertEqual(core.feed_url(sub, 25), "https://www.reddit.com/r/HFY/new.rss?limit=25")
         self.assertIn("after=t3_abc", core.feed_url(sub, 100, "t3_abc"))
         user = core.parse_source("u/name")
-        self.assertTrue(
-            core.feed_url(user).startswith(
-                "https://www.reddit.com/user/name/submitted.rss?sort=new"
-            )
-        )
-        found = core.parse_source(
-            "https://www.reddit.com/r/HFY/search/?q=Out+of+Cruel+Space&restrict_sr=1"
-        )
+        self.assertTrue(core.feed_url(user).startswith("https://www.reddit.com/user/name/submitted.rss?sort=new"))
+        found = core.parse_source("https://www.reddit.com/r/HFY/search/?q=Out+of+Cruel+Space&restrict_sr=1")
         url = core.feed_url(found)
         self.assertIn("/r/HFY/search.rss?", url)
         self.assertIn("q=Out%20of%20Cruel%20Space", url)
         self.assertIn("restrict_sr=on", url)
         self.assertIn("type=link", core.api_path(found))
         self.assertIn("raw_json=1", core.api_path(sub))
-        self.assertEqual(
-            core.describe_source(found), "search “Out of Cruel Space” in r/HFY"
-        )
+        self.assertEqual(core.describe_source(found), "search “Out of Cruel Space” in r/HFY")
 
 
 class CleaningTests(unittest.TestCase):
     def test_wrapper_and_footer_are_removed(self):
         out = core.main_html(
-            md("<p>The ship <em>shook</em>.</p>")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&amp;", "&")
+            md("<p>The ship <em>shook</em>.</p>").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
         )
         self.assertEqual(out, "<p>The ship <em>shook</em>.</p>")
         self.assertNotIn("submitted", out)
@@ -126,9 +105,7 @@ class CleaningTests(unittest.TestCase):
             "<p>Hello</p>",
         )
         self.assertEqual(
-            core.main_html(
-                '<!-- SC_OFF --><div class="md"><p>Hello</p></div><!-- SC_ON -->'
-            ),
+            core.main_html('<!-- SC_OFF --><div class="md"><p>Hello</p></div><!-- SC_ON -->'),
             "<p>Hello</p>",
         )
 
@@ -143,9 +120,7 @@ class CleaningTests(unittest.TestCase):
             out,
             '<p>Story text with a <a href="https://x.org/d">next</a> step.</p><p>More story.</p>',
         )
-        self.assertEqual(
-            core.strip_navigation("<p>Only text.</p>"), "<p>Only text.</p>"
-        )
+        self.assertEqual(core.strip_navigation("<p>Only text.</p>"), "<p>Only text.</p>")
         self.assertEqual(
             core.strip_navigation("<p>Next</p>"),
             "",
@@ -182,9 +157,7 @@ class ParsingTests(unittest.TestCase):
             ["t3_aaa111", "t3_bbb222", "t3_ddd444"],
             "comments are skipped",
         )
-        self.assertEqual(
-            after, "t3_ddd444", "the oldest id is the token for the next page"
-        )
+        self.assertEqual(after, "t3_ddd444", "the oldest id is the token for the next page")
         first = entries[0]
         self.assertEqual(
             (first["title"], first["author"], first["html"], first["subreddit"]),
@@ -275,9 +248,7 @@ class RealPostShapeTests(unittest.TestCase):
             (e["id"], e["title"], e["author"]),
             ("t3_nfsakq", "Out of Cruel Space, Part 1", "KyleKKent"),
         )
-        self.assertEqual(
-            e["html"], "<p>First paragraph of the chapter.</p><p>Second paragraph.</p>"
-        )
+        self.assertEqual(e["html"], "<p>First paragraph of the chapter.</p><p>Second paragraph.</p>")
 
     def test_preset_matches_the_series_posts_and_nothing_else(self):
         preset = core.PRESETS[0]
@@ -287,9 +258,7 @@ class RealPostShapeTests(unittest.TestCase):
             preset["title_filter"],
             preset["author_filter"],
         )
-        self.assertEqual(
-            (follow["source"]["kind"], follow["source"]["user"]), ("user", "KyleKKent")
-        )
+        self.assertEqual((follow["source"]["kind"], follow["source"]["user"]), ("user", "KyleKKent"))
         e = core.parse_atom(self.real_shaped())[0][0]
         self.assertTrue(core.matches(e, follow))
         for other in (
@@ -306,9 +275,7 @@ class RealPostShapeTests(unittest.TestCase):
 
 
 class FilterTests(unittest.TestCase):
-    def post(
-        self, title="Out of Cruel Space (Chapter 3)", author="Writer", html="<p>x</p>"
-    ):
+    def post(self, title="Out of Cruel Space (Chapter 3)", author="Writer", html="<p>x</p>"):
         return {"id": "t3_a", "title": title, "author": author, "html": html}
 
     def test_filters(self):
@@ -361,11 +328,7 @@ class FakeSource:
         ids = [p["id"] for p in self.posts]
         start = ids.index(after) + 1 if after else 0
         chunk = self.posts[start : start + self.per_page]
-        return chunk, (
-            chunk[-1]["id"]
-            if chunk and start + self.per_page < len(self.posts)
-            else None
-        )
+        return chunk, (chunk[-1]["id"] if chunk and start + self.per_page < len(self.posts) else None)
 
 
 def post(n, title=None, html=None, author="Writer"):
@@ -432,21 +395,15 @@ class LongSeriesTests(unittest.TestCase):
     def test_unfinished_backfill_continues_and_old_caches_are_topped_up(self):
         posts = [post(n, author="KyleKKent") for n in range(300, 0, -1)]
         cache = core.ChapterCache(self.tmp.name, self.follow["id"])
-        core.check_follow(
-            FakeSource(posts, per_page=50), self.follow, cache, max_pages=2
-        )
+        core.check_follow(FakeSource(posts, per_page=50), self.follow, cache, max_pages=2)
         self.assertEqual(len(cache.posts), 100)
-        self.assertFalse(
-            cache.data.get("complete"), "stopped early, so the history is not complete"
-        )
+        self.assertFalse(cache.data.get("complete"), "stopped early, so the history is not complete")
         core.check_follow(FakeSource(posts, per_page=50), self.follow, cache)
         self.assertEqual(len(cache.posts), 300)
         # a later check stops once it reaches known posts
         source = FakeSource([post(301, author="KyleKKent")] + posts, per_page=50)
         result = core.check_follow(source, self.follow, cache)
-        self.assertEqual(
-            (result["new"], result["pages"]), (["Out of Cruel Space (Chapter 301)"], 1)
-        )
+        self.assertEqual((result["new"], result["pages"]), (["Out of Cruel Space (Chapter 301)"], 1))
         # a cache written before completeness was tracked is read back through once
         del cache.data["complete"], cache.data["signature"]
         again = core.check_follow(
@@ -500,9 +457,7 @@ class AuthorNoteTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.follow = core.new_follow(
-            "Series", "u/KyleKKent", "", "KyleKKent", author_note=True
-        )
+        self.follow = core.new_follow("Series", "u/KyleKKent", "", "KyleKKent", author_note=True)
 
     def test_picks_the_authors_own_top_level_comment(self):
         self.assertIn(
@@ -519,16 +474,10 @@ class AuthorNoteTests(unittest.TestCase):
 
             def author_comment(self, entry):
                 Noted.fetched += 1
-                return (
-                    ""
-                    if entry["id"].endswith("002")
-                    else f"<p>Note for {entry['id']}</p>"
-                )
+                return "" if entry["id"].endswith("002") else f"<p>Note for {entry['id']}</p>"
 
         cache = core.ChapterCache(self.tmp.name, self.follow["id"])
-        source = Noted(
-            [post(n, author="KyleKKent") for n in range(5, 0, -1)], per_page=10
-        )
+        source = Noted([post(n, author="KyleKKent") for n in range(5, 0, -1)], per_page=10)
         core.check_follow(source, self.follow, cache)
         self.assertEqual(Noted.fetched, 5)
         left = core.fetch_notes(source, self.follow, cache)
@@ -540,9 +489,7 @@ class AuthorNoteTests(unittest.TestCase):
         story = core.build_story(self.follow, cache)
         self.assertIn("Author's comment", story["sections"][0][1])
         self.assertIn("Note for t3_001", story["sections"][0][1])
-        self.assertNotIn(
-            "Author's comment", story["sections"][1][1], "no comment, nothing added"
-        )
+        self.assertNotIn("Author's comment", story["sections"][1][1], "no comment, nothing added")
         self.assertEqual(core.fetch_notes(source, self.follow, cache, batch=1), 0)
         cache.posts["t3_004"].pop("note")
         cache.posts["t3_003"].pop("note")
@@ -558,9 +505,7 @@ class AuthorNoteTests(unittest.TestCase):
         self.assertNotIn("note", cache.posts["t3_001"])
         plain = core.new_follow("S", "u/writer")
         self.assertEqual(
-            core.fetch_notes(
-                type("A", (), {"author_comment": lambda s, e: "x"})(), plain, cache
-            ),
+            core.fetch_notes(type("A", (), {"author_comment": lambda s, e: "x"})(), plain, cache),
             0,
         )
 
@@ -568,31 +513,23 @@ class AuthorNoteTests(unittest.TestCase):
         follow = dict(self.follow, last_checked=1000.0, notes_pending=True)
         self.assertFalse(core.due(follow, 6, now=1000.0 + 600))
         self.assertTrue(core.due(follow, 6, now=1000.0 + 1000))
-        self.assertFalse(
-            core.due(dict(follow, notes_pending=False), 6, now=1000.0 + 1000)
-        )
+        self.assertFalse(core.due(dict(follow, notes_pending=False), 6, now=1000.0 + 1000))
 
     def test_warning_payload_when_author_note_set_on_feedsource(self):
         cache = core.ChapterCache(self.tmp.name, self.follow["id"])
-        res = core.check_follow(
-            FakeSource([post(1, author="KyleKKent")]), self.follow, cache
-        )
+        res = core.check_follow(FakeSource([post(1, author="KyleKKent")]), self.follow, cache)
         self.assertEqual(res.get("warning"), "author comments need the official API")
 
         plain = core.new_follow("S", "u/writer", author_note=False)
         cache_plain = core.ChapterCache(self.tmp.name, plain["id"])
-        res_plain = core.check_follow(
-            FakeSource([post(1, author="writer")]), plain, cache_plain
-        )
+        res_plain = core.check_follow(FakeSource([post(1, author="writer")]), plain, cache_plain)
         self.assertNotIn("warning", res_plain)
 
         class NotedSource(FakeSource):
             def author_comment(self, entry):
                 return ""
 
-        res_noted = core.check_follow(
-            NotedSource([post(1, author="KyleKKent")]), self.follow, cache
-        )
+        res_noted = core.check_follow(NotedSource([post(1, author="KyleKKent")]), self.follow, cache)
         self.assertNotIn("warning", res_noted)
 
 
@@ -664,11 +601,7 @@ class OpeningTests(unittest.TestCase):
                 '<div class="author-note"><p class="author-note-label">Author\'s note</p><p>Sorry, a short one today.</p></div><p>Chapter text.</p>'
             )
         )
-        self.assertTrue(
-            html.endswith("</p></div>")
-            and "Author's comment" in html
-            and "Thanks for reading!" in html
-        )
+        self.assertTrue(html.endswith("</p></div>") and "Author's comment" in html and "Thanks for reading!" in html)
         self.assertNotIn("The Pirates", html)
         import storykit
 
@@ -685,9 +618,7 @@ class OpeningTests(unittest.TestCase):
     def test_chapters_are_named_from_the_title_line_with_or_without_the_index(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        follow = core.new_follow(
-            "Out of Cruel Space", "u/KyleKKent", "", "KyleKKent", title_from_body=True
-        )
+        follow = core.new_follow("Out of Cruel Space", "u/KyleKKent", "", "KyleKKent", title_from_body=True)
         cache = core.ChapterCache(tmp.name, follow["id"])
         posts = [
             {
@@ -718,9 +649,7 @@ class OpeningTests(unittest.TestCase):
                 "Out of Cruel Space, Part 59 \u2013 The Pirates & The Bounty Hunters",
             ],
         )
-        self.assertEqual(
-            sections[1][1], "<p>Text one.</p>", "the title is not repeated in the text"
-        )
+        self.assertEqual(sections[1][1], "<p>Text one.</p>", "the title is not repeated in the text")
         cache.data["index"] = {
             "url": "u",
             "fetched": 1,
@@ -772,9 +701,7 @@ class IndexTests(unittest.TestCase):
 
     def test_sheet_address_becomes_a_csv_export(self):
         self.assertEqual(
-            core.sheet_csv_url(
-                "https://docs.google.com/spreadsheets/d/AbC-1_2/edit?pli=1&gid=99#gid=99"
-            ),
+            core.sheet_csv_url("https://docs.google.com/spreadsheets/d/AbC-1_2/edit?pli=1&gid=99#gid=99"),
             "https://docs.google.com/spreadsheets/d/AbC-1_2/export?format=csv&gid=99",
         )
         self.assertEqual(
@@ -797,9 +724,7 @@ class IndexTests(unittest.TestCase):
                 "Chapter 004",
             ],
         )
-        self.assertEqual(
-            (rows[1]["n"], rows[1]["note"]), (2, "Pirates; Bounty Hunters")
-        )
+        self.assertEqual((rows[1]["n"], rows[1]["note"]), (2, "Pirates; Bounty Hunters"))
         self.assertAlmostEqual(
             rows[0]["ts"],
             core.datetime(2021, 5, 19, 2, 30, tzinfo=core.timezone.utc).timestamp(),
@@ -815,9 +740,7 @@ class IndexTests(unittest.TestCase):
             "html": "<p>x</p>",
             "link": "",
             "flair": "",
-            "created": core.datetime.strptime(when, "%Y-%m-%d %H:%M")
-            .replace(tzinfo=core.timezone.utc)
-            .timestamp(),
+            "created": core.datetime.strptime(when, "%Y-%m-%d %H:%M").replace(tzinfo=core.timezone.utc).timestamp(),
         }
 
     def posts(self):
@@ -825,12 +748,8 @@ class IndexTests(unittest.TestCase):
             self.post("t3_a", "Out of Cruel Space, Part 1", "2021-05-19 03:00"),
             self.post("t3_b", "Out of Cruel Space, Part 2", "2021-05-20 00:00"),
             self.post("t3_c", "Out of Cruel Space, Part 3", "2021-05-21 20:50"),
-            self.post(
-                "t3_d", "OOCS, Into A Wider Galaxy, Part 1010", "2024-05-22 20:30"
-            ),  # a typo for Part 10
-            self.post(
-                "t3_e", "OOCS, Into A Wider Galaxy, Part 011", "2024-05-23 21:00"
-            ),
+            self.post("t3_d", "OOCS, Into A Wider Galaxy, Part 1010", "2024-05-22 20:30"),  # a typo for Part 10
+            self.post("t3_e", "OOCS, Into A Wider Galaxy, Part 011", "2024-05-23 21:00"),
             self.post("t3_f", "OOCS, Into A Wider Galaxy, Part 12", "2024-05-24 21:00"),
         ]  # newer than the sheet
 
@@ -851,9 +770,7 @@ class IndexTests(unittest.TestCase):
             ["Chapter 004"],
             "listed in the index but never posted",
         )
-        self.assertEqual(
-            [p["id"] for p in unlisted], ["t3_f"], "posted but not yet in the index"
-        )
+        self.assertEqual([p["id"] for p in unlisted], ["t3_f"], "posted but not yet in the index")
         self.assertEqual(
             core.index_title(matched["t3_b"], "x"),
             "Chapter 002 \u2013 Pirates; Bounty Hunters",
@@ -880,6 +797,63 @@ class IndexTests(unittest.TestCase):
             (matched["t3_x"]["label"], matched["t3_y"]["label"]),
             ("Into A Wider Galaxy, Chapter 005", "Chapter 005"),
         )
+
+    # Rows in the shape of the real Out of Cruel Space Archive sheet (gid 1375133682): a Seq that runs unbroken
+    # across the rename, a Short Link per chapter, suffixed chapters minutes apart, and one ISO-form date.
+    REAL_CSV = (
+        "Out of Cruel Space (an extension of Kerserv's Archive - link on the right),,,,,,,,,\n"
+        "Date (CEST),Author,Chapter,Note,,Content by Type,,,Seq,Short Link,CTN\n"
+        "2021/05/19 04:30,KyleKKent,Chapter 001,Pirates,,Notes,,,1,OOCS 001,\n"
+        "2024/05/11 21:21,KyleKKent,Chapter 999,HHH,,,,,1528,OOCS 999,\n"
+        '2024/05/12 20:16,KyleKKent,"Into A Wider Galaxy, Chapter 001",Dauntless,,,,,1529,IAWG 001,\n'
+        '2024/06/11 20:32,KyleKKent,"Into A Wider Galaxy, Chapter 030 Plot",For Newest England,,,,,1572,IAWG 030-P,\n'
+        '2024/06/11 20:34,KyleKKent,"Into A Wider Galaxy, Chapter 030 [NSFW]",For Newest England,,,,,1573,IAWG 030,\n'
+        '2024/08/31 20:39,KyleKKent,"Into A Wider Galaxy, Chapter 097-A [NSFW]",A Scion of Many Worlds,,,,,1684,IAWG 097-A,\n'
+        '2024/08/31 20:41,KyleKKent,"Into A Wider Galaxy, Chapter 097-B SFW",A Scion of Many Worlds,,,,,1685,IAWG 097-B,\n'
+        '2026-07-19T20:44,KyleKKent,"Into A Wider Galaxy, Chapter 726",Undying Blues,,,,,2716,IAWG 726,\n'
+    )
+
+    def test_real_sheet_rows_keep_seq_ref_era_suffix_and_iso_dates(self):
+        rows = core.parse_index(self.REAL_CSV, "KyleKKent")
+        self.assertEqual(len(rows), 8, "the ISO-dated row (IAWG 726) is kept, not dropped")
+        self.assertEqual((rows[0]["seq"], rows[0]["ref"], rows[0]["era"], rows[0]["suffix"]), (1, "OOCS 001", "", ""))
+        self.assertEqual(
+            (rows[2]["seq"], rows[2]["ref"], rows[2]["era"]),
+            (1529, "IAWG 001", "into a wider galaxy"),
+            "the Seq runs unbroken across the rename: OOCS 999 is 1528, IAWG 001 is 1529",
+        )
+        self.assertEqual((rows[3]["suffix"], rows[3]["ref"]), ("Plot", "IAWG 030-P"))
+        self.assertEqual((rows[5]["suffix"], rows[6]["suffix"]), ("-A [NSFW]", "-B SFW"))
+        self.assertEqual((rows[7]["n"], rows[7]["ref"]), (726, "IAWG 726"))
+        self.assertAlmostEqual(rows[7]["ts"], core.datetime(2026, 7, 19, 18, 44, tzinfo=core.timezone.utc).timestamp())
+
+    def test_suffixed_and_restarted_chapters_match_their_own_posts(self):
+        rows = core.parse_index(self.REAL_CSV, "KyleKKent")
+        posts = [
+            self.post("t3_first", "Out of Cruel Space, Part 1", "2021-05-19 02:30"),
+            self.post("t3_iawg1", "OOCS, Into A Wider Galaxy, Part 1", "2024-05-12 18:16"),
+            self.post("t3_plot", "OOCS, Into A Wider Galaxy, Part 30 Plot", "2024-06-11 18:32"),
+            self.post("t3_nsfw", "OOCS, Into A Wider Galaxy, Part 30", "2024-06-11 18:34"),
+            self.post("t3_a", "OOCS, Into A Wider Galaxy, Part 97", "2024-08-31 18:39"),
+            self.post("t3_b", "OOCS, Into A Wider Galaxy, Part 97", "2024-08-31 18:41"),
+            self.post("t3_726", "OOCS, Into A Wider Galaxy, Part 726", "2026-07-19 18:44"),
+        ]
+        matched, missing, unlisted = core.match_index(posts, rows)
+        self.assertEqual(
+            {pid: r["ref"] for pid, r in matched.items()},
+            {
+                "t3_first": "OOCS 001",
+                "t3_iawg1": "IAWG 001",
+                "t3_plot": "IAWG 030-P",
+                "t3_nsfw": "IAWG 030",
+                "t3_a": "IAWG 097-A",
+                "t3_b": "IAWG 097-B",
+                "t3_726": "IAWG 726",
+            },
+            "each post takes its own row: era, suffix and the ISO-dated chapter included",
+        )
+        self.assertEqual([r["label"] for r in missing], ["Chapter 999"])
+        self.assertEqual(unlisted, [])
 
     def test_index_is_fetched_once_a_day_survives_failures_and_names_the_chapters(self):
         calls = []
@@ -970,12 +944,8 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(core.series_parts(title), want, title)
 
     def test_tag_only_titles_keep_their_tags_as_the_name(self):
-        self.assertEqual(
-            core.series_parts("[OC][JVerse] 4: Quarantine"), ("[OC][JVerse]", 4)
-        )
-        self.assertEqual(
-            core.series_parts("[OC][Jenkinsverse] Chapter 7"), ("[OC][Jenkinsverse]", 7)
-        )
+        self.assertEqual(core.series_parts("[OC][JVerse] 4: Quarantine"), ("[OC][JVerse]", 4))
+        self.assertEqual(core.series_parts("[OC][Jenkinsverse] Chapter 7"), ("[OC][Jenkinsverse]", 7))
 
     def posts(self):
         def p(i, title, author="Alpha", flair="OC", created=None, html="<p>x</p>"):
@@ -1017,13 +987,9 @@ class DiscoveryTests(unittest.TestCase):
             by[("Bravo", "Salvage")]["is_series"],
             "the same name by another author is a different series",
         )
-        self.assertTrue(
-            by[("Alpha", "Opener")]["is_series"], "a series flair counts with two posts"
-        )
+        self.assertTrue(by[("Alpha", "Opener")]["is_series"], "a series flair counts with two posts")
         self.assertFalse(by[("Alpha", "Lone story")]["is_series"])
-        self.assertFalse(
-            by[("Cee", "Hello")]["is_series"], "one numbered post is not yet a series"
-        )
+        self.assertFalse(by[("Cee", "Hello")]["is_series"], "one numbered post is not yet a series")
         self.assertNotIn(
             "Picture",
             [g["name"] for g in groups],
@@ -1037,6 +1003,79 @@ class DiscoveryTests(unittest.TestCase):
             [p["id"] for p in salvage["posts"]],
             ["t3_1", "t3_2", "t3_3", "t3_4"],
             "posts are listed by date",
+        )
+
+    def test_retitled_series_is_one_group_and_its_follow_is_the_preset(self):
+        def p(i, title):
+            return {
+                "id": f"t3_k{i}",
+                "title": title,
+                "author": "KyleKKent",
+                "flair": "OC",
+                "created": 1620000000.0 + i * 86400,
+                "html": "<p>x</p>",
+                "link": "",
+                "score": 5,
+            }
+
+        entries = [
+            p(1, "Out of Cruel Space, Part 1"),
+            p(2, "Out of Cruel Space, Part 2"),
+            p(3, "Out of Cruel Space, Part 999"),
+            p(4, "OOCS, Into A Wider Galaxy, Part 1"),
+            p(5, "OOCS, Into A Wider Galaxy, Part 2"),
+            p(6, "OOCS, Into A Wider Galaxy, Part 823"),
+            p(7, "Out of Cruel Space Side Story: Of Dog, Volpir, and Man, Part 1"),
+        ]
+        groups = core.group_series(entries)
+        kyle = [g for g in groups if g["author"] == "KyleKKent"]
+        merged = [g for g in kyle if g["name"] == "Out of Cruel Space"]
+        self.assertEqual(len(merged), 1, "the two title eras are one group, not two series")
+        self.assertEqual(len(merged[0]["posts"]), 6, "both eras' parts are in it; the side story stays its own group")
+        self.assertTrue(merged[0]["is_series"])
+        follow = core.series_follow(merged[0])
+        preset = core.PRESETS[0]
+        self.assertEqual(
+            (
+                follow["name"],
+                follow["title_filter"],
+                follow["author_filter"],
+                follow["index_url"],
+                follow["title_from_body"],
+            ),
+            (preset["name"], preset["title_filter"], preset["author_filter"], preset["index_url"], True),
+            "following the discovered group brings the preset: both eras matched, chapter index attached",
+        )
+        for title, want in (
+            ("Out of Cruel Space, Part 5", True),
+            ("OOCS, Into A Wider Galaxy, Part 800", True),
+            ("Out of Cruel Space Side Story: Of Dog, Volpir, and Man", False),
+        ):
+            self.assertEqual(
+                core.matches({"title": title, "author": "KyleKKent", "html": "<p>x</p>"}, follow), want, title
+            )
+
+    def test_following_either_era_of_a_retitled_series_counts_as_following_it(self):
+        split_follow = core.new_follow("OOCS, Into A Wider Galaxy", "u/KyleKKent", "OOCS", "KyleKKent")
+        self.assertIn(
+            ("kylekkent", "out of cruel space"),
+            core.followed_keys([split_follow]),
+            "an existing follow under the new title covers the canonical series",
+        )
+        merged = {
+            "name": "Out of Cruel Space",
+            "author": "KyleKKent",
+            "authors": ["KyleKKent"],
+            "posts": [1, 2, 3],
+            "numbers": {1, 2, 3},
+            "flairs": set(),
+            "score": 10**9,
+            "is_series": True,
+        }
+        self.assertEqual(
+            core.top_series([merged], 5, 3, [split_follow]),
+            [],
+            "and top-rated will not offer it again as a second book",
         )
 
     def scored(self):
@@ -1131,21 +1170,13 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_filters_are_described_in_words_not_as_regular_expressions(self):
         # the stored title filters exactly as they appeared in the list of followed stories
-        old_form = (
-            "re:^\\s*"
-            + core._LEAD_TAGS
-            + "The\\ Nature\\ of\\ Predators(?![A-Za-z0-9])"
-        )
-        follow = core.new_follow(
-            "The Nature of Predators", "u/SpacePaladin15", old_form, "SpacePaladin15"
-        )
+        old_form = "re:^\\s*" + core._LEAD_TAGS + "The\\ Nature\\ of\\ Predators(?![A-Za-z0-9])"
+        follow = core.new_follow("The Nature of Predators", "u/SpacePaladin15", old_form, "SpacePaladin15")
         self.assertEqual(
             core.describe_filters(follow),
             "  title starts with \u201cThe Nature of Predators\u201d, by SpacePaladin15",
         )
-        made = core.series_follow(
-            {"name": "Humans don't Make Good Pets", "author": "guidosbestfriend"}
-        )
+        made = core.series_follow({"name": "Humans don't Make Good Pets", "author": "guidosbestfriend"})
         self.assertNotIn(
             "\\ ",
             made["title_filter"],
@@ -1178,31 +1209,21 @@ class DiscoveryTests(unittest.TestCase):
             "  title starts with \u201c(Out of Cruel Space|OOCS)\u201d, by KyleKKent",
         )
         self.assertEqual(
-            core.describe_filters(
-                core.new_follow("x", "u/KyleKKent", "Out of Cruel Space", "KyleKKent")
-            ),
+            core.describe_filters(core.new_follow("x", "u/KyleKKent", "Out of Cruel Space", "KyleKKent")),
             "  title has \u201cOut of Cruel Space\u201d, by KyleKKent",
         )
         self.assertEqual(core.describe_filters(core.new_follow("x", "r/HFY")), "")
         self.assertEqual(
-            core.describe_filters(
-                core.new_follow("x", "r/stories", layout="each", flair_filter="FICTION")
-            ),
+            core.describe_filters(core.new_follow("x", "r/stories", layout="each", flair_filter="FICTION")),
             "  flair \u201cFICTION\u201d, each post as its own book",
         )
         self.assertEqual(
-            core.describe_filters(
-                core.new_follow("x", "r/HFY", "re:^\\s*Odd(Pattern)\\d+")
-            ),
+            core.describe_filters(core.new_follow("x", "r/HFY", "re:^\\s*Odd(Pattern)\\d+")),
             "  title starts with \u201cOdd(Pattern)\\d+\u201d".replace("\\d+", "d+"),
         )
 
     def test_follow_for_a_series_matches_its_parts_and_not_other_stories(self):
-        group = [
-            g
-            for g in core.group_series(self.posts())
-            if g["name"] == "Salvage" and g["author"] == "Alpha"
-        ][0]
+        group = [g for g in core.group_series(self.posts()) if g["name"] == "Salvage" and g["author"] == "Alpha"][0]
         follow = core.series_follow(group)
         self.assertEqual(
             (
@@ -1253,12 +1274,8 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(core.discover_source("HFY", "", "new")["sort"], "new")
         with self.assertRaises(core.SourceError):
             core.discover_source("not a name!", "x")
-        self.assertIn(
-            "/r/HFY/top?", core.api_path(core.discover_source("HFY", "", "top-month"))
-        )
-        self.assertIn(
-            "t=month", core.api_path(core.discover_source("HFY", "", "top-month"))
-        )
+        self.assertIn("/r/HFY/top?", core.api_path(core.discover_source("HFY", "", "top-month")))
+        self.assertIn("t=month", core.api_path(core.discover_source("HFY", "", "top-month")))
         self.assertIn(
             "sort=relevance",
             core.api_path(core.discover_source("HFY", "x", "relevance")),
@@ -1276,9 +1293,7 @@ class DiscoveryTests(unittest.TestCase):
         source = FakeSource(pages, per_page=4)
         core.discover(source, {"kind": "subreddit", "subreddit": "HFY"}, pages=2)
         self.assertEqual(len(source.calls), 2, "only the pages asked for")
-        only = core.discover(
-            FakeSource(pages, per_page=20), {"kind": "subreddit"}, flair="FirstOf"
-        )
+        only = core.discover(FakeSource(pages, per_page=20), {"kind": "subreddit"}, flair="FirstOf")
         self.assertEqual([g["name"] for g in only], ["Opener"])
         history = [
             dict(
@@ -1290,11 +1305,7 @@ class DiscoveryTests(unittest.TestCase):
             for n in range(1, 61)
         ]
         follow = core.series_follow(
-            [
-                g
-                for g in core.group_series(self.posts())
-                if g["name"] == "Salvage" and g["author"] == "Alpha"
-            ][0]
+            [g for g in core.group_series(self.posts()) if g["name"] == "Salvage" and g["author"] == "Alpha"][0]
         )
         seen = core.preview_series(FakeSource(history, per_page=25), follow)
         self.assertEqual(
@@ -1311,9 +1322,7 @@ class EachPostTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.preset = [p for p in core.PRESETS if p.get("layout") == "each"][0]
-        self.follow = core.new_follow(
-            self.preset["name"], self.preset["source"], layout="each"
-        )
+        self.follow = core.new_follow(self.preset["name"], self.preset["source"], layout="each")
 
     def story_post(self, n, title, flair="FICTION - Cousin", author=None):
         e = post(n, title=title, author=author or f"writer{n}")
@@ -1322,20 +1331,10 @@ class EachPostTests(unittest.TestCase):
 
     def test_flair_filter_and_the_age_guard(self):
         follow = dict(self.follow, flair_filter="FICTION")
-        self.assertTrue(
-            core.matches(self.story_post(1, "A summer at the lake (A story)"), follow)
-        )
-        self.assertFalse(
-            core.matches(
-                self.story_post(1, "A summer", flair="TRUE STORY - Uncle"), follow
-            )
-        )
-        self.assertTrue(
-            core.matches(self.story_post(1, "Long weekend", flair="x"), self.follow)
-        )
-        self.assertTrue(
-            core.matches(self.story_post(1, "Reunion [44M] and [24M]"), self.follow)
-        )
+        self.assertTrue(core.matches(self.story_post(1, "A summer at the lake (A story)"), follow))
+        self.assertFalse(core.matches(self.story_post(1, "A summer", flair="TRUE STORY - Uncle"), follow))
+        self.assertTrue(core.matches(self.story_post(1, "Long weekend", flair="x"), self.follow))
+        self.assertTrue(core.matches(self.story_post(1, "Reunion [44M] and [24M]"), self.follow))
         for title in (
             "Camping trip [16M] and [40M]",
             "Me (17) and him",
@@ -1344,18 +1343,12 @@ class EachPostTests(unittest.TestCase):
             "We were 16 years old",
         ):
             self.assertTrue(core.stated_minor_age(title), title)
-            self.assertFalse(
-                core.matches(self.story_post(1, title), self.follow), title
-            )
+            self.assertFalse(core.matches(self.story_post(1, title), self.follow), title)
         self.assertTrue(
-            core.matches(
-                self.story_post(1, "Part (2)"), dict(self.follow, layout="series")
-            ),
+            core.matches(self.story_post(1, "Part (2)"), dict(self.follow, layout="series")),
             "series follows are not age-filtered",
         )
-        self.assertFalse(
-            core.stated_minor_age("Born in 1990, 21 chapters, [18M] and [45M]")
-        )
+        self.assertFalse(core.stated_minor_age("Born in 1990, 21 chapters, [18M] and [45M]"))
 
     def test_first_check_takes_only_the_newest_few_and_later_checks_the_rest(self):
         posts = [self.story_post(n, f"Story number {n}") for n in range(40, 0, -1)]
@@ -1375,9 +1368,7 @@ class EachPostTests(unittest.TestCase):
     def test_books_are_made_once_oldest_first_and_edits_make_a_fresh_one(self):
         cache = core.ChapterCache(self.tmp.name, self.follow["id"])
         core.check_follow(
-            FakeSource(
-                [self.story_post(n, f"Story {n}") for n in (3, 2, 1)], per_page=10
-            ),
+            FakeSource([self.story_post(n, f"Story {n}") for n in (3, 2, 1)], per_page=10),
             self.follow,
             cache,
         )
@@ -1386,9 +1377,7 @@ class EachPostTests(unittest.TestCase):
             ["Story 1", "Story 2", "Story 3"],
         )
         cache.data["added"] = ["t3_001", "t3_002"]
-        self.assertEqual(
-            [p["id"] for p in core.pending_each(self.follow, cache)], ["t3_003"]
-        )
+        self.assertEqual([p["id"] for p in core.pending_each(self.follow, cache)], ["t3_003"])
         edited = dict(self.story_post(2, "Story 2"), html="<p>edited</p>")
         core.check_follow(
             FakeSource(
@@ -1399,9 +1388,7 @@ class EachPostTests(unittest.TestCase):
             cache,
             max_pages=1,
         )
-        self.assertEqual(
-            cache.data["added"], ["t3_001"], "an edited post is made into a book again"
-        )
+        self.assertEqual(cache.data["added"], ["t3_001"], "an edited post is made into a book again")
         self.assertEqual(
             len(core.pending_each(self.follow, cache, limit=1)),
             1,
@@ -1429,9 +1416,7 @@ class EachPostTests(unittest.TestCase):
         )
         self.assertEqual(story["id"], "reddit-t3_007")
         self.assertEqual(len(story["sections"]), 1)
-        self.assertNotIn(
-            "series", core.build_each(self.follow, self.story_post(8, "Just a title"))
-        )
+        self.assertNotIn("series", core.build_each(self.follow, self.story_post(8, "Just a title")))
         self.assertNotIn(
             "series",
             core.build_each(self.follow, self.story_post(8, "Ch 2")),
@@ -1479,21 +1464,15 @@ class ProbeTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn("4 post(s), 3 with story text", message)
         self.assertIn("2 match your filters", message)
-        self.assertIn(
-            "Out of Cruel Space (Chapter 3)", message, "the newest match is named"
-        )
+        self.assertIn("Out of Cruel Space (Chapter 3)", message, "the newest match is named")
         self.assertEqual(len(source.calls), 1, "a probe makes exactly one request")
         self.assertIn("public feed", message)
 
     def test_without_a_follow_and_when_nothing_matches_yet(self):
-        ok, message = core.probe(
-            FakeSource([post(1, title="Other")], per_page=5), self.SRC
-        )
+        ok, message = core.probe(FakeSource([post(1, title="Other")], per_page=5), self.SRC)
         self.assertTrue(ok)
         self.assertNotIn("match", message)
-        ok, message = core.probe(
-            FakeSource([post(1, title="Other")], per_page=5), self.SRC, self.follow()
-        )
+        ok, message = core.probe(FakeSource([post(1, title="Other")], per_page=5), self.SRC, self.follow())
         self.assertIn("none on this first page", message)
 
     def test_empty_listing(self):
@@ -1517,16 +1496,12 @@ class ProbeTests(unittest.TestCase):
         self.assertIn("10 minute", message)
         ok, message = core.probe(Raising(core.RateLimited("u")), self.SRC)
         self.assertIn("429", message)
-        ok, message = core.probe(
-            Raising(OSError("Could not fetch x: HTTP Error 403")), self.SRC
-        )
+        ok, message = core.probe(Raising(OSError("Could not fetch x: HTTP Error 403")), self.SRC)
         self.assertFalse(ok)
         self.assertIn("403", message)
         ok, message = core.probe(Raising(ValueError("not XML")), self.SRC)
         self.assertIn("usable answer", message)
-        ok, message = core.probe(
-            core.ApiSource(core.Fetcher(min_interval=0), "", "", ""), self.SRC
-        )
+        ok, message = core.probe(core.ApiSource(core.Fetcher(min_interval=0), "", "", ""), self.SRC)
         self.assertFalse(ok)
         self.assertIn("client id", message)
 
@@ -1541,9 +1516,7 @@ class ProbeTests(unittest.TestCase):
             (api_source.mode, api_source.fetcher.min_interval),
             ("api", core.MIN_API_INTERVAL),
         )
-        self.assertEqual(
-            api_source.user_agent, "calibre:reddit-follower:1.0 (by /u/me)"
-        )
+        self.assertEqual(api_source.user_agent, "calibre:reddit-follower:1.0 (by /u/me)")
 
 
 class CheckTests(unittest.TestCase):
@@ -1576,8 +1549,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(result["pages"], 4, "every page was read until the feed ended")
         self.assertEqual(
             [p["title"][-3:-1] for p in cache.ordered()],
-            ["r 1", "r 2", "r 3", "r 4", "r 5"][:0]
-            or [p["title"][-3:-1] for p in cache.ordered()],
+            ["r 1", "r 2", "r 3", "r 4", "r 5"][:0] or [p["title"][-3:-1] for p in cache.ordered()],
         )
         self.assertEqual(
             cache.ordered()[0]["title"],
@@ -1596,13 +1568,9 @@ class CheckTests(unittest.TestCase):
             sorted(result["new"]),
             ["Out of Cruel Space (Chapter 6)", "Out of Cruel Space (Chapter 7)"],
         )
-        self.assertLessEqual(
-            result["pages"], 2, "it must not page through the whole history again"
-        )
+        self.assertLessEqual(result["pages"], 2, "it must not page through the whole history again")
         self.assertEqual(len(cache.posts), 7)
-        quiet = core.check_follow(
-            FakeSource(self.feed_posts(7)), self.follow, self.cache()
-        )
+        quiet = core.check_follow(FakeSource(self.feed_posts(7)), self.follow, self.cache())
         self.assertEqual((quiet["new"], quiet["changed"]), ([], []))
 
     def test_an_edited_post_is_noticed(self):
@@ -1611,9 +1579,7 @@ class CheckTests(unittest.TestCase):
         posts[0] = post(3, html="<p>Chapter 3 text, corrected.</p>")
         cache = self.cache()
         result = core.check_follow(FakeSource(posts), self.follow, cache)
-        self.assertEqual(
-            (result["new"], result["changed"]), ([], ["Out of Cruel Space (Chapter 3)"])
-        )
+        self.assertEqual((result["new"], result["changed"]), ([], ["Out of Cruel Space (Chapter 3)"]))
         self.assertIn("corrected", cache.posts["t3_003"]["html"])
 
     def test_a_rate_limit_keeps_what_was_read_and_propagates(self):
@@ -1622,9 +1588,7 @@ class CheckTests(unittest.TestCase):
         with self.assertRaises(core.RateLimited) as caught:
             core.check_follow(source, self.follow, cache)
         self.assertEqual(caught.exception.retry_after, 90)
-        self.assertEqual(
-            len(self.cache().posts), 4, "two pages were read and saved before the limit"
-        )
+        self.assertEqual(len(self.cache().posts), 4, "two pages were read and saved before the limit")
 
     def test_cancel_stops_before_the_next_page(self):
         calls = []
@@ -1642,9 +1606,7 @@ class CheckTests(unittest.TestCase):
     def test_a_damaged_cache_is_rebuilt(self):
         cache = self.cache()
         Path(cache.path).write_text("{not json")
-        result = core.check_follow(
-            FakeSource(self.feed_posts(2)), self.follow, self.cache()
-        )
+        result = core.check_follow(FakeSource(self.feed_posts(2)), self.follow, self.cache())
         self.assertEqual(len(result["new"]), 2)
 
     def test_book_is_built_oldest_first_with_chapters(self):
@@ -1655,9 +1617,7 @@ class CheckTests(unittest.TestCase):
             (story["title"], story["author"], len(story["sections"])),
             ("Out of Cruel Space", "Writer", 4),
         )
-        self.assertEqual(
-            [h for h, _ in story["sections"]][0], "Out of Cruel Space (Chapter 1)"
-        )
+        self.assertEqual([h for h, _ in story["sections"]][0], "Out of Cruel Space (Chapter 1)")
         self.assertIn("4 chapters collected from Reddit", story["summary"])
         self.assertEqual(story["tags"], ["Reddit", "r/HFY"])
         data = core.build_epub(story)
@@ -1666,9 +1626,7 @@ class CheckTests(unittest.TestCase):
         for name in z.namelist():
             if name.endswith((".xhtml", ".opf", ".ncx", ".xml")):
                 xml.dom.minidom.parseString(z.read(name))
-        self.assertIn(
-            "<dc:publisher>Reddit</dc:publisher>", z.read("OEBPS/content.opf").decode()
-        )
+        self.assertIn("<dc:publisher>Reddit</dc:publisher>", z.read("OEBPS/content.opf").decode())
         with self.assertRaises(ValueError):
             core.build_story(self.follow, core.ChapterCache(self.tmp.name, "empty"))
 
@@ -1715,12 +1673,8 @@ class RunFollowsTests(unittest.TestCase):
                 "carol": [],
             }
         )
-        results = core.run_follows(
-            source, [self.a, self.b, self.c], self.tmp.name, now=lambda: 4242.0
-        )
-        self.assertEqual(
-            [r["new"] for r in results], [["Chapter 1"], ["Chapter 9"], []]
-        )
+        results = core.run_follows(source, [self.a, self.b, self.c], self.tmp.name, now=lambda: 4242.0)
+        self.assertEqual([r["new"] for r in results], [["Chapter 1"], ["Chapter 9"], []])
         self.assertEqual(self.a["last_checked"], 4242.0)
         self.assertEqual(self.a["last_status"], "1 new chapter(s)")
         self.assertEqual(self.c["last_status"], "up to date")
@@ -1747,12 +1701,8 @@ class RunFollowsTests(unittest.TestCase):
         self.assertEqual([r["skipped"] for r in results], [False, False, True])
         self.assertTrue(results[1]["rate_limited"])
         self.assertEqual(results[1]["retry_after"], 120)
-        self.assertEqual(
-            source.asked, ["alice", "bob"], "carol was never requested after the limit"
-        )
-        self.assertEqual(
-            self.c.get("last_checked"), 0.0, "a skipped follow is not marked as checked"
-        )
+        self.assertEqual(source.asked, ["alice", "bob"], "carol was never requested after the limit")
+        self.assertEqual(self.c.get("last_checked"), 0.0, "a skipped follow is not marked as checked")
         self.assertIn("slow down", self.b["last_status"])
         self.assertEqual(
             self.a["last_status"],
@@ -1761,17 +1711,11 @@ class RunFollowsTests(unittest.TestCase):
         )
 
     def test_run_follows_propagates_warning_for_author_note_without_api(self):
-        noted_follow = core.new_follow(
-            "Series N", "u/alice", "Chapter", author_note=True
-        )
+        noted_follow = core.new_follow("Series N", "u/alice", "Chapter", author_note=True)
         source = self.BySource({"alice": [post(1, "Chapter 1")]})
         results = core.run_follows(source, [noted_follow], self.tmp.name)
-        self.assertEqual(
-            results[0].get("warning"), "author comments need the official API"
-        )
-        self.assertIn(
-            "author comments need the official API", noted_follow["last_status"]
-        )
+        self.assertEqual(results[0].get("warning"), "author comments need the official API")
+        self.assertIn("author comments need the official API", noted_follow["last_status"])
 
 
 class FakeResponse(io.BytesIO):
@@ -1801,9 +1745,7 @@ class FeedSourceTests(unittest.TestCase):
 
         def opener(req, timeout):
             seen.append((req.full_url, dict(req.header_items())))
-            return FakeResponse(
-                feed(entry("aaa111", "Chapter 1", "<p>One.</p>")).encode()
-            )
+            return FakeResponse(feed(entry("aaa111", "Chapter 1", "<p>One.</p>")).encode())
 
         source = core.FeedSource(core.Fetcher(min_interval=0, opener=opener))
         entries, after = source.page(core.parse_source("r/HFY"))
@@ -1822,14 +1764,10 @@ class FeedSourceTests(unittest.TestCase):
 
         def opener(req, timeout):
             calls.append(1)
-            raise urllib.error.HTTPError(
-                req.full_url, 429, "Too Many Requests", {"Retry-After": "60"}, None
-            )
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {"Retry-After": "60"}, None)
 
         with self.assertRaises(core.RateLimited):
-            core.FeedSource(core.Fetcher(min_interval=0, opener=opener)).page(
-                core.parse_source("r/HFY")
-            )
+            core.FeedSource(core.Fetcher(min_interval=0, opener=opener)).page(core.parse_source("r/HFY"))
         self.assertEqual(len(calls), 1)
 
 
@@ -1854,9 +1792,7 @@ class FakeReddit(http.server.BaseHTTPRequestHandler):
         type(self).log.append(("get", dict(self.headers), self.path))
         if type(self).mode == "scope":
             self.send_response(403)
-            self.send_header(
-                "WWW-Authenticate", 'Bearer realm="reddit", error="insufficient_scope"'
-            )
+            self.send_header("WWW-Authenticate", 'Bearer realm="reddit", error="insufficient_scope"')
             self.end_headers()
             return
         if type(self).mode == "limited":
@@ -1922,17 +1858,13 @@ class ApiSourceTests(unittest.TestCase):
 
     def test_installed_app_flow_and_listing(self):
         entries, after = self.api().page(core.parse_source("r/HFY"))
-        self.assertEqual(
-            [(e["id"], e["html"]) for e in entries], [("t3_aaa", "<p>Hi.</p>")]
-        )
+        self.assertEqual([(e["id"], e["html"]) for e in entries], [("t3_aaa", "<p>Hi.</p>")])
         token_call, get_call = FakeReddit.log
         self.assertIn("installed_client", token_call[2])
         self.assertIn("device_id=", token_call[2])
         self.assertTrue(token_call[1]["Authorization"].startswith("Basic "))
         self.assertEqual(get_call[1]["Authorization"], "bearer tok123")
-        self.assertEqual(
-            get_call[1]["User-Agent"], "calibre:reddit-follower:1.0 (by /u/Reader)"
-        )
+        self.assertEqual(get_call[1]["User-Agent"], "calibre:reddit-follower:1.0 (by /u/Reader)")
         self.assertIn("/r/HFY/new?", get_call[2])
         self.assertIn("raw_json=1", get_call[2])
 
@@ -1964,9 +1896,7 @@ class ApiSourceTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(core.SourceError, "Log out"):
             api.page(core.parse_source("u/name"))
-        with self.assertRaisesRegex(
-            IOError, "insufficient_scope"
-        ):  # without a saved login the reason is still shown
+        with self.assertRaisesRegex(IOError, "insufficient_scope"):  # without a saved login the reason is still shown
             self.api().page(core.parse_source("u/name"))
 
     def test_rate_limit_from_the_api(self):
@@ -1981,9 +1911,7 @@ class MultiAuthorTests(unittest.TestCase):
 
     def test_parse_authors_formatting_and_delimiters(self):
         self.assertEqual(core.parse_authors("KyleKKent"), ["KyleKKent"])
-        self.assertEqual(
-            core.parse_authors("u/Author1, u/Author2"), ["Author1", "Author2"]
-        )
+        self.assertEqual(core.parse_authors("u/Author1, u/Author2"), ["Author1", "Author2"])
         self.assertEqual(
             core.parse_authors("Author1 | /u/Author2 | @Author3"),
             ["Author1", "Author2", "Author3"],
@@ -2089,9 +2017,7 @@ class MultiAuthorTests(unittest.TestCase):
         self.assertTrue(g["is_series"])
 
     def test_multi_author_epub_metadata_and_chapter_attribution(self):
-        follow = core.new_follow(
-            "Collab Series", "r/HFY", author_filter="Author1, Author2"
-        )
+        follow = core.new_follow("Collab Series", "r/HFY", author_filter="Author1, Author2")
         cache = core.ChapterCache("/tmp/fake_cache", follow["id"])
         cache.data["posts"] = {
             "t3_1": {
@@ -2164,9 +2090,7 @@ class OpmlTests(unittest.TestCase):
         o1 = outlines[0]
         self.assertEqual(o1.attrib["title"], "HFY Main")
         self.assertEqual(o1.attrib["type"], "rss")
-        self.assertEqual(
-            o1.attrib["xmlUrl"], "https://www.reddit.com/r/HFY/new.rss?limit=100"
-        )
+        self.assertEqual(o1.attrib["xmlUrl"], "https://www.reddit.com/r/HFY/new.rss?limit=100")
         self.assertEqual(o1.attrib["htmlUrl"], "https://www.reddit.com/r/HFY/")
 
         o2 = outlines[1]
@@ -2248,9 +2172,7 @@ class OpmlTests(unittest.TestCase):
 
 class SubscriptionTests(unittest.TestCase):
     def setUp(self):
-        self.follow1 = core.new_follow(
-            "Out of Cruel Space", "u/KyleKKent", "Out of Cruel Space", "KyleKKent"
-        )
+        self.follow1 = core.new_follow("Out of Cruel Space", "u/KyleKKent", "Out of Cruel Space", "KyleKKent")
         self.follow1["categories"] = ["Sci-Fi", "Reddit Series"]
         self.follow2 = core.new_follow("r/HFY", "r/HFY")
         self.follow2["categories"] = ["Subreddits"]
@@ -2274,9 +2196,7 @@ class SubscriptionTests(unittest.TestCase):
   </body>
 </opml>"""
         subs = subscription.parse_opml(opml_text)
-        self.assertEqual(
-            len(subs), 2, "Non-reddit Hacker News feed should be filtered out"
-        )
+        self.assertEqual(len(subs), 2, "Non-reddit Hacker News feed should be filtered out")
         self.assertEqual(subs[0]["name"], "Out of Cruel Space")
         self.assertEqual(subs[0]["categories"], ["Fiction Folder", "Sci-Fi Subfolder"])
         self.assertEqual(subs[0]["title_filter"], "Out of Cruel Space")
@@ -2294,9 +2214,7 @@ class SubscriptionTests(unittest.TestCase):
         subs = subscription.parse_opml(xml_text)
         duration = time.time() - t0
         self.assertEqual(len(subs), 1000)
-        self.assertLess(
-            duration, 1.5, "Parsing 1,000 OPML entries should take under 1.5 seconds"
-        )
+        self.assertLess(duration, 1.5, "Parsing 1,000 OPML entries should take under 1.5 seconds")
 
     def test_opml_malformed_xml(self):
         with self.assertRaises(ValueError):
@@ -2363,25 +2281,17 @@ class SubscriptionTests(unittest.TestCase):
         }
 
         # Strategy 1: Skip
-        merged, stats = subscription.merge_subscriptions(
-            existing, [imported_sub, new_sub], strategy="skip"
-        )
+        merged, stats = subscription.merge_subscriptions(existing, [imported_sub, new_sub], strategy="skip")
         self.assertEqual(len(merged), 2)
         self.assertEqual(stats, {"added": 1, "updated": 0, "skipped": 1})
-        self.assertEqual(
-            merged[0]["title_filter"], "Out of Cruel Space", "Existing item unchanged"
-        )
+        self.assertEqual(merged[0]["title_filter"], "Out of Cruel Space", "Existing item unchanged")
 
         # Strategy 2: Overwrite
-        merged_ow, stats_ow = subscription.merge_subscriptions(
-            existing, [imported_sub, new_sub], strategy="overwrite"
-        )
+        merged_ow, stats_ow = subscription.merge_subscriptions(existing, [imported_sub, new_sub], strategy="overwrite")
         self.assertEqual(len(merged_ow), 2)
         self.assertEqual(stats_ow, {"added": 1, "updated": 1, "skipped": 0})
         self.assertEqual(merged_ow[0]["title_filter"], "UPDATED FILTER")
-        self.assertEqual(
-            merged_ow[0]["id"], self.follow1["id"], "ID preserved on overwrite"
-        )
+        self.assertEqual(merged_ow[0]["id"], self.follow1["id"], "ID preserved on overwrite")
 
         # Strategy 3: Add Suffix / Prefix
         merged_sfx, stats_sfx = subscription.merge_subscriptions(
@@ -2394,9 +2304,7 @@ class SubscriptionTests(unittest.TestCase):
         self.assertEqual(len(merged_sfx), 3)
         self.assertEqual(stats_sfx, {"added": 2, "updated": 0, "skipped": 0})
         self.assertEqual(merged_sfx[1]["name"], "Out of Cruel Space (Imported)")
-        self.assertNotEqual(
-            merged_sfx[1]["id"], self.follow1["id"], "New unique ID assigned"
-        )
+        self.assertNotEqual(merged_sfx[1]["id"], self.follow1["id"], "New unique ID assigned")
 
 
 _GLOBAL_QT_APP = None
@@ -2409,10 +2317,13 @@ def ensure_qt():
         from qt.core import QApplication
 
         if hasattr(QApplication, "instance") and callable(QApplication.instance):
-            if not QApplication.instance():
-                _GLOBAL_QT_APP = QApplication([])
-            else:
-                _GLOBAL_QT_APP = QApplication.instance()
+            inst = QApplication.instance()
+        else:
+            inst = None
+        if not inst:
+            _GLOBAL_QT_APP = QApplication([])
+        else:
+            _GLOBAL_QT_APP = inst
     except Exception:
         pass
 
@@ -2423,8 +2334,7 @@ def ensure_qt():
         try:
             from PyQt6 import QtCore, QtGui, QtWidgets
 
-            app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-            _GLOBAL_QT_APP = app
+            _GLOBAL_QT_APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
             qtcore = types.ModuleType("qt.core")
             for module in (QtWidgets, QtGui, QtCore):
                 for name in dir(module):
@@ -2629,13 +2539,9 @@ def ensure_qt():
         sys.modules["calibre.utils.config"] = MagicMock()
         sys.modules["calibre.utils.config"].JSONConfig = lambda name: StubPrefs()
 
-    calibre_plugins_mod = sys.modules.get("calibre_plugins") or types.ModuleType(
-        "calibre_plugins"
-    )
+    calibre_plugins_mod = sys.modules.get("calibre_plugins") or types.ModuleType("calibre_plugins")
     sys.modules["calibre_plugins"] = calibre_plugins_mod
-    pkg = sys.modules.get("calibre_plugins.reddit_follower") or types.ModuleType(
-        "calibre_plugins.reddit_follower"
-    )
+    pkg = sys.modules.get("calibre_plugins.reddit_follower") or types.ModuleType("calibre_plugins.reddit_follower")
     pkg.core = core
     setattr(calibre_plugins_mod, "reddit_follower", pkg)
     sys.modules["calibre_plugins.reddit_follower"] = pkg
@@ -2668,9 +2574,7 @@ class FollowDialogWarningTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         ensure_qt()
-        spec_ui = importlib.util.spec_from_file_location(
-            "rui", Path(__file__).resolve().parents[1] / "reddit/ui.py"
-        )
+        spec_ui = importlib.util.spec_from_file_location("rui", Path(__file__).resolve().parents[1] / "reddit/ui.py")
         cls.rui = importlib.util.module_from_spec(spec_ui)
         spec_ui.loader.exec_module(cls.rui)
 
