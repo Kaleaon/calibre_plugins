@@ -78,9 +78,7 @@ def is_auth_or_rate_limit_error(error):
 
 
 IDENTIFIER = "redditfollow"
-TICK_MS = (
-    15 * 60 * 1000
-)  # how often we look at which stories are due; looking costs nothing
+TICK_MS = 15 * 60 * 1000  # how often we look at which stories are due; looking costs nothing
 FIRST_CHECK_MS = 2 * 60 * 1000  # after startup, so Calibre opens quickly
 MIN_BACKOFF = 15 * 60  # seconds to leave Reddit alone after it asks us to slow down
 
@@ -133,9 +131,7 @@ class FollowerAction(InterfaceAction):
         if self._cache_dir is None:
             from calibre.constants import config_dir
 
-            self._cache_dir = os.path.join(
-                config_dir, "plugins", "reddit_follower_cache"
-            )
+            self._cache_dir = os.path.join(config_dir, "plugins", "reddit_follower_cache")
         return self._cache_dir
 
     def get_queue_manager(self):
@@ -157,10 +153,7 @@ class FollowerAction(InterfaceAction):
 
     def registry(self):
         db_path = os.path.join(self.cache_dir(), "series_registry.db")
-        if (
-            getattr(self, "_registry", None) is None
-            or self._registry.db_path != db_path
-        ):
+        if getattr(self, "_registry", None) is None or self._registry.db_path != db_path:
             try:
                 from .registry import SeriesRegistry
             except ImportError:
@@ -211,11 +204,7 @@ class FollowerAction(InterfaceAction):
         return series_list if series_list else prefs["follows"]
 
     def chapter_count(self, follow):
-        return len(
-            core.ChapterCache(
-                self.cache_dir(), follow["id"], registry=self.registry()
-            ).posts
-        )
+        return len(core.ChapterCache(self.cache_dir(), follow["id"], registry=self.registry()).posts)
 
     def make_source(self, cancelled):
         return core.make_source(
@@ -239,9 +228,7 @@ class FollowerAction(InterfaceAction):
         dialog = DiscoverDialog(self.gui, self)
         if dialog.exec() != DiscoverDialog.DialogCode.Accepted:
             return
-        added = ([dialog.chosen] if dialog.chosen is not None else []) + list(
-            dialog.chosen_many
-        )
+        added = ([dialog.chosen] if dialog.chosen is not None else []) + list(dialog.chosen_many)
         if added:
             for s in added:
                 self.registry().save_series(s)
@@ -255,13 +242,9 @@ class FollowerAction(InterfaceAction):
         self.check_now(list(self.get_follows()))
 
     def show_auth_error_dialog(self, error, follows=None):
-        dialog = RedditAuthErrorDialog(
-            self.gui, error=error, action=self, follows=follows
-        )
+        dialog = RedditAuthErrorDialog(self.gui, error=error, action=self, follows=follows)
         self.last_dialog = dialog
-        if os.environ.get("QT_QPA_PLATFORM") == "offscreen" and not getattr(
-            self, "_show_modal_in_headless", False
-        ):
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen" and not getattr(self, "_show_modal_in_headless", False):
             return dialog
         dialog.exec()
         return dialog
@@ -300,28 +283,16 @@ class FollowerAction(InterfaceAction):
         except Exception as exc:
             if is_auth_or_rate_limit_error(exc):
                 return self.show_auth_error_dialog(exc, follows)
-            return show_friendly_error_dialog(
-                self.gui, "Reddit stories", exc, show=True
-            )
+            return show_friendly_error_dialog(self.gui, "Reddit stories", exc, show=True)
         if task.error:
             if is_auth_or_rate_limit_error(task.error):
                 return self.show_auth_error_dialog(task.error, follows)
-            return show_friendly_error_dialog(
-                self.gui, "Reddit stories", task.error, show=True
-            )
+            return show_friendly_error_dialog(self.gui, "Reddit stories", task.error, show=True)
         if task.result is None:
             return
-        if any(
-            r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error"))
-            for r in task.result
-        ):
+        if any(r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error")) for r in task.result):
             first_err = next(
-                (
-                    r
-                    for r in task.result
-                    if r.get("rate_limited")
-                    or is_auth_or_rate_limit_error(r.get("error"))
-                ),
+                (r for r in task.result if r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error"))),
                 None,
             )
             err_msg = first_err.get("error") or "Rate limited by Reddit (HTTP 429)"
@@ -334,25 +305,16 @@ class FollowerAction(InterfaceAction):
         task = run_task(
             self.gui,
             "Testing…",
-            lambda t: core.probe(
-                self.make_source(t.cancelled), follow["source"], follow
-            ),
+            lambda t: core.probe(self.make_source(t.cancelled), follow["source"], follow),
         )
         if task.error:
-            return show_friendly_error_dialog(
-                self.gui, "Reddit stories", task.error, show=True
-            )
+            return show_friendly_error_dialog(self.gui, "Reddit stories", task.error, show=True)
         if task.result is not None:
             info_dialog(self.gui, f"Test: {follow['name']}", task.result[1], show=True)
 
     # -- automatic checks (quiet, in a background thread)
     def auto_check(self):
-        if (
-            self.stopping
-            or self.busy
-            or not prefs["auto_check"]
-            or time.time() < self.backoff_until
-        ):
+        if self.stopping or self.busy or not prefs["auto_check"] or time.time() < self.backoff_until:
             return
         hours = float(prefs["check_hours"])
         qm = self.get_queue_manager()
@@ -375,11 +337,7 @@ class FollowerAction(InterfaceAction):
                 if self.stopping:
                     break
                 task_id = task["task_id"]
-                follow = (
-                    task["payload"]
-                    if isinstance(task["payload"], dict)
-                    else by_id.get(task_id)
-                )
+                follow = task["payload"] if isinstance(task["payload"], dict) else by_id.get(task_id)
                 if not follow:
                     continue
                 qm.mark_processing(task_id)
@@ -416,28 +374,16 @@ class FollowerAction(InterfaceAction):
         job, self._job = self._job, {}
         if job.get("results"):
             self.finish(job["results"], interactive=False)
-            if any(
-                r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error"))
-                for r in job["results"]
-            ):
+            if any(r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error")) for r in job["results"]):
                 first_err = next(
-                    (
-                        r
-                        for r in job["results"]
-                        if r.get("rate_limited")
-                        or is_auth_or_rate_limit_error(r.get("error"))
-                    ),
+                    (r for r in job["results"] if r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error"))),
                     None,
                 )
                 err_msg = first_err.get("error") or "Rate limited by Reddit (HTTP 429)"
-                self.show_auth_error_dialog(
-                    err_msg, [r["follow"] for r in job["results"] if "follow" in r]
-                )
+                self.show_auth_error_dialog(err_msg, [r["follow"] for r in job["results"] if "follow" in r])
         elif job.get("error") and not isinstance(job["error"], core.Cancelled):
             self.last_background_error = str(job["error"])
-            self.gui.status_bar.show_message(
-                f"Reddit stories: check failed ({job['error']})", 10000
-            )
+            self.gui.status_bar.show_message(f"Reddit stories: check failed ({job['error']})", 10000)
             if is_auth_or_rate_limit_error(job["error"]):
                 self.show_auth_error_dialog(job["error"], list(self.get_follows()))
 
@@ -447,9 +393,7 @@ class FollowerAction(InterfaceAction):
         for r in results:
             live = by_id.get(r["follow"]["id"])
             if live is not None and not r["skipped"]:
-                live["last_checked"] = r["follow"].get(
-                    "last_checked", live.get("last_checked", 0.0)
-                )
+                live["last_checked"] = r["follow"].get("last_checked", live.get("last_checked", 0.0))
                 live["last_status"] = r["follow"].get("last_status", "")
                 self.registry().save_series(live)
         prefs["follows"] = list(self.get_follows())  # assigning saves the settings
@@ -492,8 +436,7 @@ class FollowerAction(InterfaceAction):
             )
         elif changed_books:
             self.gui.status_bar.show_message(
-                "Reddit stories updated: "
-                + "; ".join(line for line in lines if "up to date" not in line),
+                "Reddit stories updated: " + "; ".join(line for line in lines if "up to date" not in line),
                 15000,
             )
 
@@ -505,24 +448,15 @@ class FollowerAction(InterfaceAction):
         if follow.get("layout") == "each":
             return self.update_each(follow, cache)
         story = core.build_story(follow, cache)
-        if (
-            not has_changes
-            and libkit.find_book(self.gui, IDENTIFIER, story["id"]) is not None
-        ):
+        if not has_changes and libkit.find_book(self.gui, IDENTIFIER, story["id"]) is not None:
             return ""
         try:
             mi = libkit.metadata_for([story], None, IDENTIFIER, core.PUBLISHER)
-            _, created = libkit.upsert_epub(
-                self.gui, mi, core.build_epub(story), IDENTIFIER, story["id"]
-            )
+            _, created = libkit.upsert_epub(self.gui, mi, core.build_epub(story), IDENTIFIER, story["id"])
         except Exception as exc:
             return f"could not update the book ({exc})"
         count = len(story["sections"])
-        return (
-            f"added to your library with {count} chapter(s)"
-            if created
-            else f"book updated, now {count} chapter(s)"
-        )
+        return f"added to your library with {count} chapter(s)" if created else f"book updated, now {count} chapter(s)"
 
     def update_each(self, follow, cache):
         """Make a separate library book from each cached post that has none yet. Returns a message or ''."""
@@ -531,9 +465,7 @@ class FollowerAction(InterfaceAction):
             story = core.build_each(follow, post)
             try:
                 mi = libkit.metadata_for([story], None, IDENTIFIER, core.PUBLISHER)
-                libkit.upsert_epub(
-                    self.gui, mi, core.build_epub(story), IDENTIFIER, story["id"]
-                )
+                libkit.upsert_epub(self.gui, mi, core.build_epub(story), IDENTIFIER, story["id"])
             except Exception:
                 errors += 1
                 continue

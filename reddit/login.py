@@ -119,9 +119,7 @@ class CallbackServer:
         self._redirect_uri = val
 
     def _create_server(self, port):
-        server = http.server.HTTPServer(
-            ("127.0.0.1", port), self._handler, bind_and_activate=False
-        )
+        server = http.server.HTTPServer(("127.0.0.1", port), self._handler, bind_and_activate=False)
         server.allow_reuse_address = sys.platform != "win32"
         try:
             server.server_bind()
@@ -180,10 +178,7 @@ class CallbackServer:
 
 
 def _basic(client_id, client_secret):
-    return (
-        "Basic "
-        + base64.b64encode(f"{client_id}:{client_secret or ''}".encode()).decode()
-    )
+    return "Basic " + base64.b64encode(f"{client_id}:{client_secret or ''}".encode()).decode()
 
 
 def _post(fetcher, url, fields, client_id, client_secret, user_agent=LOGIN_USER_AGENT):
@@ -198,9 +193,7 @@ def _post(fetcher, url, fields, client_id, client_secret, user_agent=LOGIN_USER_
     )
 
 
-def exchange_code(
-    fetcher, client_id, client_secret, code, redirect_uri=REDIRECT_URI, token_url=None
-):
+def exchange_code(fetcher, client_id, client_secret, code, redirect_uri=REDIRECT_URI, token_url=None):
     """Trade the one-time code for tokens. Returns Reddit's reply (access_token, refresh_token, ...)."""
     try:
         reply = json.loads(
@@ -290,9 +283,7 @@ def log_in(
     server.expected_state = state
     open_browser(authorize_url(client_id, state, redirect_uri, base=authorize_base))
     code = server.wait(state, timeout, cancelled)
-    tokens = exchange_code(
-        fetcher, client_id, client_secret, code, redirect_uri, token_url
-    )
+    tokens = exchange_code(fetcher, client_id, client_secret, code, redirect_uri, token_url)
     return {
         "refresh_token": tokens["refresh_token"],
         "username": fetch_identity(fetcher, tokens["access_token"], base),

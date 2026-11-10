@@ -24,9 +24,7 @@ spec_mig = importlib.util.spec_from_file_location(
 migration_mod = importlib.util.module_from_spec(spec_mig)
 spec_mig.loader.exec_module(migration_mod)
 
-spec_core = importlib.util.spec_from_file_location(
-    "rcore", Path(__file__).resolve().parents[1] / "reddit/core.py"
-)
+spec_core = importlib.util.spec_from_file_location("rcore", Path(__file__).resolve().parents[1] / "reddit/core.py")
 core = importlib.util.module_from_spec(spec_core)
 spec_core.loader.exec_module(core)
 
