@@ -186,6 +186,86 @@ class SearchTagsTests(unittest.TestCase):
         self.assertNotIn(id(base_fetcher), seen_fetchers)
         self.assertEqual(len(seen_fetchers), 2)
 
+    def test_search_tags_fetcher_independent_locks(self):
+        import time
+
+        seen_locks = set()
+
+        class LockTrackingFetcher(getattr(core, 'Fetcher', storykit.Fetcher)):
+            def get(self, url):
+                seen_locks.add(self._lock)
+                time.sleep(0.02)
+                return '<td><a href="/mbxy/site/story.php?id=a">A</a></td>'
+
+        base_fetcher = LockTrackingFetcher()
+        results = core.search_tags(base_fetcher, [10, 20], max_workers=2)
+        self.assertEqual(len(results), 2)
+        self.assertNotIn(base_fetcher._lock, seen_locks)
+        self.assertEqual(len(seen_locks), 2)
+
+    def test_make_thread_fetcher_lock_and_timing_reinitialization(self):
+        base_fetcher = storykit.Fetcher(min_interval=1.0)
+        base_fetcher._last = 12345.0
+
+        tf1 = core.make_thread_fetcher(base_fetcher)
+        tf2 = core.make_thread_fetcher(base_fetcher)
+
+        self.assertIsNot(tf1._lock, base_fetcher._lock)
+        self.assertIsNot(tf2._lock, base_fetcher._lock)
+        self.assertIsNot(tf1._lock, tf2._lock)
+        self.assertEqual(tf1._last, 0.0)
+        self.assertEqual(tf2._last, 0.0)
+        self.assertEqual(base_fetcher._last, 12345.0)
+
+    def test_make_thread_fetcher_copy_failure_fallback(self):
+        cancel_called = False
+
+        def cancel_check():
+            nonlocal cancel_called
+            cancel_called = True
+            return False
+
+        def custom_opener(req, timeout=60):
+            return FakeResponse(b'test')
+
+        class UncopyableFetcher:
+            def __init__(self):
+                self.min_interval = 2.5
+                self.cancelled = cancel_check
+                self.opener = custom_opener
+
+            def __copy__(self):
+                raise TypeError("Copying is not supported")
+
+        uncopyable = UncopyableFetcher()
+        tf = core.make_thread_fetcher(uncopyable)
+
+        self.assertIsInstance(tf, storykit.Fetcher)
+        self.assertEqual(tf.min_interval, 2.5)
+        self.assertIs(tf.cancelled, cancel_check)
+        self.assertIs(tf.opener, custom_opener)
+        self.assertIsNotNone(tf._lock)
+        self.assertEqual(tf._last, 0.0)
+
+    def test_search_tags_uncopyable_fetcher_fallback(self):
+        def fake_opener(req, timeout=60):
+            return FakeResponse(b'<td><a href="/mbxy/site/story.php?id=fallback_story">Fallback Story</a></td>')
+
+        class UncopyableDuckFetcher:
+            def __init__(self):
+                self.min_interval = 0
+                self.cancelled = lambda: False
+                self.opener = fake_opener
+
+            def __copy__(self):
+                raise TypeError("Cannot copy")
+
+        duck_fetcher = UncopyableDuckFetcher()
+        results = core.search_tags(duck_fetcher, [101, 102], max_workers=2)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[101][0]['id'], 'fallback_story')
+        self.assertEqual(results[102][0]['id'], 'fallback_story')
+
 
 class StoryTests(unittest.TestCase):
     def test_print_page(self):
