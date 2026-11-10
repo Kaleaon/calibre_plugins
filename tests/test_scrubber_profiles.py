@@ -3,6 +3,7 @@
 import importlib.util
 import io
 import json
+import os
 import sys
 import types
 import unittest
@@ -10,10 +11,11 @@ from pathlib import Path
 from unittest.mock import MagicMock
 import zipfile
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 from PyQt6 import QtCore, QtGui, QtWidgets
 
 # Register qt.core shim for tests
-_GLOBAL_APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 qtcore = types.ModuleType('qt.core')
 for module in (QtWidgets, QtGui, QtCore):
     for name in dir(module):

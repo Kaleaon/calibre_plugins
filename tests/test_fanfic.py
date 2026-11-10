@@ -1,21 +1,29 @@
 """Engine tests for the fanfic plugin. They need FanFicFare importable (pip install fanficfare) and skip otherwise.
 No test here touches the network: URL checks only use FanFicFare's address patterns."""
-import importlib.util
-from pathlib import Path
 import re
 import sys
 import unittest
 import zipfile
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'fanfic'))
-import build_plugins  # noqa: E402
 import engine  # noqa: E402
 
+import build_plugins  # noqa: E402
+
 try:
+    import certifi  # noqa: F401
+    import charset_normalizer  # noqa: F401
+    import cloudscraper  # noqa: F401,E401
     import fanficfare  # noqa: F401
-    import cloudscraper, requests_file, requests_toolbelt, pyparsing  # noqa: F401,E401
+    import idna  # noqa: F401
+    import pyparsing  # noqa: F401
+    import requests  # noqa: F401
+    import requests_file  # noqa: F401
+    import requests_toolbelt  # noqa: F401
+    import urllib3  # noqa: F401
     HAVE_FFF = True
 except ImportError:
     HAVE_FFF = False
@@ -133,7 +141,12 @@ class PackagingTests(unittest.TestCase):
 
     def test_contents(self):
         for expected in ('__init__.py', 'engine.py', 'fanficfare/adapters/adapter_royalroadcom.py', 'fanficfare/defaults.ini',
+                         'fanficfare/fetchers/fetcher_requests.py',
                          'cloudscraper/__init__.py', 'brotlidecpy/brotli-dict', 'flaresolverr.py', 'royalroad-flaresolverr.md', 'THIRD_PARTY_LICENSES.txt',
+                         # The requests stack must be bundled: current Calibre provides neither requests nor
+                         # urllib3 to plugins, and FanFicFare imports urllib3 directly (in-Calibre regression).
+                         'requests/__init__.py', 'urllib3/__init__.py', 'urllib3/util/retry.py',
+                         'certifi/__init__.py', 'certifi/cacert.pem', 'idna/__init__.py', 'charset_normalizer/__init__.py',
                          'plugin-import-name-fanfic_downloader.txt'):
             self.assertIn(expected, self.names)
         for excluded in ('fanficfare/cli.py', 'fanficfare/writers/writer_txt.py', 'fanficfare/writers/writer_mobi.py'):
@@ -152,7 +165,8 @@ class PackagingTests(unittest.TestCase):
 
     def test_licenses_and_notice(self):
         text = self.zip.read('THIRD_PARTY_LICENSES.txt').decode('utf-8')
-        for needle in ('Apache License', 'cloudscraper', 'requests-file', 'pyparsing', 'brotlidecpy', 'Modifications for bundling'):
+        for needle in ('Apache License', 'cloudscraper', 'requests-file', 'pyparsing', 'brotlidecpy', 'Modifications for bundling',
+                       'urllib3', 'certifi'):
             self.assertIn(needle, text)
 
 
@@ -161,7 +175,7 @@ class ActionTests(unittest.TestCase):
         import types
         from unittest.mock import MagicMock
 
-        self.saved_modules = {k: v for k, v in sys.modules.items() if k.startswith(('calibre', 'qt', 'calibre_plugins', 'common'))}
+        self.saved_modules = {k: v for k, v in sys.modules.items() if k.startswith(('calibre', 'qt', 'calibre_plugins'))}
         stubs = ['calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config',
                  'calibre.utils.date', 'calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.book',
                  'calibre.ebooks.metadata.book.base', 'qt', 'qt.core']
@@ -224,8 +238,8 @@ class ActionTests(unittest.TestCase):
         pkg.__path__ = []
         sys.modules['calibre_plugins.fanfic_downloader'] = pkg
 
-        import common.libkit as libkit_mod
         import common.guikit as guikit_mod
+        import common.libkit as libkit_mod
         import fanfic.config as config_mod
         import fanfic.engine as engine_mod
         import fanfic.flaresolverr as flaresolverr_mod
@@ -252,12 +266,13 @@ class ActionTests(unittest.TestCase):
         self.action_mod = action_mod
 
     def tearDown(self):
-        for k in [k for k in list(sys.modules) if k.startswith(('calibre', 'qt', 'calibre_plugins', 'common'))]:
+        for k in [k for k in sys.modules if k.startswith(('calibre', 'qt'))]:
             del sys.modules[k]
         sys.modules.update(self.saved_modules)
 
     def test_genesis_menu_setup(self):
         from unittest.mock import MagicMock
+
         from qt.core import QAction
         action = self.action_mod.FanficAction()
         action.gui = MagicMock()
@@ -336,6 +351,7 @@ class ActionTests(unittest.TestCase):
 
     def test_find_book_normalizes_colons_and_slashes(self):
         from unittest.mock import MagicMock
+
         from common.libkit import find_book
         gui = MagicMock()
         db = MagicMock()
@@ -352,8 +368,9 @@ class ActionTests(unittest.TestCase):
 
 class LibkitMergeEpubsTests(unittest.TestCase):
     def test_libkit_reexports_merge_epubs(self):
-        from common import libkit, storykit
         from io import BytesIO
+
+        from common import libkit, storykit
         story1 = {'id': '1', 'title': 'Story One', 'author': 'Author A', 'sections': [('Ch 1', '<p>Part 1</p>')]}
         story2 = {'id': '2', 'title': 'Story Two', 'author': 'Author B', 'sections': [('Ch 1', '<p>Part 2</p>')]}
         epub1 = storykit.build_epub([story1])
@@ -365,8 +382,9 @@ class LibkitMergeEpubsTests(unittest.TestCase):
             self.assertIn('OEBPS/content.opf', z.namelist())
 
     def test_fanfic_combining_calls_libkit_merge_epubs(self):
-        from common import libkit, storykit
         from io import BytesIO
+
+        from common import libkit, storykit
         story1 = {'id': '1', 'title': 'Story 1', 'author': 'Alice', 'sections': [('C1', '<p>A</p>')]}
         story2 = {'id': '2', 'title': 'Story 2', 'author': 'Bob', 'sections': [('C2', '<p>B</p>')]}
         epub1 = storykit.build_epub([story1])

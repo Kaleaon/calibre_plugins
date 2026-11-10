@@ -7,6 +7,8 @@ import unittest
 import zipfile
 from pathlib import Path
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
@@ -17,7 +19,6 @@ spec.loader.exec_module(core)
 try:
     from PyQt6 import QtCore, QtGui, QtWidgets
     HAVE_QT = True
-    _GLOBAL_APP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     qtcore = types.ModuleType('qt.core')
     for module in (QtWidgets, QtGui, QtCore):
         for name in dir(module):

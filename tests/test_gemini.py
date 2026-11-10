@@ -1762,6 +1762,7 @@ class MarqueeBatchProgressTests(unittest.TestCase):
             sys.modules[name] = MagicMock()
         sys.modules['calibre.gui2.actions'].InterfaceAction = object
         qt_mod = MagicMock()
+        qt_mod.core._ = lambda s: s
         sys.modules['qt'] = qt_mod
         sys.modules['qt.core'] = qt_mod.core
 
@@ -1937,6 +1938,138 @@ class MarqueeBatchProgressTests(unittest.TestCase):
 
         last_range = bar_instance.setRange.call_args_list[-1][0]
         self.assertEqual(last_range, (0, 3), "Progress bar should end in standard bounds range(0, total)")
+
+    def test_progress_bar_format_and_book_title_updates_during_check(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.GeminiFixerAction()
+
+        class MockMetadata:
+            title = "Test Book"
+            authors = ["Author"]
+            identifiers = {}
+            series = ""
+            series_index = None
+            tags = []
+            languages = []
+            publisher = ""
+
+        class MockDb:
+            def all_book_ids(self):
+                return [1, 2]
+            def get_metadata(self, book_id, get_cover=False):
+                return MockMetadata()
+            def formats(self, book_id):
+                return []
+            def format_abspath(self, book_id, fmt):
+                return None
+            def cover(self, book_id):
+                return None
+
+        mock_gui = MagicMock()
+        mock_gui.current_db.new_api = MockDb()
+        mock_gui.library_view.get_selected_ids.return_value = [1, 2]
+        action.gui = mock_gui
+
+        bar_instance = MagicMock()
+        qt_core = sys.modules['qt.core']
+        qt_core.QProgressBar.return_value = bar_instance
+        qt_core.QLineEdit.return_value.text.return_value = 'test_key'
+        qt_core.QCheckBox.return_value.isChecked.return_value = True
+        qt_core.QSpinBox.return_value.value.return_value = 2
+
+        sys.modules['calibre.gui2'].question_dialog.return_value = True
+
+        clicked_handlers = []
+        def mock_connect(slot):
+            clicked_handlers.append(slot)
+
+        btn_mock = MagicMock()
+        btn_mock.clicked.connect.side_effect = mock_connect
+        qt_core.QPushButton.return_value = btn_mock
+        action_mod.create_token_button = lambda *a, **kw: btn_mock
+
+        def mock_plan_fixes(books, api_key, model, fields, min_confidence, batch_size,
+                            tags_may_be_removed, cancelled, min_interval, on_event, **kw):
+            on_event('sending', books=books)
+            on_event('received', count=len(books))
+            for b in books:
+                on_event('answer', book=b, changes={'title': ('Old', 'New')}, confidence='high',
+                         reason='Clean junk', kept=True, dropped_why=None)
+            on_event('progress', done=len(books), total=len(books))
+            return ([{'id': 1, 'title': 'T1', 'changes': {'title': ('Old', 'New')}, 'confidence': 'high', 'big': False}], [])
+
+        with patch.object(engine, 'plan_fixes', side_effect=mock_plan_fixes):
+            action.show_dialog()
+            for handler in clicked_handlers:
+                if getattr(handler, '__name__', '') == 'do_check':
+                    handler()
+
+        format_calls = [c[0][0] for c in bar_instance.setFormat.call_args_list]
+        self.assertTrue(any('Fixing' in f for f in format_calls), "Progress format should show fixing state")
+        self.assertTrue(any('Asking Gemini' in f for f in format_calls), "Progress format should show asking state during request")
+
+    def test_progress_bar_updates_during_apply_and_undo(self):
+        spec = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.GeminiFixerAction()
+
+        writes = []
+        class MockDb:
+            def has_id(self, book_id):
+                return True
+            def get_metadata(self, book_id, get_cover=False):
+                m = MagicMock()
+                m.title = f"Book Title {book_id}"
+                return m
+            def field_for(self, name, book_id):
+                return {}
+            def set_field(self, name, mapping):
+                writes.append((name, mapping))
+
+        mock_gui = MagicMock()
+        mock_gui.current_db.new_api = MockDb()
+        mock_gui.library_view.get_selected_ids.return_value = [1, 2]
+        action.gui = mock_gui
+
+        bar_instance = MagicMock()
+        qt_core = sys.modules['qt.core']
+        qt_core.QProgressBar.return_value = bar_instance
+
+        clicked_handlers = []
+        def mock_connect(slot):
+            clicked_handlers.append(slot)
+
+        btn_mock = MagicMock()
+        btn_mock.clicked.connect.side_effect = mock_connect
+        qt_core.QPushButton.return_value = btn_mock
+        action_mod.create_token_button = lambda *a, **kw: btn_mock
+
+        items_to_apply = [
+            (1, {'title': ('Old 1', 'New 1')}),
+            (2, {'title': ('Old 2', 'New 2')}),
+        ]
+
+        with patch.object(action_mod, 'collect_tree_changes', return_value=items_to_apply):
+            action.show_dialog()
+            for handler in clicked_handlers:
+                if getattr(handler, '__name__', '') == 'do_apply':
+                    handler()
+
+        range_calls = [c[0] for c in bar_instance.setRange.call_args_list]
+        self.assertIn((0, 2), range_calls, "Progress bar range should be set to total items to apply (0, 2)")
+
+        val_calls = [c[0][0] for c in bar_instance.setValue.call_args_list]
+        self.assertIn(1, val_calls, "Progress bar value should update as book 1 is fixed")
+        self.assertIn(2, val_calls, "Progress bar value should update as book 2 is fixed")
+
+        format_calls = [c[0][0] for c in bar_instance.setFormat.call_args_list]
+        self.assertTrue(any('Fixing' in f for f in format_calls), "Progress format should show fixing status during apply")
+        self.assertTrue(any('Fixed' in f for f in format_calls), "Progress format should show fixed completion status")
 
 
 class SeriesIndexNormalizationTests(unittest.TestCase):

@@ -31,12 +31,8 @@ except ImportError:
         from .core import Matcher, scrub_epub, tidy
         from .profiles import extract_domains_from_metadata, get_profiles_from_prefs, resolve_profile
     except ImportError:
-        try:
-            from scrubber_plugin.core import Matcher, scrub_epub, tidy
-            from scrubber_plugin.profiles import extract_domains_from_metadata, get_profiles_from_prefs, resolve_profile
-        except ImportError:
-            from core import Matcher, scrub_epub, tidy
-            from profiles import extract_domains_from_metadata, get_profiles_from_prefs, resolve_profile
+        from core import Matcher, scrub_epub, tidy
+        from profiles import extract_domains_from_metadata, get_profiles_from_prefs, resolve_profile
 
 logger = logging.getLogger('scrubber.scanner')
 
