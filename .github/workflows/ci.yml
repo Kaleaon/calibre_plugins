@@ -81,7 +81,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --require-hashes -r requirements.txt
 
       - name: Run static code linting and formatting check
         run: |
@@ -122,26 +122,7 @@ jobs:
 
       - name: Verify generated plugin zip artifacts
         run: |
-          python -c "
-          import os, sys
-          expected_zips = [
-              'TakeoutBookFixer.zip',
-              'EpubPromoScrubber.zip',
-              'MetabodsDownloader.zip',
-              'NiftyDownloader.zip',
-              'StoryCollectionTagger.zip',
-              'FanficDownloader.zip',
-              'RedditStoryFollower.zip',
-              'GeminiLibraryFixer.zip',
-              'MediaMatcher.zip'
-          ]
-          dist_dir = 'dist'
-          missing = [z for z in expected_zips if not os.path.exists(os.path.join(dist_dir, z))]
-          if missing:
-              print(f'Error: Missing expected zip files in dist/: {missing}', file=sys.stderr)
-              sys.exit(1)
-          print(f'Successfully verified all {len(expected_zips)} plugin archives in dist/.')
-          "
+          python scripts/verify_plugins.py
 
       - name: Upload plugin packages artifact
         uses: actions/upload-artifact@v4
@@ -168,7 +149,7 @@ jobs:
                       )
                       changed = [f.strip() for f in proc.stdout.splitlines() if f.strip()]
                       for c in changed:
-                          norm_c = c.replace('\\\\', '/')
+                          norm_c = c.replace('\\', '/')
                           if norm_c.startswith('tests/test_') and norm_c.endswith('.py') and os.path.exists(c):
                               test_targets.append(c)
                           else:
