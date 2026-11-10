@@ -24,9 +24,11 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 try:
     from PyQt6 import QtCore, QtGui, QtWidgets
     HAVE_QT = True
+    _ORIGINAL_QDIALOG_EXEC = QtWidgets.QDialog.__dict__.get('exec')
 except ImportError:  # also raised when system libraries such as libEGL are missing
     HAVE_QT = False
     QtCore = QtGui = QtWidgets = None
+    _ORIGINAL_QDIALOG_EXEC = None
 import build_plugins  # noqa: E402
 sys.path.insert(0, str(ROOT / 'tests'))
 from harness_utils import BaseMockDb  # noqa: E402
@@ -94,6 +96,8 @@ class QtCase(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        if _ORIGINAL_QDIALOG_EXEC is not None and QtWidgets.QDialog.__dict__.get('exec') is not _ORIGINAL_QDIALOG_EXEC:
+            setattr(QtWidgets.QDialog, 'exec', _ORIGINAL_QDIALOG_EXEC)
         cls.tmp.cleanup()
 
     def setUp(self):
@@ -107,7 +111,7 @@ class QtCase(unittest.TestCase):
         for name in ('calibre', 'calibre.customize', 'calibre.gui2', 'calibre.utils'):
             sys.modules[name] = MagicMock()
         actions = types.ModuleType('calibre.gui2.actions')
-        actions.InterfaceAction = type('InterfaceAction', (object,), {'__init__': lambda self, gui, name: setattr(self, 'gui', gui)})
+        actions.InterfaceAction = type('InterfaceAction', (object,), {'__init__': lambda self, gui=None, name=None: setattr(self, 'gui', gui)})
         sys.modules['calibre.gui2.actions'] = actions
         for name in ('calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.book'):
             sys.modules[name] = MagicMock()
@@ -121,11 +125,22 @@ class QtCase(unittest.TestCase):
         sys.modules['calibre_plugins'].__path__ = []
 
     def tearDown(self):
-        if hasattr(builtins, 'get_resources'):
+        if hasattr(builtins, "get_resources"):
             del builtins.get_resources
-        for key in [k for k in sys.modules if k.startswith(('calibre', 'qt', 'calibre_plugins'))]:
+        for key in [
+            k
+            for k in sys.modules
+            if k.startswith(("calibre", "qt", "calibre_plugins"))
+        ]:
             del sys.modules[key]
         sys.modules.update(self.saved)
+        if hasattr(self, "app") and self.app is not None:
+            for widget in list(QtWidgets.QApplication.topLevelWidgets()):
+                widget.close()
+                widget.deleteLater()
+            self.app.processEvents()
+        if _ORIGINAL_QDIALOG_EXEC is not None and QtWidgets.QDialog.__dict__.get('exec') is not _ORIGINAL_QDIALOG_EXEC:
+            setattr(QtWidgets.QDialog, 'exec', _ORIGINAL_QDIALOG_EXEC)
 
     def load(self, import_name):
         prefix = f'calibre_plugins.{import_name}'
@@ -194,7 +209,7 @@ class TaskAndTagSearchTests(QtCase):
 
             def accept_options_dialog():
                 for widget in QtWidgets.QApplication.topLevelWidgets():
-                    if isinstance(widget, QtWidgets.QDialog) and not isinstance(widget, QtWidgets.QProgressDialog):
+                    if isinstance(widget, QtWidgets.QDialog) and not isinstance(widget, QtWidgets.QProgressDialog) and widget.windowTitle() == 'Takeout recovery options':
                         widget.accept()
                         return
                 QtCore.QTimer.singleShot(10, accept_options_dialog)
@@ -690,8 +705,21 @@ class RedditPluginTests(QtCase):
         dialog.login_endpoints['redirect_uri'] = login.REDIRECT_URI
 
         def browser(url):
-            state = parse_qs(urlparse(url).query)['state'][0]
-            threading.Thread(target=lambda: urllib.request.urlopen(f'{login.REDIRECT_URI}?code=abc&state={state}').read()).start()
+            parsed = urlparse(url)
+            query = parse_qs(parsed.query)
+            state = query["state"][0]
+            cb_base = query.get("redirect_uri", [login.REDIRECT_URI])[0]
+            target_url = f"{cb_base}?code=abc&state={state}"
+
+            def ping():
+                for _ in range(50):
+                    try:
+                        urllib.request.urlopen(target_url).read()
+                        return
+                    except Exception:
+                        time.sleep(0.05)
+
+            threading.Thread(target=ping, daemon=True).start()
         dialog.open_browser = browser
         dialog.log_in()
         self.assertEqual(RecordingBox.warnings, [])
@@ -1304,12 +1332,8 @@ class GeminiDialogTests(QtCase):
 
             dialog.reject()
 
-        original_exec = QtWidgets.QDialog.exec
-        QtWidgets.QDialog.exec = drive
-        try:
+        with patch.object(QtWidgets.QDialog, 'exec', drive):
             action.show_dialog()
-        finally:
-            QtWidgets.QDialog.exec = original_exec
 
         self.assertEqual(seen['initial_mode_index'], 1, 'Started in override mode index 1')
         self.assertEqual(seen['initial_text'], 'Custom test instruction prompt')
@@ -1344,6 +1368,7 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs['min_interval'] = 0
         action_mod.prefs['fields'] = list(engine.FIELDS)
         action_mod.prefs['batch_dir'] = self.tmp_batch_dir.name
+        action_mod.prefs['provider_metadata'] = False
 
         def run(drive):
             with patch.object(QtWidgets.QDialog, 'exec', drive):
@@ -1471,6 +1496,8 @@ class GeminiDialogTests(QtCase):
         action_mod.prefs['api_key'] = 'k'
         action_mod.prefs['batch_size'] = 1
         action_mod.prefs['min_interval'] = 0
+        action_mod.prefs['provider_metadata'] = False
+        action_mod.prefs['batch_dir'] = self.tmp_batch_dir.name
         seen = {}
 
         def drive(dialog):
@@ -1634,7 +1661,7 @@ class FanficDialogTests(QtCase):
         self.assertIn('[www.royalroad.com]\nuse_flaresolverr_proxy:true', advanced.toPlainText())
 
 
-class GuikitHelpersTests(unittest.TestCase):
+class GuikitHelpersTests(QtCase):
     """Unit tests for shared common.guikit helpers."""
 
     def test_parse_lines(self):
