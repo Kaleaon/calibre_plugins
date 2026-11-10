@@ -29,7 +29,6 @@ class _ConnectionContext:
 
     def close(self):
         return self._conn.close()
-
     def __getattr__(self, name):
         return getattr(self._conn, name)
 

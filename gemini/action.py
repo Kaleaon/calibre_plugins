@@ -668,25 +668,19 @@ class GeminiFixerAction(DialogAction):
 
     @staticmethod
     def _apply_field_batches(db, per_book):
-        """per_book: {book_id: {db_field: value}}. Writes each field for all books in one set_field call (one transaction
-        instead of one per book); if a batch fails, that field is retried book by book so one bad book does not sink the rest.
+        """per_book: {book_id: {db_field: value}}. Writes fields for each book;
+        if any write fails, records error for that book.
         Returns {book_id: error_text} for the books that failed."""
         failed = {}
-        fields = {}
         for book_id, values in per_book.items():
-            for name, value in values.items():
-                fields.setdefault(name, {})[book_id] = value
-        # series must exist before its index is set
-        order = sorted(fields, key=lambda n: (n == 'series_index', n))
-        for name in order:
-            mapping = {bid: v for bid, v in fields[name].items() if bid not in failed}
-            if not mapping:
-                continue
-            for bid, v in mapping.items():
+            order = sorted(values, key=lambda n: (n == 'series_index', n))
+            for name in order:
+                v = values[name]
                 try:
-                    db.set_field(name, {bid: v})
+                    db.set_field(name, {book_id: v})
                 except Exception as exc:
-                    failed[bid] = f'{name}: {exc}'
+                    failed[book_id] = f'{name}: {exc}'
+                    break
         return failed
 
     def write_changes(self, items, on_progress=None):
