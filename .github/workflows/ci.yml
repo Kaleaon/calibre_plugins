@@ -71,11 +71,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
-      - name: Fetch base branch for pull request comparison
-        if: github.base_ref != ''
-        run: |
-          git fetch origin +refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }} || true
-
       - name: Install system dependencies for Qt (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -91,7 +86,6 @@ jobs:
         run: python .github/scripts/run_ci_checks.py lint
         env:
           BASE_REF: ${{ github.base_ref }}
-          BEFORE_SHA: ${{ github.event.before }}
 
       - name: Build plugin packages in strict mode
         run: |
@@ -114,4 +108,3 @@ jobs:
         run: python .github/scripts/run_ci_checks.py test
         env:
           BASE_REF: ${{ github.base_ref }}
-          BEFORE_SHA: ${{ github.event.before }}

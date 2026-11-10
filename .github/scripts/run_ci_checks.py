@@ -16,7 +16,7 @@ def get_changed_files(base_ref=None):
     if base:
         # Fetch base ref if not fully available
         subprocess.run(
-            ["git", "fetch", "origin", f"+refs/heads/{base}:refs/remotes/origin/{base}"],
+            ["git", "fetch", "origin", f"{base}:refs/remotes/origin/{base}"],
             capture_output=True,
         )
         subprocess.run(["git", "fetch", "origin", base], capture_output=True)
@@ -44,13 +44,8 @@ def get_changed_files(base_ref=None):
                 break
 
     if not diff_succeeded:
-        # Fallback to diffing against BEFORE_SHA or previous commit
-        before = os.environ.get("BEFORE_SHA")
-        fallback_refs = []
-        if before and set(before) != {"0"}:
-            fallback_refs.extend([f"{before}...HEAD", f"{before}..HEAD", before])
-        fallback_refs.extend(["HEAD~1...HEAD", "HEAD~1..HEAD"])
-        for ref in fallback_refs:
+        # Fallback to diffing against previous commit
+        for ref in ["HEAD~1...HEAD", "HEAD~1..HEAD"]:
             try:
                 proc = subprocess.run(
                     ["git", "diff", "--name-only", "--diff-filter=d", ref],
