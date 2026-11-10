@@ -25,15 +25,11 @@ except ImportError:
         QVBoxLayout,
     )
 
-CHECKED = getattr(Qt.CheckState, "Checked", getattr(Qt, "Checked", 2))
-UNCHECKED = getattr(Qt.CheckState, "Unchecked", getattr(Qt, "Unchecked", 0))
-PARTIALLY_CHECKED = getattr(
-    Qt.CheckState, "PartiallyChecked", getattr(Qt, "PartiallyChecked", 1)
-)
-ITEM_IS_USER_CHECKABLE = getattr(
-    Qt.ItemFlag, "ItemIsUserCheckable", getattr(Qt, "ItemIsUserCheckable", 16)
-)
-USER_ROLE = getattr(Qt.ItemDataRole, "UserRole", getattr(Qt, "UserRole", 256))
+CHECKED = getattr(Qt.CheckState, 'Checked', getattr(Qt, 'Checked', 2))
+UNCHECKED = getattr(Qt.CheckState, 'Unchecked', getattr(Qt, 'Unchecked', 0))
+PARTIALLY_CHECKED = getattr(Qt.CheckState, 'PartiallyChecked', getattr(Qt, 'PartiallyChecked', 1))
+ITEM_IS_USER_CHECKABLE = getattr(Qt.ItemFlag, 'ItemIsUserCheckable', getattr(Qt, 'ItemIsUserCheckable', 16))
+USER_ROLE = getattr(Qt.ItemDataRole, 'UserRole', getattr(Qt, 'UserRole', 256))
 
 
 class TaggerPreviewDialog(QDialog):
@@ -41,7 +37,7 @@ class TaggerPreviewDialog(QDialog):
 
     def __init__(self, parent, plan):
         super().__init__(parent)
-        self.setWindowTitle("Auto-tag stories - Preview Proposed Changes")
+        self.setWindowTitle('Auto-tag stories - Preview Proposed Changes')
         self.resize(750, 500)
 
         self.plan = plan or []
@@ -50,22 +46,22 @@ class TaggerPreviewDialog(QDialog):
 
         # Header label
         header_label = QLabel(
-            "Review proposed tag additions below. Uncheck tags or books you wish to exclude before applying."
+            'Review proposed tag additions below. Uncheck tags or books you wish to exclude before applying.'
         )
         header_label.setWordWrap(True)
         layout.addWidget(header_label)
 
         # Tree Widget
         self.tree = QTreeWidget(self)
-        self.tree.setHeaderLabels(["Book / Proposed Tag", "Status / Count"])
+        self.tree.setHeaderLabels(['Book / Proposed Tag', 'Status / Count'])
         self.tree.setColumnWidth(0, 480)
         self.tree.setColumnWidth(1, 180)
         layout.addWidget(self.tree)
 
         # Toolbar layout
         tb_layout = QHBoxLayout()
-        btn_select_all = QPushButton("Select All")
-        btn_deselect_all = QPushButton("Deselect All")
+        btn_select_all = QPushButton('Select All')
+        btn_deselect_all = QPushButton('Deselect All')
         btn_select_all.clicked.connect(self.select_all)
         btn_deselect_all.clicked.connect(self.deselect_all)
         tb_layout.addWidget(btn_select_all)
@@ -83,7 +79,7 @@ class TaggerPreviewDialog(QDialog):
         )
         ok_button = self.button_box.button(QDialogButtonBox.StandardButton.Ok)
         if ok_button:
-            ok_button.setText("Apply Selected Tags")
+            ok_button.setText('Apply Selected Tags')
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
@@ -99,24 +95,18 @@ class TaggerPreviewDialog(QDialog):
         self.tree.clear()
 
         for p in self.plan:
-            title = p.get("title") or f"Book ID {p.get('id')}"
-            add_tags = p.get("add", [])
-            book_item = QTreeWidgetItem(
-                self.tree, [title, f"{len(add_tags)} tag(s) proposed"]
-            )
+            title = p.get('title') or f"Book ID {p.get('id')}"
+            add_tags = p.get('add', [])
+            book_item = QTreeWidgetItem(self.tree, [title, f"{len(add_tags)} tag(s) proposed"])
             book_item.setFlags(book_item.flags() | ITEM_IS_USER_CHECKABLE)
             book_item.setCheckState(0, CHECKED)
-            book_item.setData(
-                0, USER_ROLE, {"type": "book", "id": p.get("id"), "plan_item": p}
-            )
+            book_item.setData(0, USER_ROLE, {'type': 'book', 'id': p.get('id'), 'plan_item': p})
 
             for tag in add_tags:
-                tag_item = QTreeWidgetItem(book_item, [tag, "Proposed Tag"])
+                tag_item = QTreeWidgetItem(book_item, [tag, 'Proposed Tag'])
                 tag_item.setFlags(tag_item.flags() | ITEM_IS_USER_CHECKABLE)
                 tag_item.setCheckState(0, CHECKED)
-                tag_item.setData(
-                    0, USER_ROLE, {"type": "tag", "id": p.get("id"), "tag": tag}
-                )
+                tag_item.setData(0, USER_ROLE, {'type': 'tag', 'id': p.get('id'), 'tag': tag})
 
             book_item.setExpanded(True)
 
@@ -181,7 +171,7 @@ class TaggerPreviewDialog(QDialog):
     def total_tag_count(self):
         count = 0
         for p in self.plan:
-            count += len(p.get("add", []))
+            count += len(p.get('add', []))
         return count
 
     def get_selected_plan(self):
@@ -190,33 +180,31 @@ class TaggerPreviewDialog(QDialog):
         for i in range(self.tree.topLevelItemCount()):
             book_item = self.tree.topLevelItem(i)
             data = book_item.data(0, USER_ROLE)
-            if not isinstance(data, dict) or data.get("type") != "book":
+            if not isinstance(data, dict) or data.get('type') != 'book':
                 continue
-            p = data["plan_item"]
+            p = data['plan_item']
             checked_tags = []
             for j in range(book_item.childCount()):
                 child = book_item.child(j)
                 if child.checkState(0) == CHECKED:
                     tag_data = child.data(0, USER_ROLE)
-                    if isinstance(tag_data, dict) and "tag" in tag_data:
-                        checked_tags.append(tag_data["tag"])
+                    if isinstance(tag_data, dict) and 'tag' in tag_data:
+                        checked_tags.append(tag_data['tag'])
 
             if checked_tags:
-                add_set = set(p.get("add", []))
-                have = [t for t in p.get("tags", []) if t not in add_set]
-                filtered_plan.append(
-                    {
-                        "id": p["id"],
-                        "title": p.get("title", ""),
-                        "add": checked_tags,
-                        "tags": have + checked_tags,
-                    }
-                )
+                add_set = set(p.get('add', []))
+                have = [t for t in p.get('tags', []) if t not in add_set]
+                filtered_plan.append({
+                    'id': p['id'],
+                    'title': p.get('title', ''),
+                    'add': checked_tags,
+                    'tags': have + checked_tags
+                })
         return filtered_plan
 
     def update_summary(self):
         selected_plan = self.get_selected_plan()
-        selected_tags_count = sum(len(p["add"]) for p in selected_plan)
+        selected_tags_count = sum(len(p['add']) for p in selected_plan)
         selected_books_count = len(selected_plan)
         total_tags = self.total_tag_count()
         total_books = len(self.plan)
