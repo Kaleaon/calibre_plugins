@@ -2,6 +2,7 @@ import http.server
 import importlib.util
 import io
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -2569,13 +2570,14 @@ _GLOBAL_QT_APP = None
 
 def ensure_qt():
     global _GLOBAL_QT_APP
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
         from qt.core import QApplication
-
-        if not QApplication.instance():
+        inst = QApplication.instance()
+        if not inst:
             _GLOBAL_QT_APP = QApplication([])
         else:
-            _GLOBAL_QT_APP = QApplication.instance()
+            _GLOBAL_QT_APP = inst
     except Exception:
         pass
 
@@ -2585,7 +2587,6 @@ def ensure_qt():
 
         try:
             from PyQt6 import QtCore, QtGui, QtWidgets
-
             _GLOBAL_QT_APP = (
                 QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
             )
