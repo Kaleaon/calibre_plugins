@@ -1,7 +1,6 @@
 calibre-test/
 takeout-samples/
 takeout-validation/
-calibre_link/tailscale/
 __pycache__/
 plugin/__pycache__/
 tests/__pycache__/

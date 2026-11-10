@@ -1,10 +1,6 @@
 try:
     from calibre.utils.config import JSONConfig
-
-    if not isinstance(JSONConfig, type) or hasattr(JSONConfig, "_mock_return_value"):
-        raise ImportError
 except ImportError:
-
     class JSONConfig(dict):
         def __init__(self, name):
             super().__init__()
@@ -23,15 +19,14 @@ except ImportError:
                 return self.defaults[key]
             return default
 
-
-prefs = JSONConfig("plugins/takeout_book_fixer")
-prefs.defaults["drop_folder"] = ""
-prefs.defaults["default_output_dir"] = ""
-prefs.defaults["watch_dir"] = ""
-prefs.defaults["output_dir"] = ""
-prefs.defaults["processed_dir"] = ""
-prefs.defaults["auto_watch"] = False
-prefs.defaults["convert_comics"] = False
-prefs.defaults["auto_import"] = True
-prefs.defaults["watch_interval_sec"] = 5
-prefs.defaults["quiet_period"] = 3
+prefs = JSONConfig('plugins/takeout_book_fixer')
+prefs.defaults['drop_folder'] = ''
+prefs.defaults['default_output_dir'] = ''
+prefs.defaults['watch_dir'] = ''
+prefs.defaults['output_dir'] = ''
+prefs.defaults['processed_dir'] = ''
+prefs.defaults['auto_watch'] = False
+prefs.defaults['convert_comics'] = False
+prefs.defaults['auto_import'] = True
+prefs.defaults['watch_interval_sec'] = 5
+prefs.defaults['quiet_period'] = 3
