@@ -52,23 +52,17 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
         current_rules = "tags:=Muscle Growth => Theme.Growth\nlitrpg => LitRPG"
         current_sites = "storiesonline.net, sol.net => Stories Online"
 
-        dlg = action.RuleSetManagerDialog(
-            None, current_rules=current_rules, current_sites=current_sites
-        )
+        dlg = action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites=current_sites)
         self.assertEqual(dlg.rules_table.rowCount(), 2)
         self.assertEqual(dlg.sites_table.rowCount(), 1)
         self.assertEqual(dlg.get_commit_mode(), "merge")
 
         # Both rules should be checked and have status 'Existing'
         for r in range(2):
-            self.assertEqual(
-                dlg.rules_table.item(r, 0).checkState(), QtCore.Qt.CheckState.Checked
-            )
+            self.assertEqual(dlg.rules_table.item(r, 0).checkState(), QtCore.Qt.CheckState.Checked)
             self.assertEqual(dlg.rules_table.item(r, 4).text(), "Existing")
 
-        self.assertEqual(
-            dlg.sites_table.item(0, 0).checkState(), QtCore.Qt.CheckState.Checked
-        )
+        self.assertEqual(dlg.sites_table.item(0, 0).checkState(), QtCore.Qt.CheckState.Checked)
         self.assertEqual(dlg.sites_table.item(0, 3).text(), "Existing")
 
         self.assertIn("Keyword Rules (2/2)", dlg.tabs.tabText(0))
@@ -76,9 +70,7 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
 
     def test_filter_live_search(self):
         current_rules = "tags:=Muscle Growth => Theme.Growth\nlitrpg => LitRPG\nprogression => LitRPG"
-        dlg = action.RuleSetManagerDialog(
-            None, current_rules=current_rules, current_sites=""
-        )
+        dlg = action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites="")
 
         # Search for Growth
         dlg.search_edit.setText("growth")
@@ -99,37 +91,25 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
 
     def test_select_all_deselect_all_toggles(self):
         current_rules = "rule1 => Tag1\nrule2 => Tag2"
-        dlg = action.RuleSetManagerDialog(
-            None, current_rules=current_rules, current_sites=""
-        )
+        dlg = action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites="")
 
         # Deselect all
         dlg._set_all_checked(dlg.rules_table, False)
-        self.assertEqual(
-            dlg.rules_table.item(0, 0).checkState(), QtCore.Qt.CheckState.Unchecked
-        )
-        self.assertEqual(
-            dlg.rules_table.item(1, 0).checkState(), QtCore.Qt.CheckState.Unchecked
-        )
+        self.assertEqual(dlg.rules_table.item(0, 0).checkState(), QtCore.Qt.CheckState.Unchecked)
+        self.assertEqual(dlg.rules_table.item(1, 0).checkState(), QtCore.Qt.CheckState.Unchecked)
         self.assertIn("(0/2)", dlg.tabs.tabText(0))
 
         # Select all
         dlg._set_all_checked(dlg.rules_table, True)
-        self.assertEqual(
-            dlg.rules_table.item(0, 0).checkState(), QtCore.Qt.CheckState.Checked
-        )
-        self.assertEqual(
-            dlg.rules_table.item(1, 0).checkState(), QtCore.Qt.CheckState.Checked
-        )
+        self.assertEqual(dlg.rules_table.item(0, 0).checkState(), QtCore.Qt.CheckState.Checked)
+        self.assertEqual(dlg.rules_table.item(1, 0).checkState(), QtCore.Qt.CheckState.Checked)
         self.assertIn("(2/2)", dlg.tabs.tabText(0))
 
     def test_load_json_merge_mode_with_conflicts(self):
         current_rules = "litrpg => LitRPG\ntags:=Muscle Growth => Theme.Growth"
         current_sites = "storiesonline.net, sol.net => Stories Online"
 
-        dlg = action.RuleSetManagerDialog(
-            None, current_rules=current_rules, current_sites=current_sites
-        )
+        dlg = action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites=current_sites)
 
         # Incoming package:
         # 1. New rule: cultivation => Xianxia
@@ -157,9 +137,7 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
             ],
         }
 
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", mode="w", encoding="utf-8", delete=False
-        ) as tf:
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
             json.dump(incoming_data, tf)
             json_path = tf.name
 
@@ -172,30 +150,20 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
 
         # In Merge mode:
         # Existing rules are Checked
-        self.assertEqual(
-            dlg.rules_table.item(0, 0).checkState(), QtCore.Qt.CheckState.Checked
-        )
-        self.assertEqual(
-            dlg.rules_table.item(1, 0).checkState(), QtCore.Qt.CheckState.Checked
-        )
+        self.assertEqual(dlg.rules_table.item(0, 0).checkState(), QtCore.Qt.CheckState.Checked)
+        self.assertEqual(dlg.rules_table.item(1, 0).checkState(), QtCore.Qt.CheckState.Checked)
 
         # New rule (row 2) is Checked
         self.assertEqual(dlg.rules_table.item(2, 4).text(), "New")
-        self.assertEqual(
-            dlg.rules_table.item(2, 0).checkState(), QtCore.Qt.CheckState.Checked
-        )
+        self.assertEqual(dlg.rules_table.item(2, 0).checkState(), QtCore.Qt.CheckState.Checked)
 
         # Conflict rule (row 3) is Unchecked
         self.assertEqual(dlg.rules_table.item(3, 4).text(), "Conflict (differs)")
-        self.assertEqual(
-            dlg.rules_table.item(3, 0).checkState(), QtCore.Qt.CheckState.Unchecked
-        )
+        self.assertEqual(dlg.rules_table.item(3, 0).checkState(), QtCore.Qt.CheckState.Unchecked)
 
         # Duplicate rule (row 4) is Unchecked in Merge mode
         self.assertEqual(dlg.rules_table.item(4, 4).text(), "Duplicate")
-        self.assertEqual(
-            dlg.rules_table.item(4, 0).checkState(), QtCore.Qt.CheckState.Unchecked
-        )
+        self.assertEqual(dlg.rules_table.item(4, 0).checkState(), QtCore.Qt.CheckState.Unchecked)
 
         # Test commit in Merge mode
         dlg._on_accept()
@@ -210,9 +178,7 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
         current_rules = "litrpg => LitRPG\noldrule => OldTag"
         current_sites = "oldsite.net => Old Site"
 
-        dlg = action.RuleSetManagerDialog(
-            None, current_rules=current_rules, current_sites=current_sites
-        )
+        dlg = action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites=current_sites)
 
         incoming_data = {
             "version": 1,
@@ -225,9 +191,7 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
             ],
         }
 
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", mode="w", encoding="utf-8", delete=False
-        ) as tf:
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
             json.dump(incoming_data, tf)
             json_path = tf.name
 
@@ -238,22 +202,14 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
         self.assertEqual(dlg.get_commit_mode(), "replace")
 
         # Existing rules should be unchecked
-        self.assertEqual(
-            dlg.rules_table.item(0, 0).checkState(), QtCore.Qt.CheckState.Unchecked
-        )
-        self.assertEqual(
-            dlg.rules_table.item(1, 0).checkState(), QtCore.Qt.CheckState.Unchecked
-        )
+        self.assertEqual(dlg.rules_table.item(0, 0).checkState(), QtCore.Qt.CheckState.Unchecked)
+        self.assertEqual(dlg.rules_table.item(1, 0).checkState(), QtCore.Qt.CheckState.Unchecked)
 
         # Duplicate rule from imported file should be checked
-        self.assertEqual(
-            dlg.rules_table.item(2, 0).checkState(), QtCore.Qt.CheckState.Checked
-        )
+        self.assertEqual(dlg.rules_table.item(2, 0).checkState(), QtCore.Qt.CheckState.Checked)
 
         # New rule should be checked
-        self.assertEqual(
-            dlg.rules_table.item(3, 0).checkState(), QtCore.Qt.CheckState.Checked
-        )
+        self.assertEqual(dlg.rules_table.item(3, 0).checkState(), QtCore.Qt.CheckState.Checked)
 
         dlg._on_accept()
         rules_out, sites_out = dlg.get_committed_rules_and_sites()
@@ -268,32 +224,24 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
 
     def test_error_handling_invalid_json_and_regex(self):
         current_rules = "litrpg => LitRPG"
-        dlg = action.RuleSetManagerDialog(
-            None, current_rules=current_rules, current_sites=""
-        )
+        dlg = action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites="")
 
         # 1. Invalid JSON
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", mode="w", encoding="utf-8", delete=False
-        ) as tf:
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
             tf.write("{ NOT VALID JSON }")
             path1 = tf.name
         dlg._load_json(path1)
         self.assertEqual(dlg.rules_table.rowCount(), 1)
 
         # 2. Unsupported schema version
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", mode="w", encoding="utf-8", delete=False
-        ) as tf:
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
             json.dump({"version": 42, "rules": []}, tf)
             path2 = tf.name
         dlg._load_json(path2)
         self.assertEqual(dlg.rules_table.rowCount(), 1)
 
         # 3. Invalid regex syntax
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", mode="w", encoding="utf-8", delete=False
-        ) as tf:
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
             json.dump({"version": 1, "rules": ["re:(( => BadRegex"]}, tf)
             path3 = tf.name
         dlg._load_json(path3)
@@ -307,13 +255,9 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
         initial_rules = "tags:=Muscle Growth => Theme.Growth\nlitrpg => LitRPG"
         initial_sites = "storiesonline.net, sol.net => Stories Online"
 
-        dlg1 = action.RuleSetManagerDialog(
-            None, current_rules=initial_rules, current_sites=initial_sites
-        )
+        dlg1 = action.RuleSetManagerDialog(None, current_rules=initial_rules, current_sites=initial_sites)
 
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", mode="w", encoding="utf-8", delete=False
-        ) as tf:
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
             export_path = tf.name
 
         dlg1._save_json(export_path)
@@ -326,9 +270,7 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
         self.assertEqual(len(data["sites"]), 1)
 
         # Now import into a clean dialog
-        dlg2 = action.RuleSetManagerDialog(
-            None, current_rules="", current_sites="", mode="replace"
-        )
+        dlg2 = action.RuleSetManagerDialog(None, current_rules="", current_sites="", mode="replace")
         dlg2._load_json(export_path)
         dlg2._on_accept()
 
