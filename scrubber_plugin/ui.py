@@ -75,9 +75,7 @@ except ImportError:
     )
 
 TreeCheckStateMixin = None
-if "common.guikit" in sys.modules and hasattr(
-    sys.modules["common.guikit"], "TreeCheckStateMixin"
-):
+if "common.guikit" in sys.modules and hasattr(sys.modules["common.guikit"], "TreeCheckStateMixin"):
     TreeCheckStateMixin = getattr(sys.modules["common.guikit"], "TreeCheckStateMixin")
 
 if TreeCheckStateMixin is None:
@@ -131,6 +129,7 @@ if TreeCheckStateMixin is None or not isinstance(TreeCheckStateMixin, type):
 
     class TreeCheckStateMixin:
         pass
+
 
 try:
     from calibre_plugins.epub_promo_scrubber.scanner import LibraryScanner
@@ -567,6 +566,7 @@ def open_side_by_side_diff(
 if isinstance(QDialog, type):
     _ScrubDialogBase = QDialog
 else:
+
     class _ScrubDialogBase:
         def __init__(self, *args, **kwargs):
             pass
