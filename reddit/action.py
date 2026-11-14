@@ -76,7 +76,6 @@ def is_auth_or_rate_limit_error(error):
         )
     )
 
-
 IDENTIFIER = "redditfollow"
 TICK_MS = 15 * 60 * 1000  # how often we look at which stories are due; looking costs nothing
 FIRST_CHECK_MS = 2 * 60 * 1000  # after startup, so Calibre opens quickly
@@ -238,9 +237,6 @@ class FollowerAction(InterfaceAction):
     def settings(self):
         SettingsDialog(self.gui).exec()
 
-    def check_all_now(self):
-        self.check_now(list(self.get_follows()))
-
     def show_auth_error_dialog(self, error, follows=None):
         dialog = RedditAuthErrorDialog(self.gui, error=error, action=self, follows=follows)
         self.last_dialog = dialog
@@ -248,6 +244,9 @@ class FollowerAction(InterfaceAction):
             return dialog
         dialog.exec()
         return dialog
+
+    def check_all_now(self):
+        self.check_now(list(self.get_follows()))
 
     def check_now(self, follows):
         """Check the given follows while the user waits (with a Cancel button), then update the library."""
@@ -290,9 +289,17 @@ class FollowerAction(InterfaceAction):
             return show_friendly_error_dialog(self.gui, "Reddit stories", task.error, show=True)
         if task.result is None:
             return
-        if any(r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error")) for r in task.result):
+        if any(
+            r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error"))
+            for r in task.result
+        ):
             first_err = next(
-                (r for r in task.result if r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error"))),
+                (
+                    r
+                    for r in task.result
+                    if r.get("rate_limited")
+                    or is_auth_or_rate_limit_error(r.get("error"))
+                ),
                 None,
             )
             err_msg = first_err.get("error") or "Rate limited by Reddit (HTTP 429)"
@@ -374,13 +381,23 @@ class FollowerAction(InterfaceAction):
         job, self._job = self._job, {}
         if job.get("results"):
             self.finish(job["results"], interactive=False)
-            if any(r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error")) for r in job["results"]):
+            if any(
+                r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error"))
+                for r in job["results"]
+            ):
                 first_err = next(
-                    (r for r in job["results"] if r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error"))),
+                    (
+                        r
+                        for r in job["results"]
+                        if r.get("rate_limited")
+                        or is_auth_or_rate_limit_error(r.get("error"))
+                    ),
                     None,
                 )
                 err_msg = first_err.get("error") or "Rate limited by Reddit (HTTP 429)"
-                self.show_auth_error_dialog(err_msg, [r["follow"] for r in job["results"] if "follow" in r])
+                self.show_auth_error_dialog(
+                    err_msg, [r["follow"] for r in job["results"] if "follow" in r]
+                )
         elif job.get("error") and not isinstance(job["error"], core.Cancelled):
             self.last_background_error = str(job["error"])
             self.gui.status_bar.show_message(f"Reddit stories: check failed ({job['error']})", 10000)
@@ -440,9 +457,17 @@ class FollowerAction(InterfaceAction):
                 15000,
             )
 
+    def rebuild_book(self, follow):
+        """Rebuild the EPUB book for this follow using current manifest sequence and exclusions."""
+        return self.update_library(follow, has_changes=True)
+
     def update_library(self, follow, has_changes):
         """Rebuild the book from the cached chapters when something changed or the book is missing. Returns a message or ''."""
-        cache = core.ChapterCache(self.cache_dir(), follow["id"])
+        cache = core.ChapterCache(
+            self.cache_dir(),
+            follow["id"],
+            registry=getattr(self, "registry", lambda: None)(),
+        )
         if not cache.posts:
             return ""
         if follow.get("layout") == "each":
