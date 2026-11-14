@@ -75,9 +75,10 @@ def check_lint():
         # On push without PR base_ref
         targets = python_files if python_files else ["."]
 
+    targets = [os.path.normpath(f) for f in targets]
     print(f"Running ruff checks on {len(targets)} target(s): {targets}")
-    subprocess.run(["ruff", "check"] + targets, check=True)
-    subprocess.run(["ruff", "format", "--check"] + targets, check=True)
+    subprocess.run([sys.executable, "-m", "ruff", "check"] + targets, check=True)
+    subprocess.run([sys.executable, "-m", "ruff", "format", "--check"] + targets, check=True)
     return 0
 
 
@@ -87,6 +88,7 @@ def check_tests():
 
     # Map changed files to relevant test suites
     module_test_map = {
+        "common": ["tests/test_guikit*.py"],
         "fanfic": ["tests/test_fanfic*.py", "tests/test_flaresolverr*.py"],
         "furry": ["tests/test_furry*.py"],
         "gemini": ["tests/test_gemini*.py"],
