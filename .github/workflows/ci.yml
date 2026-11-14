@@ -8,7 +8,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -93,7 +93,6 @@ jobs:
 
       - name: Build plugin packages in strict mode
         run: |
-          python build.py
           python build_plugins.py --strict
 
       - name: Verify generated plugin zip artifacts

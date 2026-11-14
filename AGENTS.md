@@ -62,13 +62,13 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest
 
 When targeting a specific plugin's tests (as done in CI for pull requests):
 ```bash
-QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest tests/test_media.py tests/test_media_dialogs.py
+QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest tests/test_calibre_link_ui.py
 ```
 
-### Test Suite Execution with `unittest` (CI Alignment)
+### Test Suite Execution with `pytest` (CI Alignment)
 To run the exact unit test suite command executed in CI:
 ```bash
-QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m unittest discover -s tests -p "test_*.py" -v
+QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m pytest tests/
 ```
 
 ### Edge Case: Environments Without Qt / PyQt6
@@ -85,7 +85,7 @@ To run the Ruff linter across modified files (as in PR CI):
 ruff check <modified_files>
 ```
 
-To run the Ruff linter across the entire codebase:
+To run the Ruff linter across the codebase:
 ```bash
 ruff check .
 ```
@@ -101,7 +101,7 @@ To check code formatting on modified files:
 ruff format --check <modified_files>
 ```
 
-To check code formatting across the repository:
+To check code formatting:
 ```bash
 ruff format --check .
 ```
