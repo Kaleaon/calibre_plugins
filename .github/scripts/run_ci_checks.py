@@ -95,10 +95,11 @@ def check_tests():
         "nifty": ["tests/test_nifty*.py"],
         "reddit": ["tests/test_reddit*.py"],
         "scrubber": ["tests/test_scrubber*.py"],
-        "scrubber_plugin": ["tests/test_scrubber*.py"],
+        "scrubber_plugin": ["tests/test_scrubber*.py", "tests/test_epub_merge*.py"],
         "story": ["tests/test_story*.py"],
         "takeout": ["tests/test_takeout*.py"],
         "takeout_plugin": ["tests/test_takeout*.py"],
+        "plugin": ["tests/test_takeout*.py", "tests/test_plugin*.py"],
     }
 
     for f in changed_files:
