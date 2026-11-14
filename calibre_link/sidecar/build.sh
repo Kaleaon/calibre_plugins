@@ -16,12 +16,18 @@ fi
 # Keep Go's caches and temp dir off small tmpfs mounts when the caller
 # has not configured them (the Tinker VM's /tmp is 512 MB and the
 # tailscale module build fills it). Respect caller-set values.
-export GOPATH="${GOPATH:-$HOME/workspace/tools/gopath}"
-export GOMODCACHE="${GOMODCACHE:-$GOPATH/pkg/mod}"
-export GOCACHE="${GOCACHE:-$HOME/workspace/tools/gocache}"
-mkdir -p "$HOME/workspace/tools/gotmp"
-export GOTMPDIR="${GOTMPDIR:-$HOME/workspace/tools/gotmp}"
-export TMPDIR="${TMPDIR:-$HOME/workspace/tools/gotmp}"
+case "$(uname -s)" in
+    CYGWIN*|MINGW*|MSYS*)
+        ;;
+    *)
+        export GOPATH="${GOPATH:-$HOME/workspace/tools/gopath}"
+        export GOMODCACHE="${GOMODCACHE:-$GOPATH/pkg/mod}"
+        export GOCACHE="${GOCACHE:-$HOME/workspace/tools/gocache}"
+        mkdir -p "$HOME/workspace/tools/gotmp"
+        export GOTMPDIR="${GOTMPDIR:-$HOME/workspace/tools/gotmp}"
+        export TMPDIR="${TMPDIR:-$HOME/workspace/tools/gotmp}"
+        ;;
+esac
 mkdir -p ../tailscale
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" \
     -o ../tailscale/calibre-tsnet-windows-amd64.exe .
