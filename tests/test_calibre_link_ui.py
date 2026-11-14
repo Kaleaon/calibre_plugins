@@ -1,4 +1,4 @@
-"""Unit tests for Calibre Link UI automated Tailscale auth modal."""
+"""Unit tests for Calibre Link UI status dialog and automated Tailscale auth modal."""
 
 import os
 import sys
@@ -98,6 +98,165 @@ _setup_shims()
 from calibre_link.ui import CalibreLinkAction  # noqa: E402
 
 
+class CalibreLinkStatusDialogTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    def setUp(self):
+        self.action = CalibreLinkAction(None, "Calibre Link")
+        self.action.genesis()
+        self.action._write_connection_file = MagicMock()
+        self.action.server = MagicMock(running=True, last_error=None)
+        self.action.adapter = MagicMock()
+        self.action.adapter.health.return_value = {
+            "library": "/tmp/test_library",
+            "book_count": 42,
+        }
+        self.action.start_server = MagicMock()
+        self.action.start_sidecar = MagicMock()
+
+    def test_auth_state_renders_anchor_link_and_action_buttons(self):
+        auth_url = "https://login.tailscale.com/a/1234567890abcdef"
+        self.action.ts_status = {
+            "state": "auth",
+            "auth_url": auth_url,
+            "ip": None,
+            "dns": None,
+            "bridge": False,
+            "error": None,
+        }
+
+        with patch.object(QtWidgets.QDialog, "exec", return_value=0):
+            dlg = self.action.show_status()
+
+        # Requirement 1: QTextBrowser with setOpenExternalLinks(True)
+        tb = dlg.findChild(QtWidgets.QTextBrowser)
+        self.assertIsNotNone(tb, "Expected QTextBrowser widget in status dialog")
+        self.assertTrue(
+            tb.openExternalLinks(),
+            "QTextBrowser must have setOpenExternalLinks(True)",
+        )
+        self.assertTrue(tb.isReadOnly(), "QTextBrowser should be read-only")
+
+        # Requirement 2: Authorization URL rendered as an HTML anchor tag
+        html_content = tb.toHtml()
+        expected_anchor = f'<a href="{auth_url}">'
+        self.assertIn(
+            expected_anchor,
+            html_content,
+            f"Expected HTML anchor '{expected_anchor}' in status dialog HTML",
+        )
+
+        buttons = {b.text(): b for b in dlg.findChildren(QtWidgets.QPushButton)}
+
+        # Requirement 3: Dedicated "Open Auth Link" button calling QDesktopServices.openUrl()
+        self.assertIn("Open Auth Link", buttons)
+        with patch.object(QtGui.QDesktopServices, "openUrl") as mock_open:
+            buttons["Open Auth Link"].click()
+            self.assertTrue(mock_open.called, "Open Auth Link button did not call openUrl")
+            arg = mock_open.call_args[0][0]
+            self.assertEqual(arg.toString(), auth_url)
+
+        # Requirement 4: Dedicated "Copy Auth Link" button calling QApplication.clipboard().setText()
+        self.assertIn("Copy Auth Link", buttons)
+        QtWidgets.QApplication.clipboard().clear()
+        buttons["Copy Auth Link"].click()
+        self.assertEqual(
+            QtWidgets.QApplication.clipboard().text(),
+            auth_url,
+            "Copy Auth Link button did not copy expected URL to clipboard",
+        )
+
+        # Backward compatibility: standard controls remain present
+        self.assertIn("Restart bridge", buttons)
+        self.assertIn("Restart Tailscale", buttons)
+        self.assertIn("Close", buttons)
+
+    def test_reverts_to_standard_actions_when_connected(self):
+        self.action.ts_status = {
+            "state": "up",
+            "auth_url": None,
+            "ip": "100.101.102.103",
+            "dns": "calibre-link.tailnet.ts.net",
+            "bridge": True,
+            "error": None,
+        }
+
+        with patch.object(QtWidgets.QDialog, "exec", return_value=0):
+            dlg = self.action.show_status()
+
+        buttons = {b.text(): b for b in dlg.findChildren(QtWidgets.QPushButton)}
+        self.assertNotIn(
+            "Open Auth Link",
+            buttons,
+            "Open Auth Link should not appear when Tailscale state is 'up'",
+        )
+        self.assertNotIn(
+            "Copy Auth Link",
+            buttons,
+            "Copy Auth Link should not appear when Tailscale state is 'up'",
+        )
+        self.assertIn("Restart bridge", buttons)
+        self.assertIn("Restart Tailscale", buttons)
+        self.assertIn("Close", buttons)
+
+        tb = dlg.findChild(QtWidgets.QTextBrowser)
+        self.assertIsNotNone(tb)
+        self.assertIn("CONNECTED as calibre-link.tailnet.ts.net", tb.toPlainText())
+        self.assertIn("Tailnet IP: 100.101.102.103", tb.toPlainText())
+
+    def test_auth_state_without_auth_url_does_not_add_action_buttons(self):
+        # Empty string
+        self.action.ts_status = {
+            "state": "auth",
+            "auth_url": "",
+            "ip": None,
+            "dns": None,
+            "bridge": False,
+            "error": None,
+        }
+        with patch.object(QtWidgets.QDialog, "exec", return_value=0):
+            dlg_empty = self.action.show_status()
+
+        buttons_empty = {b.text(): b for b in dlg_empty.findChildren(QtWidgets.QPushButton)}
+        self.assertNotIn("Open Auth Link", buttons_empty)
+        self.assertNotIn("Copy Auth Link", buttons_empty)
+
+        # None value
+        self.action.ts_status["auth_url"] = None
+        with patch.object(QtWidgets.QDialog, "exec", return_value=0):
+            dlg_none = self.action.show_status()
+
+        buttons_none = {b.text(): b for b in dlg_none.findChildren(QtWidgets.QPushButton)}
+        self.assertNotIn("Open Auth Link", buttons_none)
+        self.assertNotIn("Copy Auth Link", buttons_none)
+
+    def test_restart_buttons_functionality(self):
+        self.action.ts_status = {
+            "state": "starting",
+            "auth_url": None,
+            "ip": None,
+            "dns": None,
+            "bridge": False,
+            "error": None,
+        }
+        with patch.object(QtWidgets.QDialog, "exec", return_value=0):
+            dlg = self.action.show_status()
+
+        buttons = {b.text(): b for b in dlg.findChildren(QtWidgets.QPushButton)}
+
+        with patch.object(dlg, "accept") as mock_accept:
+            buttons["Restart bridge"].click()
+            self.action.start_server.assert_called_once()
+            mock_accept.assert_called_once()
+
+        with patch.object(dlg, "accept") as mock_accept:
+            buttons["Restart Tailscale"].click()
+            self.action.start_sidecar.assert_called_once()
+            mock_accept.assert_called_once()
+
+
 class CalibreLinkUITests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -142,9 +301,7 @@ class CalibreLinkUITests(unittest.TestCase):
             "qt.core.QTimer.singleShot",
             side_effect=lambda delay, cb: timer_calls.append((delay, cb)),
         ):
-            self.action._sidecar_line(
-                f"tsnet: To authenticate, visit: go to: {test_url}"
-            )
+            self.action._sidecar_line(f"tsnet: To authenticate, visit: go to: {test_url}")
 
         self.assertEqual(self.action.ts_status["state"], "auth")
         self.assertEqual(self.action.ts_status["auth_url"], test_url)
@@ -167,9 +324,7 @@ class CalibreLinkUITests(unittest.TestCase):
 
     def test_auth_prompted_resets_on_connected_state(self):
         self.action._auth_prompted = True
-        self.action._sidecar_line(
-            "CALIBRE_TSNET ip=100.64.0.1 dns=calibre-link.tailnet"
-        )
+        self.action._sidecar_line("CALIBRE_TSNET ip=100.64.0.1 dns=calibre-link.tailnet")
         self.assertEqual(self.action.ts_status["state"], "up")
         self.assertFalse(self.action._auth_prompted)
 
@@ -211,9 +366,7 @@ class CalibreLinkUITests(unittest.TestCase):
         with patch.object(QtWidgets.QDialog, "exec", return_value=0):
             dlg = self.action._prompt_tailscale_auth(test_url)
 
-        with patch.object(
-            QtWidgets.QApplication.clipboard(), "setText"
-        ) as mock_set_text:
+        with patch.object(QtWidgets.QApplication.clipboard(), "setText") as mock_set_text:
             dlg.copy_button.click()
             mock_set_text.assert_called_once_with(test_url)
 
