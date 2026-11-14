@@ -25,6 +25,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'calibre_link/sidecar/go.mod'
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -37,6 +42,12 @@ jobs:
       - name: Build plugin packages
         run: |
           python build_plugins.py --strict
+
+      - name: Build Calibre Link sidecar and package
+        run: |
+          sh calibre_link/sidecar/build.sh
+          python calibre_link/build_zip.py
+          mv calibre_link/CalibreLink.zip dist/
 
       - name: Generate SHA256SUMS manifest
         run: |

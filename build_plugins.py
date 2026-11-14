@@ -17,6 +17,7 @@ SHARED = [
     "task_queue.py",
     "queue_ui.py",
     "error_handler.py",
+    "opml_kit.py",
 ]
 PLUGINS = {
     "TakeoutBookFixer.zip": ("plugin", "takeout_book_fixer", SHARED, False),
