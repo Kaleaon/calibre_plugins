@@ -77,8 +77,8 @@ def check_lint():
 
     targets = [os.path.normpath(f) for f in targets]
     print(f"Running ruff checks on {len(targets)} target(s): {targets}")
-    subprocess.run([sys.executable, "-m", "ruff", "check", "--force-exclude"] + targets, check=True)
-    subprocess.run([sys.executable, "-m", "ruff", "format", "--check", "--force-exclude"] + targets, check=True)
+    subprocess.run([sys.executable, "-m", "ruff", "check"] + targets, check=True)
+    subprocess.run([sys.executable, "-m", "ruff", "format", "--check"] + targets, check=True)
     return 0
 
 
