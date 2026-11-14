@@ -1,28 +1,28 @@
 import http.server
 import importlib.util
 import json
+from pathlib import Path
 import sys
 import threading
 import unittest
 import urllib.request
-from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
-ROOT = Path(__file__).resolve().parents[1] / "reddit"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'common'))
+ROOT = Path(__file__).resolve().parents[1] / 'reddit'
 
 
 def load(name):
-    spec = importlib.util.spec_from_file_location("r" + name, ROOT / f"{name}.py")
+    spec = importlib.util.spec_from_file_location('r' + name, ROOT / f'{name}.py')
     module = importlib.util.module_from_spec(spec)
-    sys.modules["r" + name] = module
+    sys.modules['r' + name] = module
     spec.loader.exec_module(module)
     return module
 
 
-core = load("core")
-login = load("login")
-FAKE_ID, FAKE_SECRET = "test-client-id", "test-secret-not-real"
+core = load('core')
+login = load('login')
+FAKE_ID, FAKE_SECRET = 'test-client-id', 'test-secret-not-real'
 
 
 class StandIn(http.server.BaseHTTPRequestHandler):
@@ -33,70 +33,44 @@ class StandIn(http.server.BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
-        body = self.rfile.read(int(self.headers["Content-Length"])).decode()
+        body = self.rfile.read(int(self.headers['Content-Length'])).decode()
         type(self).log.append((self.path, dict(self.headers), parse_qs(body)))
-        reply = (
-            {}
-            if self.path == "/revoke"
-            else (
-                type(self).token_reply
-                or {
-                    "access_token": "access1",
-                    "refresh_token": "refresh1",
-                    "expires_in": 3600,
-                    "token_type": "bearer",
-                }
-            )
-        )
+        reply = {} if self.path == '/revoke' else (type(self).token_reply or {
+            'access_token': 'access1', 'refresh_token': 'refresh1', 'expires_in': 3600, 'token_type': 'bearer'})
         data = json.dumps(reply).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(data)
+        self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(data)
 
     def do_GET(self):
         type(self).log.append((self.path, dict(self.headers), {}))
-        data = json.dumps({"name": "Reader"}).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(data)
+        data = json.dumps({'name': 'Reader'}).encode()
+        self.send_response(200); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(data)
 
 
 def browser_that(params_for):
     """A fake browser: 'opens' Reddit's page by sending the redirect straight back to the local server."""
-
     def open_browser(url):
         query = parse_qs(urlparse(url).query)
         params = params_for({k: v[0] for k, v in query.items()})
-        redirect_uri = query.get("redirect_uri", [""])[0]
+        redirect_uri = query.get('redirect_uri', [''])[0]
         if redirect_uri:
-            cb_url = f"{redirect_uri}?" + "&".join(
-                f"{k}={v}" for k, v in params.items()
-            )
+            cb_url = f"{redirect_uri}?" + '&'.join(f'{k}={v}' for k, v in params.items())
         else:
-            cb_url = (
-                f"http://127.0.0.1:{getattr(open_browser, 'port', 8844)}/callback?"
-                + "&".join(f"{k}={v}" for k, v in params.items())
-            )
-
+            cb_url = f"http://127.0.0.1:{getattr(open_browser, 'port', 8844)}/callback?" + '&'.join(f'{k}={v}' for k, v in params.items())
         def visit():
             try:
                 urllib.request.urlopen(cb_url).read()
             except OSError:
                 pass  # the server answers 400 to a forged request
-
         threading.Thread(target=visit).start()
-
     return open_browser
 
 
 class LoginTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.stand_in = http.server.ThreadingHTTPServer(("127.0.0.1", 0), StandIn)
+        cls.stand_in = http.server.ThreadingHTTPServer(('127.0.0.1', 0), StandIn)
         threading.Thread(target=cls.stand_in.serve_forever, daemon=True).start()
-        cls.base = f"http://127.0.0.1:{cls.stand_in.server_address[1]}"
+        cls.base = f'http://127.0.0.1:{cls.stand_in.server_address[1]}'
 
     @classmethod
     def tearDownClass(cls):
@@ -105,98 +79,65 @@ class LoginTests(unittest.TestCase):
     def setUp(self):
         StandIn.log, StandIn.token_reply = [], None
 
-    def run_login(self, params_for, secret="", port=0, timeout=5, redirect_uri=None):
+    def run_login(self, params_for, secret='', port=0, timeout=5, redirect_uri=None):
         with login.CallbackServer(port) as server:
             opener = browser_that(params_for)
             opener.port = server.port
-            kwargs = {"token_url": self.base + "/token", "base": self.base}
+            kwargs = {'token_url': self.base + '/token', 'base': self.base}
             if redirect_uri is not None:
-                kwargs["redirect_uri"] = redirect_uri
-            return login.log_in(
-                core.Fetcher(min_interval=0),
-                FAKE_ID,
-                secret,
-                server,
-                opener,
-                timeout=timeout,
-                **kwargs,
-            )
+                kwargs['redirect_uri'] = redirect_uri
+            return login.log_in(core.Fetcher(min_interval=0), FAKE_ID, secret, server, opener, timeout=timeout, **kwargs)
 
     def test_authorize_url_asks_for_a_permanent_read_only_login(self):
-        query = {
-            k: v[0]
-            for k, v in parse_qs(
-                urlparse(login.authorize_url("abc", "st8")).query
-            ).items()
-        }
-        self.assertEqual(
-            (
-                query["client_id"],
-                query["state"],
-                query["duration"],
-                query["scope"],
-                query["redirect_uri"],
-            ),
-            (
-                "abc",
-                "st8",
-                "permanent",
-                "read identity history",
-                "http://127.0.0.1:8844/callback",
-            ),
-        )
-        self.assertTrue(
-            login.authorize_url("abc", "s").startswith(
-                "https://www.reddit.com/api/v1/authorize?"
-            )
-        )
+        query = {k: v[0] for k, v in parse_qs(urlparse(login.authorize_url('abc', 'st8')).query).items()}
+        self.assertEqual((query['client_id'], query['state'], query['duration'], query['scope'], query['redirect_uri']),
+                         ('abc', 'st8', 'permanent', 'read identity history', 'http://127.0.0.1:8844/callback'))
+        self.assertTrue(login.authorize_url('abc', 's').startswith('https://www.reddit.com/api/v1/authorize?'))
 
     def test_full_login_returns_refresh_token_and_name(self):
-        result = self.run_login(
-            lambda q: {"code": "thecode", "state": q["state"]}, secret=FAKE_SECRET
-        )
-        self.assertEqual(result, {"refresh_token": "refresh1", "username": "Reader"})
+        result = self.run_login(lambda q: {'code': 'thecode', 'state': q['state']}, secret=FAKE_SECRET)
+        self.assertEqual(result, {'refresh_token': 'refresh1', 'username': 'Reader'})
         path, headers, form = StandIn.log[0]
-        self.assertEqual(form["grant_type"], ["authorization_code"])
-        self.assertEqual(form["code"], ["thecode"])
-        self.assertTrue(headers["Authorization"].startswith("Basic "))
-        self.assertEqual(StandIn.log[1][1]["Authorization"], "bearer access1")
+        self.assertEqual(form['grant_type'], ['authorization_code'])
+        self.assertEqual(form['code'], ['thecode'])
+        self.assertTrue(headers['Authorization'].startswith('Basic '))
+        self.assertEqual(StandIn.log[1][1]['Authorization'], 'bearer access1')
 
     def test_wrong_state_is_ignored_until_timeout(self):
         with self.assertRaises(login.LoginError) as ctx:
-            self.run_login(lambda q: {"code": "evil", "state": "forged"}, timeout=1)
-        self.assertIn("Timed out", str(ctx.exception))
-        self.assertIn("wrong security code", str(ctx.exception))
-        self.assertEqual(StandIn.log, [], "no code was ever exchanged")
+            self.run_login(lambda q: {'code': 'evil', 'state': 'forged'}, timeout=1)
+        self.assertIn('Timed out', str(ctx.exception))
+        self.assertIn('wrong security code', str(ctx.exception))
+        self.assertEqual(StandIn.log, [], 'no code was ever exchanged')
 
     def test_declined_login(self):
         with self.assertRaises(login.LoginError) as ctx:
-            self.run_login(lambda q: {"error": "access_denied", "state": q["state"]})
-        self.assertIn("declined", str(ctx.exception))
+            self.run_login(lambda q: {'error': 'access_denied', 'state': q['state']})
+        self.assertIn('declined', str(ctx.exception))
 
     def test_reddit_refusing_the_code_explains_the_redirect_uri(self):
-        StandIn.token_reply = {"error": "invalid_grant"}
+        StandIn.token_reply = {'error': 'invalid_grant'}
         with self.assertRaises(login.LoginError) as ctx:
-            self.run_login(lambda q: {"code": "x", "state": q["state"]})
-        self.assertIn("invalid_grant", str(ctx.exception))
-        self.assertIn("redirect uri", str(ctx.exception))
+            self.run_login(lambda q: {'code': 'x', 'state': q['state']})
+        self.assertIn('invalid_grant', str(ctx.exception))
+        self.assertIn('redirect uri', str(ctx.exception))
 
     def test_no_refresh_token_is_reported(self):
-        StandIn.token_reply = {"access_token": "a"}
+        StandIn.token_reply = {'access_token': 'a'}
         with self.assertRaises(login.LoginError):
-            self.run_login(lambda q: {"code": "x", "state": q["state"]})
+            self.run_login(lambda q: {'code': 'x', 'state': q['state']})
 
     def test_cancel_stops_waiting(self):
         with login.CallbackServer(0) as server:
             with self.assertRaises(login.LoginError):
-                server.wait("s", timeout=5, cancelled=lambda: True)
+                server.wait('s', timeout=5, cancelled=lambda: True)
 
     def test_busy_port_fails_when_all_ports_fail(self):
         with login.CallbackServer(0) as first:
             p = first.server.server_address[1]
             with self.assertRaises(login.LoginError) as ctx:
                 login.CallbackServer([p]).__enter__()
-        self.assertIn("already in use", str(ctx.exception))
+        self.assertIn('already in use', str(ctx.exception))
 
     def test_busy_port_falls_back_to_ephemeral_port(self):
         with login.CallbackServer(0) as first:
@@ -204,59 +145,34 @@ class LoginTests(unittest.TestCase):
             with login.CallbackServer(busy_port) as fallback_server:
                 self.assertNotEqual(fallback_server.port, busy_port)
                 self.assertGreater(fallback_server.port, 0)
-                self.assertEqual(
-                    fallback_server.redirect_uri,
-                    f"http://127.0.0.1:{fallback_server.port}/callback",
-                )
+                self.assertEqual(fallback_server.redirect_uri, f'http://127.0.0.1:{fallback_server.port}/callback')
 
     def test_busy_port_completes_oauth_login(self):
         with login.CallbackServer(0) as first:
             busy_port = first.port
-            result = self.run_login(
-                lambda q: {"code": "fallback_code", "state": q["state"]},
-                secret=FAKE_SECRET,
-                port=busy_port,
-            )
-            self.assertEqual(
-                result, {"refresh_token": "refresh1", "username": "Reader"}
-            )
+            result = self.run_login(lambda q: {'code': 'fallback_code', 'state': q['state']}, secret=FAKE_SECRET, port=busy_port)
+            self.assertEqual(result, {'refresh_token': 'refresh1', 'username': 'Reader'})
             path, headers, form = StandIn.log[0]
-            self.assertEqual(form["grant_type"], ["authorization_code"])
-            self.assertEqual(form["code"], ["fallback_code"])
+            self.assertEqual(form['grant_type'], ['authorization_code'])
+            self.assertEqual(form['code'], ['fallback_code'])
 
     def test_busy_port_fails_when_ephemeral_port_fails(self):
         from unittest.mock import patch
-
-        with patch.object(
-            login.CallbackServer, "_create_server", side_effect=OSError("bind failed")
-        ):
+        with patch.object(login.CallbackServer, '_create_server', side_effect=OSError('bind failed')):
             with self.assertRaises(login.LoginError) as ctx:
                 login.CallbackServer(8844).__enter__()
-            self.assertIn("already in use", str(ctx.exception))
+            self.assertIn('already in use', str(ctx.exception))
 
     def test_custom_redirect_uri_override_preserved(self):
         with login.CallbackServer(0) as server:
-            custom_uri = f"http://localhost:{server.port}/callback"
-            opener = browser_that(
-                lambda q: {"code": "code_override", "state": q["state"]}
-            )
+            custom_uri = f'http://localhost:{server.port}/callback'
+            opener = browser_that(lambda q: {'code': 'code_override', 'state': q['state']})
             opener.port = server.port
-            result = login.log_in(
-                core.Fetcher(min_interval=0),
-                FAKE_ID,
-                FAKE_SECRET,
-                server,
-                opener,
-                timeout=5,
-                redirect_uri=custom_uri,
-                token_url=self.base + "/token",
-                base=self.base,
-            )
-            self.assertEqual(
-                result, {"refresh_token": "refresh1", "username": "Reader"}
-            )
+            result = login.log_in(core.Fetcher(min_interval=0), FAKE_ID, FAKE_SECRET, server, opener, timeout=5,
+                                  redirect_uri=custom_uri, token_url=self.base + '/token', base=self.base)
+            self.assertEqual(result, {'refresh_token': 'refresh1', 'username': 'Reader'})
             path, headers, form = StandIn.log[0]
-            self.assertEqual(form["redirect_uri"], [custom_uri])
+            self.assertEqual(form['redirect_uri'], [custom_uri])
 
     def test_busy_port_falls_back(self):
         with login.CallbackServer(0) as first:
@@ -264,16 +180,13 @@ class LoginTests(unittest.TestCase):
             with login.CallbackServer(p) as second:
                 self.assertNotEqual(second.port, p)
                 self.assertTrue(second.port > 0)
-                self.assertEqual(
-                    second.redirect_uri, f"http://127.0.0.1:{second.port}/callback"
-                )
+                self.assertEqual(second.redirect_uri, f'http://127.0.0.1:{second.port}/callback')
 
     def test_fallback_port_when_primary_port_blocked(self):
         import socket
-
         try:
             blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            blocker.bind(("127.0.0.1", 8844))
+            blocker.bind(('127.0.0.1', 8844))
             blocker.listen(1)
         except OSError:
             blocker = None
@@ -282,66 +195,35 @@ class LoginTests(unittest.TestCase):
             with login.CallbackServer() as server:
                 if blocker is not None:
                     self.assertNotEqual(server.port, 8844)
-                self.assertEqual(
-                    server.redirect_uri, f"http://127.0.0.1:{server.port}/callback"
-                )
-                opener = browser_that(
-                    lambda q: {"code": "thecode", "state": q["state"]}
-                )
+                self.assertEqual(server.redirect_uri, f'http://127.0.0.1:{server.port}/callback')
+                opener = browser_that(lambda q: {'code': 'thecode', 'state': q['state']})
                 opener.port = server.port
-                result = login.log_in(
-                    core.Fetcher(min_interval=0),
-                    FAKE_ID,
-                    FAKE_SECRET,
-                    server,
-                    opener,
-                    timeout=5,
-                    token_url=self.base + "/token",
-                    base=self.base,
-                )
-                self.assertEqual(
-                    result, {"refresh_token": "refresh1", "username": "Reader"}
-                )
+                result = login.log_in(core.Fetcher(min_interval=0), FAKE_ID, FAKE_SECRET, server, opener,
+                                     timeout=5, token_url=self.base + '/token', base=self.base)
+                self.assertEqual(result, {'refresh_token': 'refresh1', 'username': 'Reader'})
                 path, headers, form = StandIn.log[0]
-                self.assertEqual(form["redirect_uri"], [server.redirect_uri])
+                self.assertEqual(form['redirect_uri'], [server.redirect_uri])
         finally:
             if blocker:
                 blocker.close()
 
     def test_missing_client_id(self):
         with self.assertRaises(login.LoginError):
-            login.log_in(None, "", "", None, None)
+            login.log_in(None, '', '', None, None)
 
     def test_revoke(self):
-        self.assertTrue(
-            login.revoke(
-                core.Fetcher(min_interval=0),
-                FAKE_ID,
-                "",
-                "refresh1",
-                self.base + "/revoke",
-            )
-        )
-        self.assertEqual(StandIn.log[0][2]["token"], ["refresh1"])
+        self.assertTrue(login.revoke(core.Fetcher(min_interval=0), FAKE_ID, '', 'refresh1', self.base + '/revoke'))
+        self.assertEqual(StandIn.log[0][2]['token'], ['refresh1'])
 
     def test_saved_login_is_used_by_the_api_source(self):
-        source = core.make_source(
-            "api", FAKE_ID, "", "Reader", lambda: False, "refresh1"
-        )
-        self.assertEqual(source.refresh_token, "refresh1")
-        api = core.ApiSource(
-            core.Fetcher(min_interval=0),
-            FAKE_ID,
-            "",
-            "Reader",
-            token_url=self.base + "/token",
-            base=self.base,
-            refresh_token="refresh1",
-        )
+        source = core.make_source('api', FAKE_ID, '', 'Reader', lambda: False, 'refresh1')
+        self.assertEqual(source.refresh_token, 'refresh1')
+        api = core.ApiSource(core.Fetcher(min_interval=0), FAKE_ID, '', 'Reader', token_url=self.base + '/token', base=self.base,
+                             refresh_token='refresh1')
         api._authorize()
-        self.assertEqual(StandIn.log[0][2]["grant_type"], ["refresh_token"])
-        self.assertEqual(StandIn.log[0][2]["refresh_token"], ["refresh1"])
+        self.assertEqual(StandIn.log[0][2]['grant_type'], ['refresh_token'])
+        self.assertEqual(StandIn.log[0][2]['refresh_token'], ['refresh1'])
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

@@ -434,10 +434,13 @@ class CalibreLinkAction(InterfaceAction):
     # -- status dialog ------------------------------------------------------
     def show_status(self):
         from qt.core import (
+            QApplication,
+            QDesktopServices,
             QDialog,
             QDialogButtonBox,
             QPushButton,
-            QTextEdit,
+            QTextBrowser,
+            QUrl,
             QVBoxLayout,
         )
 
@@ -457,11 +460,15 @@ class CalibreLinkAction(InterfaceAction):
         if st["state"] == "up":
             lines.append("  CONNECTED as %s" % (st.get("dns") or "?"))
             if st.get("ip"):
-                lines.append("  Tailnet IP: {}".format(st["ip"]))
+                lines.append(f"  Tailnet IP: {st['ip']}")
             lines.append("  Local bridge link: %s" % ("OK" if st.get("bridge") else "pending"))
         elif st["state"] == "auth":
             lines.append("  WAITING FOR ONE-TIME LOGIN — open:")
-            lines.append("  {}".format(st.get("auth_url")))
+            auth_url = st.get("auth_url")
+            if auth_url:
+                lines.append(f'  <a href="{auth_url}">{auth_url}</a>')
+            else:
+                lines.append(f"  {auth_url}")
         elif st["state"] == "starting":
             lines.append("  starting…")
         elif st["state"] == "error":
@@ -482,11 +489,21 @@ class CalibreLinkAction(InterfaceAction):
         dlg = QDialog(self.gui)
         dlg.setWindowTitle("Calibre Link status")
         layout = QVBoxLayout(dlg)
-        text = QTextEdit("\n".join(lines))
+        text = QTextBrowser()
+        text.setOpenExternalLinks(True)
         text.setReadOnly(True)
+        text.setHtml("<br>".join(lines))
         layout.addWidget(text)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(dlg.reject)
+        auth_url = st.get("auth_url")
+        if st["state"] == "auth" and auth_url:
+            open_btn = QPushButton("Open Auth Link")
+            open_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(auth_url)))
+            buttons.addButton(open_btn, QDialogButtonBox.ButtonRole.ActionRole)
+            copy_btn = QPushButton("Copy Auth Link")
+            copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(auth_url))
+            buttons.addButton(copy_btn, QDialogButtonBox.ButtonRole.ActionRole)
         restart = QPushButton("Restart bridge")
         restart.clicked.connect(lambda: (self.start_server(), dlg.accept()))
         buttons.addButton(restart, QDialogButtonBox.ButtonRole.ActionRole)
@@ -496,6 +513,7 @@ class CalibreLinkAction(InterfaceAction):
         layout.addWidget(buttons)
         dlg.resize(560, 380)
         dlg.exec()
+        return dlg
 
     def _prompt_tailscale_auth(self, auth_url):
         if not auth_url:

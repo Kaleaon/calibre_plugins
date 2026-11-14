@@ -5,6 +5,30 @@ import types
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
+
+# Provide StubPrefs for JSONConfig if calibre stubs are present
+if "calibre.utils.config" in sys.modules and not isinstance(sys.modules["calibre.utils.config"], types.ModuleType):
+
+    class StubPrefs(dict):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+            self.defaults = {}
+
+        def __getitem__(self, key):
+            try:
+                return super().__getitem__(key)
+            except KeyError:
+                return self.defaults[key]
+
+        def get(self, key, default=None):
+            if key in self:
+                return self[key]
+            if key in self.defaults:
+                return self.defaults[key]
+            return default
+
+    sys.modules["calibre.utils.config"].JSONConfig = StubPrefs
 
 # Register calibre_plugins.takeout_book_fixer package path
 if "calibre_plugins" not in sys.modules:
@@ -41,9 +65,7 @@ class TestTakeoutQueueDB(unittest.TestCase):
         self.assertIsNotNone(job_id)
 
         # Enqueue same path returns existing job_id
-        same_id = queue_db.enqueue_job(
-            file_path="/tmp/book1.zip", output_dir="/tmp/output", db_path=self.db_path
-        )
+        same_id = queue_db.enqueue_job(file_path="/tmp/book1.zip", output_dir="/tmp/output", db_path=self.db_path)
         self.assertEqual(job_id, same_id)
 
         jobs = queue_db.get_all_jobs(self.db_path)
@@ -79,17 +101,13 @@ class TestTakeoutQueueDB(unittest.TestCase):
         self.assertEqual(attempts, 2)
 
         # Third attempt failure -> permanently failed (attempt=3)
-        status, attempts = queue_db.mark_job_attempt_failed(
-            job_id, "Final error", max_attempts=3, db_path=self.db_path
-        )
+        status, attempts = queue_db.mark_job_attempt_failed(job_id, "Final error", max_attempts=3, db_path=self.db_path)
         self.assertEqual(status, "failed")
         self.assertEqual(attempts, 3)
 
     def test_startup_recovery(self):
         queue_db.init_db(self.db_path)
-        job_id = queue_db.enqueue_job(
-            "/tmp/crash.zip", "/tmp/out", db_path=self.db_path
-        )
+        job_id = queue_db.enqueue_job("/tmp/crash.zip", "/tmp/out", db_path=self.db_path)
         queue_db.update_job_status(job_id, "processing", db_path=self.db_path)
 
         # Reset processing jobs on startup
@@ -103,9 +121,7 @@ class TestTakeoutQueueDB(unittest.TestCase):
         j2 = queue_db.enqueue_job("/tmp/j2.zip", "/tmp/out", db_path=self.db_path)
 
         queue_db.update_job_status(j1, "completed", db_path=self.db_path)
-        queue_db.update_job_status(
-            j2, "failed", error_log="Failed", db_path=self.db_path
-        )
+        queue_db.update_job_status(j2, "failed", error_log="Failed", db_path=self.db_path)
 
         # Retry single
         queue_db.retry_job(j2, db_path=self.db_path)
@@ -164,9 +180,7 @@ class TestTakeoutDaemon(unittest.TestCase):
 
     def test_transient_error_handling_and_retry(self):
         # Create non-existent file path job
-        queue_db.enqueue_job(
-            "/tmp/non_existent_file.zip", str(self.out_dir), db_path=self.db_path
-        )
+        queue_db.enqueue_job("/tmp/non_existent_file.zip", str(self.out_dir), db_path=self.db_path)
 
         d = daemon.ImportQueueDaemon(gui=None, db_path=self.db_path)
         d.process_next_job()
@@ -179,21 +193,24 @@ class TestTakeoutDaemon(unittest.TestCase):
 
     def test_pause_and_resume(self):
         d = daemon.ImportQueueDaemon(gui=None, db_path=self.db_path)
-        d.pause()
-        self.assertTrue(d.is_paused)
+        try:
+            d.pause()
+            self.assertTrue(d.is_paused)
 
-        dummy_file = self.drop_dir / "book.pdf"
-        dummy_file.write_bytes(b"%PDF-1.4 header text")
+            dummy_file = self.drop_dir / "book.pdf"
+            dummy_file.write_bytes(b"%PDF-1.4 header text")
 
-        d.tick()
-        jobs = queue_db.get_all_jobs(self.db_path)
-        self.assertEqual(len(jobs), 0)
+            d.tick()
+            jobs = queue_db.get_all_jobs(self.db_path)
+            self.assertEqual(len(jobs), 0)
 
-        d.resume()
-        d.tick()
-        time.sleep(0.1)
-        jobs = queue_db.get_all_jobs(self.db_path)
-        self.assertEqual(len(jobs), 1)
+            d.resume()
+            d.tick()
+            time.sleep(0.1)
+            jobs = queue_db.get_all_jobs(self.db_path)
+            self.assertEqual(len(jobs), 1)
+        finally:
+            d.stop()
 
 
 class TestTakeoutUI(unittest.TestCase):
@@ -209,28 +226,152 @@ class TestTakeoutUI(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tmp.name) / "ui_queue.db"
         queue_db.init_db(self.db_path)
+        self.dialogs = []
 
     def tearDown(self):
+        for dlg in getattr(self, "dialogs", []):
+            try:
+                dlg.close()
+            except Exception:
+                pass
         self.tmp.cleanup()
+
+    def make_dialog(self, daemon=None, parent=None):
+        dlg = ui.QueueManagerDialog(daemon=daemon, parent=parent, db_path=self.db_path)
+        self.dialogs.append(dlg)
+        return dlg
 
     def test_queue_manager_dialog_headless(self):
         queue_db.enqueue_job("/tmp/file1.zip", "/tmp/out", db_path=self.db_path)
         queue_db.enqueue_job("/tmp/file2.zip", "/tmp/out", db_path=self.db_path)
 
         d = daemon.ImportQueueDaemon(gui=None, db_path=self.db_path)
-        dlg = ui.QueueManagerDialog(daemon=d, parent=None, db_path=self.db_path)
+        try:
+            dlg = self.make_dialog(daemon=d, parent=None)
 
-        # Refresh populates table or internal items
-        dlg.refresh()
+            # Refresh populates table or internal items
+            dlg.refresh()
 
-        # Test retry all button action
-        dlg.retry_all()
+            # Test retry all button action
+            dlg.retry_all()
 
-        # Test clear completed button action
-        dlg.clear_completed()
+            # Test clear completed button action
+            dlg.clear_completed()
 
-        # Test clear all button action
-        dlg.clear_all()
+            # Test clear all button action
+            yes_btn = getattr(getattr(ui.QMessageBox, "StandardButton", ui.QMessageBox), "Yes", 16384)
+            with patch.object(ui.QMessageBox, "question", return_value=yes_btn):
+                dlg.clear_all()
+            jobs = queue_db.get_all_jobs(self.db_path)
+            self.assertEqual(len(jobs), 0)
+        finally:
+            d.stop()
+
+    def test_clear_all_empty_queue_bypasses_prompt(self):
+        dlg = self.make_dialog(daemon=None, parent=None)
+        with patch.object(ui.QMessageBox, "question") as mock_question:
+            dlg.clear_all()
+            mock_question.assert_not_called()
+        jobs = queue_db.get_all_jobs(self.db_path)
+        self.assertEqual(len(jobs), 0)
+
+    def test_clear_all_completed_only_confirmed(self):
+        j1 = queue_db.enqueue_job("/tmp/c1.zip", "/tmp/out", db_path=self.db_path)
+        j2 = queue_db.enqueue_job("/tmp/c2.zip", "/tmp/out", db_path=self.db_path)
+        queue_db.update_job_status(j1, "completed", db_path=self.db_path)
+        queue_db.update_job_status(j2, "failed", error_log="Failed file", db_path=self.db_path)
+
+        dlg = self.make_dialog(daemon=None, parent=None)
+        yes_btn = getattr(getattr(ui.QMessageBox, "StandardButton", ui.QMessageBox), "Yes", 16384)
+
+        with patch.object(ui.QMessageBox, "question", return_value=yes_btn) as mock_question:
+            dlg.clear_all()
+            mock_question.assert_called_once()
+            call_args = mock_question.call_args[0]
+            self.assertEqual(call_args[1], "Confirm Clear")
+            self.assertIn("Clear 2 completed/failed jobs?", call_args[2])
+
+        jobs = queue_db.get_all_jobs(self.db_path)
+        self.assertEqual(len(jobs), 0)
+
+    def test_clear_all_completed_only_aborted(self):
+        j1 = queue_db.enqueue_job("/tmp/c1.zip", "/tmp/out", db_path=self.db_path)
+        j2 = queue_db.enqueue_job("/tmp/c2.zip", "/tmp/out", db_path=self.db_path)
+        queue_db.update_job_status(j1, "completed", db_path=self.db_path)
+        queue_db.update_job_status(j2, "failed", error_log="Failed file", db_path=self.db_path)
+
+        dlg = self.make_dialog(daemon=None, parent=None)
+        no_btn = getattr(getattr(ui.QMessageBox, "StandardButton", ui.QMessageBox), "No", 65536)
+
+        with patch.object(ui.QMessageBox, "question", return_value=no_btn) as mock_question:
+            dlg.clear_all()
+            mock_question.assert_called_once()
+
+        jobs = queue_db.get_all_jobs(self.db_path)
+        self.assertEqual(len(jobs), 2)
+
+    def test_clear_all_active_jobs_confirmed(self):
+        j1 = queue_db.enqueue_job("/tmp/a1.zip", "/tmp/out", db_path=self.db_path)
+        queue_db.enqueue_job("/tmp/a2.zip", "/tmp/out", db_path=self.db_path)
+        queue_db.update_job_status(j1, "processing", db_path=self.db_path)
+        # a2 remains pending
+
+        dlg = self.make_dialog(daemon=None, parent=None)
+        yes_btn = getattr(getattr(ui.QMessageBox, "StandardButton", ui.QMessageBox), "Yes", 16384)
+
+        with patch.object(ui.QMessageBox, "question", return_value=yes_btn) as mock_question:
+            dlg.clear_all()
+            mock_question.assert_called_once()
+            call_args = mock_question.call_args[0]
+            self.assertEqual(call_args[1], "Warning: Active Jobs in Progress")
+            self.assertIn(
+                "Warning: 2 active or pending job(s) will be interrupted and lost.",
+                call_args[2],
+            )
+            self.assertIn("2 active/pending, 0 completed/failed (Total: 2)", call_args[2])
+
+        jobs = queue_db.get_all_jobs(self.db_path)
+        self.assertEqual(len(jobs), 0)
+
+    def test_clear_all_active_jobs_aborted(self):
+        j1 = queue_db.enqueue_job("/tmp/a1.zip", "/tmp/out", db_path=self.db_path)
+        queue_db.enqueue_job("/tmp/a2.zip", "/tmp/out", db_path=self.db_path)
+        queue_db.update_job_status(j1, "processing", db_path=self.db_path)
+
+        dlg = self.make_dialog(daemon=None, parent=None)
+        no_btn = getattr(getattr(ui.QMessageBox, "StandardButton", ui.QMessageBox), "No", 65536)
+
+        with patch.object(ui.QMessageBox, "question", return_value=no_btn) as mock_question:
+            dlg.clear_all()
+            mock_question.assert_called_once()
+
+        jobs = queue_db.get_all_jobs(self.db_path)
+        self.assertEqual(len(jobs), 2)
+
+    def test_clear_all_mixed_status_breakdown(self):
+        j1 = queue_db.enqueue_job("/tmp/m1.zip", "/tmp/out", db_path=self.db_path)
+        queue_db.enqueue_job("/tmp/m2.zip", "/tmp/out", db_path=self.db_path)
+        j3 = queue_db.enqueue_job("/tmp/m3.zip", "/tmp/out", db_path=self.db_path)
+        j4 = queue_db.enqueue_job("/tmp/m4.zip", "/tmp/out", db_path=self.db_path)
+        queue_db.update_job_status(j1, "processing", db_path=self.db_path)
+        # j2 is pending
+        queue_db.update_job_status(j3, "completed", db_path=self.db_path)
+        queue_db.update_job_status(j4, "failed", error_log="Corrupt", db_path=self.db_path)
+
+        dlg = self.make_dialog(daemon=None, parent=None)
+        yes_btn = getattr(getattr(ui.QMessageBox, "StandardButton", ui.QMessageBox), "Yes", 16384)
+
+        with patch.object(ui.QMessageBox, "question", return_value=yes_btn) as mock_question:
+            dlg.clear_all()
+            mock_question.assert_called_once()
+            call_args = mock_question.call_args[0]
+            self.assertEqual(call_args[1], "Warning: Active Jobs in Progress")
+            self.assertIn(
+                "Warning: 2 active or pending job(s) will be interrupted and lost.",
+                call_args[2],
+            )
+            self.assertIn("2 active/pending, 2 completed/failed (Total: 4)", call_args[2])
+
         jobs = queue_db.get_all_jobs(self.db_path)
         self.assertEqual(len(jobs), 0)
 

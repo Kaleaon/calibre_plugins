@@ -1,5 +1,4 @@
 """Unit tests for consolidated Qt/UI helper functions in common/guikit.py."""
-
 import sys
 import unittest
 from pathlib import Path
@@ -9,21 +8,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 try:
-    import types
-
     from PyQt6 import QtCore, QtGui, QtWidgets
-
-    qtcore = types.ModuleType("qt.core")
+    import types
+    qtcore = types.ModuleType('qt.core')
     for module in (QtWidgets, QtGui, QtCore):
         for name in dir(module):
             setattr(qtcore, name, getattr(module, name))
-    qt_mod = types.ModuleType("qt")
+    qt_mod = types.ModuleType('qt')
     qt_mod.core = qtcore
-    sys.modules["qt"] = qt_mod
-    sys.modules["qt.core"] = qtcore
+    sys.modules['qt'] = qt_mod
+    sys.modules['qt.core'] = qtcore
 except ImportError:
     import types
-
     qt_mod = MagicMock()
     qt_core = MagicMock()
 
@@ -48,15 +44,10 @@ except ImportError:
     qt_core.QWidget = MagicMock()
 
     qt_mod.core = qt_core
-    sys.modules["qt"] = qt_mod
-    sys.modules["qt.core"] = qt_core
+    sys.modules['qt'] = qt_mod
+    sys.modules['qt.core'] = qt_core
 
-from common.guikit import (  # noqa: E402
-    append_log,
-    chosen_fields,
-    clean_lines,
-    collect_tree_changes,
-)
+from common.guikit import append_log, chosen_fields, clean_lines, collect_tree_changes
 
 
 class MockTextEdit:
@@ -76,12 +67,9 @@ class MockBox:
 
 
 class MockTreeItem:
-    def __init__(
-        self, data_role_32=None, data_role_33=None, check_state=0, children=None
-    ):
+    def __init__(self, data_role_32=None, data_role_33=None, check_state=0, children=None):
         from qt.core import Qt
-
-        role_user = getattr(Qt.ItemDataRole, "UserRole", 32)
+        role_user = getattr(Qt.ItemDataRole, 'UserRole', 32)
         try:
             role_user_int = int(role_user)
         except (ValueError, TypeError):
@@ -140,23 +128,21 @@ class GuikitHelperTests(unittest.TestCase):
         self.assertEqual(clean_lines(None), [])
 
     def test_chosen_fields_with_tuples(self):
-        labels = [("title", "Titles"), ("authors", "Authors"), ("tags", "Tags")]
+        labels = [('title', 'Titles'), ('authors', 'Authors'), ('tags', 'Tags')]
         boxes = {
-            "title": MockBox(True),
-            "authors": MockBox(False),
-            "tags": MockBox(True),
+            'title': MockBox(True),
+            'authors': MockBox(False),
+            'tags': MockBox(True),
         }
-        self.assertEqual(chosen_fields(boxes, labels), ("title", "tags"))
+        self.assertEqual(chosen_fields(boxes, labels), ('title', 'tags'))
 
     def test_chosen_fields_with_plain_keys_and_booleans(self):
-        boxes = {"title": True, "authors": False, "tags": True}
-        self.assertEqual(
-            chosen_fields(boxes, ["title", "authors", "tags"]), ("title", "tags")
-        )
+        boxes = {'title': True, 'authors': False, 'tags': True}
+        self.assertEqual(chosen_fields(boxes, ['title', 'authors', 'tags']), ('title', 'tags'))
 
     def test_chosen_fields_without_labels(self):
-        boxes = {"a": True, "b": False}
-        self.assertEqual(chosen_fields(boxes), ("a",))
+        boxes = {'a': True, 'b': False}
+        self.assertEqual(chosen_fields(boxes), ('a',))
 
     def test_append_log(self):
         widget = MagicMock()
@@ -168,28 +154,22 @@ class GuikitHelperTests(unittest.TestCase):
 
     def test_collect_tree_changes(self):
         # 2 = Qt.CheckState.Checked
-        child1 = MockTreeItem(
-            data_role_32="title", data_role_33=("old_t", "new_t"), check_state=2
-        )
-        child2 = MockTreeItem(
-            data_role_32="tags", data_role_33=("old_tag", "new_tag"), check_state=0
-        )
+        child1 = MockTreeItem(data_role_32='title', data_role_33=('old_t', 'new_t'), check_state=2)
+        child2 = MockTreeItem(data_role_32='tags', data_role_33=('old_tag', 'new_tag'), check_state=0)
         top1 = MockTreeItem(data_role_32=101, children=[child1, child2])
 
-        child3 = MockTreeItem(
-            data_role_32="authors", data_role_33=("old_a", "new_a"), check_state=2
-        )
+        child3 = MockTreeItem(data_role_32='authors', data_role_33=('old_a', 'new_a'), check_state=2)
         top2 = MockTreeItem(data_role_32=102, children=[child3])
 
         tree = MockTreeWidget([top1, top2])
         changes = collect_tree_changes(tree)
 
         expected = [
-            (101, {"title": ("old_t", "new_t")}),
-            (102, {"authors": ("old_a", "new_a")}),
+            (101, {'title': ('old_t', 'new_t')}),
+            (102, {'authors': ('old_a', 'new_a')})
         ]
         self.assertEqual(changes, expected)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

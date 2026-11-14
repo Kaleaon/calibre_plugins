@@ -13,28 +13,19 @@ so it cannot produce this plugin's zip yet; use this script (the
 sidecar build needs a Go toolchain, which the repo CI does not
 currently install).
 """
-
 import os
 import sys
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "CalibreLink.zip")
-FILES = [
-    "__init__.py",
-    "ui.py",
-    "config.py",
-    "adapter.py",
-    "server.py",
-    "plugin-import-name-calibre_link.txt",
-    "README.md",
-]
-SIDECARS = [
-    "tailscale/calibre-tsnet-windows-amd64.exe",
-    "tailscale/calibre-tsnet-linux-amd64",
-]
+FILES = ["__init__.py", "ui.py", "config.py", "adapter.py", "server.py",
+         "plugin-import-name-calibre_link.txt", "README.md"]
+SIDECARS = ["tailscale/calibre-tsnet-windows-amd64.exe",
+            "tailscale/calibre-tsnet-linux-amd64"]
 
-missing = [f for f in FILES + SIDECARS if not os.path.exists(os.path.join(HERE, f))]
+missing = [f for f in FILES + SIDECARS
+           if not os.path.exists(os.path.join(HERE, f))]
 if missing:
     print("MISSING FILES:", *missing, sep="\n  ")
     print("Build the sidecars first: sidecar/build.sh")

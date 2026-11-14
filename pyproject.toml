@@ -31,14 +31,12 @@ extend-exclude = [
     "calibre_link/build_zip.py",
     "calibre_link/config.py",
     "calibre_link/server.py",
-    "calibre_link/ui.py",
     "tests/calibre_integration.py",
     "tests/conftest.py",
     "tests/harness_utils.py",
     "tests/reddit_samples.py",
     "tests/takeout_pdf_validation.py",
     "tests/takeout_validation.py",
-    "tests/test_calibre_link_ui.py",
     "tests/test_core.py",
     "tests/test_empty_state_overlay.py",
     "tests/test_epub_merge.py",
@@ -109,3 +107,6 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

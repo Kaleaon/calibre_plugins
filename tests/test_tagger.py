@@ -9,9 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tagger"))
 
-spec = importlib.util.spec_from_file_location(
-    "rules", Path(__file__).resolve().parents[1] / "tagger/rules.py"
-)
+spec = importlib.util.spec_from_file_location("rules", Path(__file__).resolve().parents[1] / "tagger/rules.py")
 rules = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rules)
 
@@ -34,36 +32,19 @@ def book(i, **kw):
 class DetectTests(unittest.TestCase):
     def test_identifier_key_value_and_publisher(self):
         s = rules.DEFAULT_SITES
+        self.assertEqual(rules.detect_sites(book(1, identifiers={"metabods": "x"}), s), ["Metabods"])
         self.assertEqual(
-            rules.detect_sites(book(1, identifiers={"metabods": "x"}), s), ["Metabods"]
+            rules.detect_sites(book(1, identifiers={"url": "https://www.royalroad.com/fiction/1/x"}), s), ["Royal Road"]
         )
-        self.assertEqual(
-            rules.detect_sites(
-                book(1, identifiers={"url": "https://www.royalroad.com/fiction/1/x"}), s
-            ),
-            ["Royal Road"],
-        )
-        self.assertEqual(
-            rules.detect_sites(book(1, publisher="archiveofourown.org"), s),
-            ["Archive of Our Own"],
-        )
-        self.assertEqual(
-            rules.detect_sites(book(1, identifiers={"isbn": "123"}), s), []
-        )
+        self.assertEqual(rules.detect_sites(book(1, publisher="archiveofourown.org"), s), ["Archive of Our Own"])
+        self.assertEqual(rules.detect_sites(book(1, identifiers={"isbn": "123"}), s), [])
 
     def test_host_must_be_whole_word_and_comments_opt_in(self):
         s = rules.DEFAULT_SITES
-        self.assertEqual(
-            rules.detect_sites(
-                book(1, identifiers={"url": "https://notnifty.org.evil.com/"}), s
-            ),
-            [],
-        )
+        self.assertEqual(rules.detect_sites(book(1, identifiers={"url": "https://notnifty.org.evil.com/"}), s), [])
         text = book(1, comments="<p>originally on royalroad.com</p>")
         self.assertEqual(rules.detect_sites(text, s), [])
-        self.assertEqual(
-            rules.detect_sites(text, s, scan_comments=True), ["Royal Road"]
-        )
+        self.assertEqual(rules.detect_sites(text, s, scan_comments=True), ["Royal Road"])
 
     def test_host_pattern_memoization(self):
         rules._host_pattern.cache_clear()
@@ -77,11 +58,7 @@ class DetectTests(unittest.TestCase):
     def test_bulk_site_detection_uses_cache(self):
         rules._host_pattern.cache_clear()
         books = [
-            book(
-                i,
-                publisher=f"publisher-{i}.com",
-                identifiers={"url": f"https://www.royalroad.com/fiction/{i}"},
-            )
+            book(i, publisher=f"publisher-{i}.com", identifiers={"url": f"https://www.royalroad.com/fiction/{i}"})
             for i in range(10)
         ]
         plan = rules.plan_changes(books)
@@ -95,26 +72,16 @@ class FanFicFareTests(unittest.TestCase):
     def test_fanficfare_identifier_form(self):
         # FanFicFare stores url identifiers with ':' turned into '|', and the publisher is the site's domain.
         s = rules.DEFAULT_SITES
-        rr = book(
-            1,
-            identifiers={"url": "https|//www.royalroad.com/fiction/21220"},
-            publisher="www.royalroad.com",
-        )
+        rr = book(1, identifiers={"url": "https|//www.royalroad.com/fiction/21220"}, publisher="www.royalroad.com")
         self.assertEqual(rules.detect_sites(rr, s), ["Royal Road"])
-        sb = book(
-            2, identifiers={"url": "https|//forums.spacebattles.com/threads/x.1/"}
-        )
+        sb = book(2, identifiers={"url": "https|//forums.spacebattles.com/threads/x.1/"})
         self.assertEqual(rules.detect_sites(sb, s), ["SpaceBattles"])
         self.assertEqual(
-            rules.detect_sites(
-                book(3, identifiers={"url": "https|//archiveofourown.org/works/1"}), s
-            ),
+            rules.detect_sites(book(3, identifiers={"url": "https|//archiveofourown.org/works/1"}), s),
             ["Archive of Our Own"],
         )
         self.assertEqual(
-            rules.detect_sites(
-                book(4, identifiers={"uri": "https|//www.scribblehub.com/series/1/"}), s
-            ),
+            rules.detect_sites(book(4, identifiers={"uri": "https|//www.scribblehub.com/series/1/"}), s),
             ["Scribble Hub"],
         )
 
@@ -136,12 +103,8 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(len(errors), 3)
 
     def test_sites(self):
-        sites, errors = rules.parse_sites(
-            "storiesonline.net, sol.net => Stories Online\nbroken"
-        )
-        self.assertEqual(
-            sites, [("Stories Online", ["storiesonline.net", "sol.net"], [])]
-        )
+        sites, errors = rules.parse_sites("storiesonline.net, sol.net => Stories Online\nbroken")
+        self.assertEqual(sites, [("Stories Online", ["storiesonline.net", "sol.net"], [])])
         self.assertEqual(len(errors), 1)
 
 
@@ -153,9 +116,7 @@ class PlanTests(unittest.TestCase):
             book(3),
         ]
         plan = rules.plan_changes(books)
-        self.assertEqual(
-            [p["id"] for p in plan], [2]
-        )  # book 1 already has the tag (any case); book 3 has no source
+        self.assertEqual([p["id"] for p in plan], [2])  # book 1 already has the tag (any case); book 3 has no source
         self.assertEqual(plan[0]["tags"], ["X", "Source.Metabods"])
 
     def test_rules_fields_and_series(self):
@@ -163,32 +124,12 @@ class PlanTests(unittest.TestCase):
             "tag:=Muscle Growth => Theme.Growth\nsource:Royal => Web serial\ntitle:re:^The\\b => Starts with The\nlitrpg => LitRPG"
         )
         books = [
-            book(
-                1,
-                tags=["Muscle Growth", "Other"],
-                title="The End",
-                series="Saga",
-                identifiers={"royalroad": "1"},
-            ),
+            book(1, tags=["Muscle Growth", "Other"], title="The End", series="Saga", identifiers={"royalroad": "1"}),
             book(2, tags=["Muscle Growth Extra"], title="Zed"),
         ]
-        plan = {
-            p["id"]: p["add"]
-            for p in rules.plan_changes(books, series_prefix="Series.", rules=parsed)
-        }
-        self.assertEqual(
-            plan[1],
-            [
-                "Source.Royal Road",
-                "Series.Saga",
-                "Theme.Growth",
-                "Web serial",
-                "Starts with The",
-            ],
-        )
-        self.assertNotIn(
-            2, plan
-        )  # '=' means exact tag match, so "Muscle Growth Extra" does not trigger
+        plan = {p["id"]: p["add"] for p in rules.plan_changes(books, series_prefix="Series.", rules=parsed)}
+        self.assertEqual(plan[1], ["Source.Royal Road", "Series.Saga", "Theme.Growth", "Web serial", "Starts with The"])
+        self.assertNotIn(2, plan)  # '=' means exact tag match, so "Muscle Growth Extra" does not trigger
 
     def test_idempotent(self):
         b = book(1, identifiers={"nifty": "a"})
@@ -209,9 +150,7 @@ class PlanTests(unittest.TestCase):
         extra, _ = rules.parse_sites("archiveofourown.org => ao3\nroyalroad.com => rr")
         merged = rules.merge_sites(rules.DEFAULT_SITES, extra)
         ao3_book = book(1, publisher="archiveofourown.org")
-        rr_book = book(
-            2, identifiers={"url": "https://www.royalroad.com/fiction/1/test"}
-        )
+        rr_book = book(2, identifiers={"url": "https://www.royalroad.com/fiction/1/test"})
         plan = rules.plan_changes([ao3_book, rr_book], sites=merged)
         self.assertEqual(len(plan), 2)
         self.assertEqual(plan[0]["add"], ["Source.Archive of Our Own"])
@@ -220,9 +159,7 @@ class PlanTests(unittest.TestCase):
 
 class JsonExportImportTests(unittest.TestCase):
     def test_export_package_format(self):
-        pkg = rules.export_rule_set_package(
-            "tag:=A => B", "example.com => Ex", True, "Source.", "Series.", True
-        )
+        pkg = rules.export_rule_set_package("tag:=A => B", "example.com => Ex", True, "Source.", "Series.", True)
         self.assertEqual(pkg["version"], 1)
         self.assertEqual(pkg["plugin"], "Story Collection Tagger")
         self.assertEqual(pkg["rules"], "tag:=A => B")
@@ -282,15 +219,9 @@ class TaggerDialogTests(unittest.TestCase):
             m.setChecked.side_effect = lambda c: setattr(m, "_checked", bool(c))
             return m
 
-        qt_mod.core.QPlainTextEdit.side_effect = lambda *args: make_plain_text_edit(
-            args[0] if args else ""
-        )
-        qt_mod.core.QLineEdit.side_effect = lambda *args: make_line_edit(
-            args[0] if args else ""
-        )
-        qt_mod.core.QCheckBox.side_effect = lambda *args: make_check_box(
-            args[0] if args else ""
-        )
+        qt_mod.core.QPlainTextEdit.side_effect = lambda *args: make_plain_text_edit(args[0] if args else "")
+        qt_mod.core.QLineEdit.side_effect = lambda *args: make_line_edit(args[0] if args else "")
+        qt_mod.core.QCheckBox.side_effect = lambda *args: make_check_box(args[0] if args else "")
 
         tagger_pkg = types.ModuleType("calibre_plugins.story_collection_tagger")
         tagger_pkg.__path__ = [str(Path(__file__).resolve().parents[1] / "tagger")]
@@ -314,16 +245,10 @@ class TaggerDialogTests(unittest.TestCase):
         sys.modules["calibre_plugins"] = types.ModuleType("calibre_plugins")
         sys.modules["calibre_plugins"].__path__ = []
         sys.modules["calibre_plugins.story_collection_tagger"] = tagger_pkg
-        sys.modules["calibre_plugins.story_collection_tagger.config"] = (
-            tagger_pkg.config
-        )
+        sys.modules["calibre_plugins.story_collection_tagger.config"] = tagger_pkg.config
         sys.modules["calibre_plugins.story_collection_tagger.rules"] = tagger_pkg.rules
-        sys.modules["calibre_plugins.story_collection_tagger.error_handler"] = (
-            tagger_pkg.error_handler
-        )
-        sys.modules["calibre_plugins.story_collection_tagger.guikit"] = (
-            tagger_pkg.guikit
-        )
+        sys.modules["calibre_plugins.story_collection_tagger.error_handler"] = tagger_pkg.error_handler
+        sys.modules["calibre_plugins.story_collection_tagger.guikit"] = tagger_pkg.guikit
         sys.modules["error_handler"] = tagger_pkg.error_handler
 
     def tearDown(self):
@@ -331,6 +256,7 @@ class TaggerDialogTests(unittest.TestCase):
             if k not in self.saved_modules:
                 del sys.modules[k]
         sys.modules.update(self.saved_modules)
+        sys.modules.pop('common.guikit', None)
 
     def test_show_dialog_sets_word_wrap_on_labels(self):
         spec = importlib.util.spec_from_file_location(
@@ -387,45 +313,21 @@ class TaggerDialogTests(unittest.TestCase):
             widgets.setdefault(cls_name, []).append(m)
             return m
 
-        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget(
-            "QPlainTextEdit", *a, **k
-        )
-        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget(
-            "QLineEdit", *a, **k
-        )
-        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget(
-            "QCheckBox", *a, **k
-        )
-        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget(
-            "QRadioButton", *a, **k
-        )
-        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget(
-            "QPushButton", *a, **k
-        )
-        qt_core.QTreeWidget.side_effect = lambda *a, **k: mock_widget(
-            "QTreeWidget", *a, **k
-        )
-        qt_core.QTreeWidgetItem.side_effect = lambda *a, **k: mock_widget(
-            "QTreeWidgetItem", *a, **k
-        )
-        qt_core.QSplitter.side_effect = lambda *a, **k: mock_widget(
-            "QSplitter", *a, **k
-        )
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget("QPlainTextEdit", *a, **k)
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget("QLineEdit", *a, **k)
+        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget("QCheckBox", *a, **k)
+        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget("QRadioButton", *a, **k)
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget("QPushButton", *a, **k)
+        qt_core.QTreeWidget.side_effect = lambda *a, **k: mock_widget("QTreeWidget", *a, **k)
+        qt_core.QTreeWidgetItem.side_effect = lambda *a, **k: mock_widget("QTreeWidgetItem", *a, **k)
+        qt_core.QSplitter.side_effect = lambda *a, **k: mock_widget("QSplitter", *a, **k)
         qt_core.QWidget.side_effect = lambda *a, **k: mock_widget("QWidget", *a, **k)
 
         action.show_dialog()
 
-        rules_edit = next(
-            w
-            for w in widgets["QPlainTextEdit"]
-            if w._args and w._args[0] == action_mod.prefs["rules"]
-        )
-        preview_btn = next(
-            w for w in widgets["QPushButton"] if w._args and w._args[0] == "Preview"
-        )
-        apply_btn = next(
-            w for w in widgets["QPushButton"] if w._args and w._args[0] == "Apply"
-        )
+        rules_edit = next(w for w in widgets["QPlainTextEdit"] if w._args and w._args[0] == action_mod.prefs["rules"])
+        preview_btn = next(w for w in widgets["QPushButton"] if w._args and w._args[0] == "Preview")
+        apply_btn = next(w for w in widgets["QPushButton"] if w._args and w._args[0] == "Apply")
         global_tree = widgets["QTreeWidget"][0]
         books_tree = widgets["QTreeWidget"][1]
 
@@ -468,39 +370,19 @@ class TaggerDialogTests(unittest.TestCase):
             widgets.setdefault(cls_name, []).append(m)
             return m
 
-        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget(
-            "QPlainTextEdit", *a, **k
-        )
-        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget(
-            "QLineEdit", *a, **k
-        )
-        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget(
-            "QCheckBox", *a, **k
-        )
-        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget(
-            "QRadioButton", *a, **k
-        )
-        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget(
-            "QPushButton", *a, **k
-        )
-        qt_core.QTreeWidget.side_effect = lambda *a, **k: mock_widget(
-            "QTreeWidget", *a, **k
-        )
-        qt_core.QTreeWidgetItem.side_effect = lambda *a, **k: mock_widget(
-            "QTreeWidgetItem", *a, **k
-        )
-        qt_core.QSplitter.side_effect = lambda *a, **k: mock_widget(
-            "QSplitter", *a, **k
-        )
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget("QPlainTextEdit", *a, **k)
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget("QLineEdit", *a, **k)
+        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget("QCheckBox", *a, **k)
+        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget("QRadioButton", *a, **k)
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget("QPushButton", *a, **k)
+        qt_core.QTreeWidget.side_effect = lambda *a, **k: mock_widget("QTreeWidget", *a, **k)
+        qt_core.QTreeWidgetItem.side_effect = lambda *a, **k: mock_widget("QTreeWidgetItem", *a, **k)
+        qt_core.QSplitter.side_effect = lambda *a, **k: mock_widget("QSplitter", *a, **k)
         qt_core.QWidget.side_effect = lambda *a, **k: mock_widget("QWidget", *a, **k)
 
         action.show_dialog()
 
-        rules_edit = next(
-            w
-            for w in widgets["QPlainTextEdit"]
-            if w._args and w._args[0] == action_mod.prefs["rules"]
-        )
+        rules_edit = next(w for w in widgets["QPlainTextEdit"] if w._args and w._args[0] == action_mod.prefs["rules"])
         global_tree = widgets["QTreeWidget"][0]
         books_tree = widgets["QTreeWidget"][1]
         invalidate_preview = rules_edit.textChanged.connect.call_args[0][0]
@@ -529,43 +411,19 @@ class TaggerDialogTests(unittest.TestCase):
             widgets.setdefault(cls_name, []).append(m)
             return m
 
-        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget(
-            "QPlainTextEdit", *a, **k
-        )
-        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget(
-            "QLineEdit", *a, **k
-        )
-        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget(
-            "QCheckBox", *a, **k
-        )
-        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget(
-            "QRadioButton", *a, **k
-        )
-        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget(
-            "QPushButton", *a, **k
-        )
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget("QPlainTextEdit", *a, **k)
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget("QLineEdit", *a, **k)
+        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget("QCheckBox", *a, **k)
+        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget("QRadioButton", *a, **k)
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget("QPushButton", *a, **k)
 
         action.show_dialog()
 
-        rules_edit = next(
-            w
-            for w in widgets["QPlainTextEdit"]
-            if w._args and w._args[0] == action_mod.prefs["rules"]
-        )
-        sites_edit = next(
-            w
-            for w in widgets["QPlainTextEdit"]
-            if w._args and w._args[0] == action_mod.prefs["sites"]
-        )
-        prefix = next(
-            w
-            for w in widgets["QLineEdit"]
-            if w._args and w._args[0] == action_mod.prefs["source_prefix"]
-        )
+        rules_edit = next(w for w in widgets["QPlainTextEdit"] if w._args and w._args[0] == action_mod.prefs["rules"])
+        sites_edit = next(w for w in widgets["QPlainTextEdit"] if w._args and w._args[0] == action_mod.prefs["sites"])
+        prefix = next(w for w in widgets["QLineEdit"] if w._args and w._args[0] == action_mod.prefs["source_prefix"])
         series_prefix = next(
-            w
-            for w in widgets["QLineEdit"]
-            if w._args and w._args[0] == action_mod.prefs["series_prefix"]
+            w for w in widgets["QLineEdit"] if w._args and w._args[0] == action_mod.prefs["series_prefix"]
         )
         add_source = widgets["QCheckBox"][0]
         scan = widgets["QCheckBox"][1]
@@ -769,12 +627,7 @@ class TaggerPreviewDialogUITests(unittest.TestCase):
                 "add": ["Source.Metabods", "Theme.Growth"],
                 "tags": ["Fiction", "Source.Metabods", "Theme.Growth"],
             },
-            {
-                "id": 2,
-                "title": "Book Two",
-                "add": ["LitRPG"],
-                "tags": ["Sci-Fi", "LitRPG"],
-            },
+            {"id": 2, "title": "Book Two", "add": ["LitRPG"], "tags": ["Sci-Fi", "LitRPG"]},
         ]
 
     def test_tree_populates_correctly(self):
@@ -798,18 +651,12 @@ class TaggerPreviewDialogUITests(unittest.TestCase):
 
         # Uncheck book 1 -> child tag items should become unchecked
         book1_item.setCheckState(0, QtCore.Qt.CheckState.Unchecked)
-        self.assertEqual(
-            book1_item.child(0).checkState(0), QtCore.Qt.CheckState.Unchecked
-        )
-        self.assertEqual(
-            book1_item.child(1).checkState(0), QtCore.Qt.CheckState.Unchecked
-        )
+        self.assertEqual(book1_item.child(0).checkState(0), QtCore.Qt.CheckState.Unchecked)
+        self.assertEqual(book1_item.child(1).checkState(0), QtCore.Qt.CheckState.Unchecked)
 
         # Check child item 0 -> book item should become PartiallyChecked
         book1_item.child(0).setCheckState(0, QtCore.Qt.CheckState.Checked)
-        self.assertEqual(
-            book1_item.checkState(0), QtCore.Qt.CheckState.PartiallyChecked
-        )
+        self.assertEqual(book1_item.checkState(0), QtCore.Qt.CheckState.PartiallyChecked)
 
     def test_select_all_and_deselect_all(self):
         dialog = self.tagger_ui.TaggerPreviewDialog(None, self.sample_plan())
@@ -877,9 +724,7 @@ class RuleSetSchemaTests(unittest.TestCase):
         self.assertTrue(any("bad regular expression" in e for e in errors))
 
     def test_classify_rule_duplicate_conflict_new(self):
-        parsed_local, _ = rules.parse_rules(
-            "litrpg => LitRPG\ntags:=Muscle Growth => Theme.Growth"
-        )
+        parsed_local, _ = rules.parse_rules("litrpg => LitRPG\ntags:=Muscle Growth => Theme.Growth")
         inc_new, _ = rules.parse_rules("action => Action")
         inc_dup, _ = rules.parse_rules("litrpg => LitRPG")
         inc_conf, _ = rules.parse_rules("litrpg => LitRPG, Game")
@@ -957,15 +802,9 @@ class RuleSetManagerDialogTests(unittest.TestCase):
 
         qt_mod = MagicMock()
         qt_mod.core.QDialog = StubDialog
-        qt_mod.core.QPlainTextEdit.side_effect = lambda *args: make_plain_text_edit(
-            args[0] if args else ""
-        )
-        qt_mod.core.QLineEdit.side_effect = lambda *args: make_line_edit(
-            args[0] if args else ""
-        )
-        qt_mod.core.QCheckBox.side_effect = lambda *args: make_check_box(
-            args[0] if args else ""
-        )
+        qt_mod.core.QPlainTextEdit.side_effect = lambda *args: make_plain_text_edit(args[0] if args else "")
+        qt_mod.core.QLineEdit.side_effect = lambda *args: make_line_edit(args[0] if args else "")
+        qt_mod.core.QCheckBox.side_effect = lambda *args: make_check_box(args[0] if args else "")
         sys.modules["qt"] = qt_mod
         sys.modules["qt.core"] = qt_mod.core
 
@@ -988,19 +827,16 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         tagger_pkg.guikit.DialogAction = DialogAction
         sys.modules["calibre_plugins"] = types.ModuleType("calibre_plugins")
         sys.modules["calibre_plugins.story_collection_tagger"] = tagger_pkg
-        sys.modules["calibre_plugins.story_collection_tagger.config"] = (
-            tagger_pkg.config
-        )
+        sys.modules["calibre_plugins.story_collection_tagger.config"] = tagger_pkg.config
         sys.modules["calibre_plugins.story_collection_tagger.rules"] = tagger_pkg.rules
-        sys.modules["calibre_plugins.story_collection_tagger.guikit"] = (
-            tagger_pkg.guikit
-        )
+        sys.modules["calibre_plugins.story_collection_tagger.guikit"] = tagger_pkg.guikit
 
     def tearDown(self):
         for k in list(sys.modules.keys()):
             if k not in self.saved_modules:
                 del sys.modules[k]
         sys.modules.update(self.saved_modules)
+        sys.modules.pop('common.guikit', None)
 
     def test_manager_dialog_initialization_and_commit(self):
         spec = importlib.util.spec_from_file_location(
@@ -1010,9 +846,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         spec.loader.exec_module(action_mod)
 
         dlg = action_mod.RuleSetManagerDialog(
-            None,
-            current_rules="litrpg => LitRPG",
-            current_sites="sol.net => Stories Online",
+            None, current_rules="litrpg => LitRPG", current_sites="sol.net => Stories Online"
         )
         self.assertEqual(len(dlg.local_rules), 1)
         self.assertEqual(len(dlg.local_sites), 1)
@@ -1032,17 +866,11 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         import time
 
         start = time.time()
-        dlg = action_mod.RuleSetManagerDialog(
-            None, current_rules=many_rules, current_sites=""
-        )
+        dlg = action_mod.RuleSetManagerDialog(None, current_rules=many_rules, current_sites="")
         elapsed = time.time() - start
 
         self.assertEqual(len(dlg.local_rules), 1000)
-        self.assertLess(
-            elapsed,
-            2.0,
-            f"Table population for 1000 rules took too long ({elapsed:.2f}s)",
-        )
+        self.assertLess(elapsed, 2.0, f"Table population for 1000 rules took too long ({elapsed:.2f}s)")
 
     def test_manager_dialog_unchecked_rules_are_excluded(self):
         spec = importlib.util.spec_from_file_location(
@@ -1052,9 +880,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         spec.loader.exec_module(action_mod)
 
         dlg = action_mod.RuleSetManagerDialog(
-            None,
-            current_rules="rule1 => Tag1\nrule2 => Tag2",
-            current_sites="site1.com => Site1\nsite2.com => Site2",
+            None, current_rules="rule1 => Tag1\nrule2 => Tag2", current_sites="site1.com => Site1\nsite2.com => Site2"
         )
 
         # Mock table item check state for row 1 to be Unchecked
@@ -1093,9 +919,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         spec.loader.exec_module(action_mod)
 
         dlg = action_mod.RuleSetManagerDialog(None, current_rules="", current_sites="")
-        dlg._get_checked_rules_and_sites_text = MagicMock(
-            return_value=("re:(( => Bad Regex", "")
-        )
+        dlg._get_checked_rules_and_sites_text = MagicMock(return_value=("re:(( => Bad Regex", ""))
         dlg.accept = MagicMock()
 
         dlg._on_accept()
@@ -1119,10 +943,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             export_path = tf.name
 
         qt_core = sys.modules["qt.core"]
-        qt_core.QFileDialog.getSaveFileName.return_value = (
-            export_path,
-            "JSON files (*.json)",
-        )
+        qt_core.QFileDialog.getSaveFileName.return_value = (export_path, "JSON files (*.json)")
 
         action.show_dialog()
 
@@ -1177,17 +998,12 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             "series_prefix": "Ser.",
             "scan_comments": True,
         }
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", mode="w", encoding="utf-8", delete=False
-        ) as tf:
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
             json.dump(import_data, tf)
             import_path = tf.name
 
         qt_core = sys.modules["qt.core"]
-        qt_core.QFileDialog.getOpenFileName.return_value = (
-            import_path,
-            "JSON files (*.json)",
-        )
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, "JSON files (*.json)")
 
         # Mock QMessageBox clickedButton to simulate clicking 'Replace'
         msg_mock = MagicMock()
@@ -1207,9 +1023,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         # The second button added in do_import is replace_btn
         def exec_mock():
             # clicked button will be replace_btn (second added)
-            msg_mock.clickedButton.return_value = msg_mock.addButton.call_args_list[1][
-                0
-            ][0]
+            msg_mock.clickedButton.return_value = msg_mock.addButton.call_args_list[1][0][0]
 
         # Let's collect buttons added
         added_btns = []
@@ -1225,14 +1039,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
 
         # Find do_import callback
         connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
-        do_import = next(
-            (
-                c[0][0]
-                for c in connect_call
-                if getattr(c[0][0], "__name__", "") == "do_import"
-            ),
-            None,
-        )
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"), None)
         self.assertIsNotNone(do_import)
 
         do_import()
@@ -1263,45 +1070,28 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             "rules": "tag:=New => TagNew",
             "sites": "newsite.org => New Site",
         }
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", mode="w", encoding="utf-8", delete=False
-        ) as tf:
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
             json.dump(import_data, tf)
             import_path = tf.name
 
         qt_core = sys.modules["qt.core"]
-        qt_core.QFileDialog.getOpenFileName.return_value = (
-            import_path,
-            "JSON files (*.json)",
-        )
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, "JSON files (*.json)")
 
         msg_mock = MagicMock()
         qt_core.QMessageBox.return_value = msg_mock
         added_btns = []
         msg_mock.addButton = lambda name, role=None: added_btns.append(name) or name
         # Return merge_btn (first added button)
-        msg_mock.clickedButton.side_effect = lambda: (
-            added_btns[0] if added_btns else "Merge"
-        )
+        msg_mock.clickedButton.side_effect = lambda: added_btns[0] if added_btns else "Merge"
 
         action.show_dialog()
 
         connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
-        do_import = next(
-            (
-                c[0][0]
-                for c in connect_call
-                if getattr(c[0][0], "__name__", "") == "do_import"
-            ),
-            None,
-        )
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"), None)
 
         do_import()
 
-        self.assertTrue(
-            "tag:=Existing => TagOld" in prefs["rules"]
-            or "tags:=Existing => TagOld" in prefs["rules"]
-        )
+        self.assertTrue("tag:=Existing => TagOld" in prefs["rules"] or "tags:=Existing => TagOld" in prefs["rules"])
         self.assertIn("tag:=New => TagNew", prefs["rules"])
         self.assertIn("oldsite.org => Old Site", prefs["sites"])
         self.assertIn("newsite.org => New Site", prefs["sites"])
@@ -1324,37 +1114,23 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             "rules": "re:(( => InvalidRegex",
             "sites": "broken_site_line",
         }
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", mode="w", encoding="utf-8", delete=False
-        ) as tf:
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
             json.dump(bad_data, tf)
             import_path = tf.name
 
         qt_core = sys.modules["qt.core"]
-        qt_core.QFileDialog.getOpenFileName.return_value = (
-            import_path,
-            "JSON files (*.json)",
-        )
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, "JSON files (*.json)")
 
         msg_mock = MagicMock()
         qt_core.QMessageBox.return_value = msg_mock
         added_btns = []
         msg_mock.addButton = lambda name, role=None: added_btns.append(name) or name
-        msg_mock.clickedButton.side_effect = lambda: (
-            added_btns[1] if len(added_btns) > 1 else "Replace"
-        )
+        msg_mock.clickedButton.side_effect = lambda: added_btns[1] if len(added_btns) > 1 else "Replace"
 
         action.show_dialog()
 
         connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
-        do_import = next(
-            (
-                c[0][0]
-                for c in connect_call
-                if getattr(c[0][0], "__name__", "") == "do_import"
-            ),
-            None,
-        )
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"), None)
 
         prefs = sys.modules["calibre_plugins.story_collection_tagger.config"].prefs
         original_rules = prefs["rules"]
@@ -1377,29 +1153,17 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         action.gui = MagicMock()
         action.gui.library_view.get_selected_ids.return_value = []
 
-        with tempfile.NamedTemporaryFile(
-            suffix=".json", mode="w", encoding="utf-8", delete=False
-        ) as tf:
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
             tf.write("THIS IS NOT VALID JSON")
             import_path = tf.name
 
         qt_core = sys.modules["qt.core"]
-        qt_core.QFileDialog.getOpenFileName.return_value = (
-            import_path,
-            "JSON files (*.json)",
-        )
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, "JSON files (*.json)")
 
         action.show_dialog()
 
         connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
-        do_import = next(
-            (
-                c[0][0]
-                for c in connect_call
-                if getattr(c[0][0], "__name__", "") == "do_import"
-            ),
-            None,
-        )
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"), None)
 
         prefs = sys.modules["calibre_plugins.story_collection_tagger.config"].prefs
         original_rules = prefs["rules"]
@@ -1408,6 +1172,52 @@ class RuleSetManagerDialogTests(unittest.TestCase):
 
         # Prefs should remain unchanged
         self.assertEqual(prefs["rules"], original_rules)
+
+    def test_import_rule_set_unknown_button_aborts(self):
+        import json
+        import tempfile
+
+        spec = importlib.util.spec_from_file_location(
+            "action", Path(__file__).resolve().parents[1] / "tagger/action.py"
+        )
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = []
+
+        prefs = sys.modules["calibre_plugins.story_collection_tagger.config"].prefs
+        prefs["rules"] = "tag:=Existing => TagOld"
+        prefs["sites"] = "oldsite.org => Old Site"
+
+        import_data = {
+            "rules": "tag:=New => TagNew",
+            "sites": "newsite.org => New Site",
+        }
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
+            json.dump(import_data, tf)
+            import_path = tf.name
+
+        qt_core = sys.modules["qt.core"]
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, "JSON files (*.json)")
+
+        msg_mock = MagicMock()
+        qt_core.QMessageBox.return_value = msg_mock
+        added_btns = []
+        msg_mock.addButton = lambda name, role=None: added_btns.append(name) or name
+        unknown_btn = MagicMock(name="UnknownButton")
+        msg_mock.clickedButton.side_effect = lambda: unknown_btn
+
+        action.show_dialog()
+
+        connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"), None)
+
+        do_import()
+
+        self.assertEqual(prefs["rules"], "tag:=Existing => TagOld")
+        self.assertEqual(prefs["sites"], "oldsite.org => Old Site")
 
 
 if __name__ == "__main__":

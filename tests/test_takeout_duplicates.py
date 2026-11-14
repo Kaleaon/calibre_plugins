@@ -1,8 +1,11 @@
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     import PyQt6.QtCore as _QtCore
@@ -39,18 +42,6 @@ for name in STUBS:
         sys.modules[name] = MagicMock()
 
 
-class Meta:
-    def __init__(self, title, authors):
-        self.title, self.authors, self.ids = title, authors, {}
-
-    def set_identifier(self, key, value):
-        self.ids[key] = value
-
-
-sys.modules["calibre.ebooks.metadata.book.base"].Metadata = Meta
-sys.modules["calibre.gui2.actions"].InterfaceAction = object
-
-
 class StubPrefs(dict):
     def __init__(self, *args, **kwargs):
         super().__init__()
@@ -60,7 +51,7 @@ class StubPrefs(dict):
         try:
             return super().__getitem__(key)
         except KeyError:
-            return self.defaults.get(key)
+            return self.defaults[key]
 
     def get(self, key, default=None):
         if key in self:
@@ -71,6 +62,18 @@ class StubPrefs(dict):
 
 
 sys.modules["calibre.utils.config"].JSONConfig = StubPrefs
+
+
+class Meta:
+    def __init__(self, title, authors):
+        self.title, self.authors, self.ids = title, authors, {}
+
+    def set_identifier(self, key, value):
+        self.ids[key] = value
+
+
+sys.modules["calibre.ebooks.metadata.book.base"].Metadata = Meta
+sys.modules["calibre.gui2.actions"].InterfaceAction = object
 
 from plugin import importer  # noqa: E402
 
@@ -110,14 +113,10 @@ class TakeoutDuplicatePolicyTests(unittest.TestCase):
 
         mock_db.all_field_for.side_effect = mock_all_field_for
         mock_db.field_for.side_effect = lambda f, bid, default=None: (
-            existing_title
-            if f == "title"
-            else (("Author A",) if f == "authors" else default)
+            existing_title if f == "title" else (("Author A",) if f == "authors" else default)
         )
         mock_db.formats.return_value = ("EPUB",)
-        mock_db.format_metadata.return_value = {
-            "size": len(b"EPUB_TEST_CONTENT_" * 1000)
-        }
+        mock_db.format_metadata.return_value = {"size": len(b"EPUB_TEST_CONTENT_" * 1000)}
         mock_db.format_abspath.return_value = None
         mock_db.format.return_value = b"EPUB_TEST_CONTENT_" * 1000
         mock_db.create_book_entry.return_value = 200
@@ -133,9 +132,7 @@ class TakeoutDuplicatePolicyTests(unittest.TestCase):
             "source": "test_book.epub",
             "metadata": {"title": "Existing Book", "isbn": "978-0-306-40615-7"},
         }
-        imported, errors = importer.import_books(
-            mock_gui, [row], duplicate_policy="skip"
-        )
+        imported, errors = importer.import_books(mock_gui, [row], duplicate_policy="skip")
         self.assertEqual(imported, [])
         self.assertEqual(row.get("import_status"), "duplicate skipped")
 
@@ -147,9 +144,7 @@ class TakeoutDuplicatePolicyTests(unittest.TestCase):
             "source": "test_book.epub",
             "metadata": {"title": "Existing Book", "isbn": "978-0-306-40615-7"},
         }
-        imported, errors = importer.import_books(
-            mock_gui, [row], duplicate_policy="merge"
-        )
+        imported, errors = importer.import_books(mock_gui, [row], duplicate_policy="merge")
         self.assertEqual(imported, [100])
         self.assertEqual(row.get("import_status"), "merged")
         self.assertEqual(row.get("calibre_id"), 100)
@@ -163,9 +158,7 @@ class TakeoutDuplicatePolicyTests(unittest.TestCase):
             "source": "test_book.epub",
             "metadata": {"title": "Existing Book Updated", "isbn": "978-0-306-40615-7"},
         }
-        imported, errors = importer.import_books(
-            mock_gui, [row], duplicate_policy="overwrite"
-        )
+        imported, errors = importer.import_books(mock_gui, [row], duplicate_policy="overwrite")
         self.assertEqual(imported, [100])
         self.assertEqual(row.get("import_status"), "overwritten")
         self.assertEqual(row.get("calibre_id"), 100)
@@ -179,9 +172,7 @@ class TakeoutDuplicatePolicyTests(unittest.TestCase):
             "source": "test_book.epub",
             "metadata": {"title": "Existing Book", "isbn": "978-0-306-40615-7"},
         }
-        imported, errors = importer.import_books(
-            mock_gui, [row], duplicate_policy="keep_both"
-        )
+        imported, errors = importer.import_books(mock_gui, [row], duplicate_policy="keep_both")
         self.assertEqual(imported, [200])
         self.assertEqual(row.get("import_status"), "imported")
         self.assertEqual(row.get("calibre_id"), 200)
@@ -198,9 +189,7 @@ class TakeoutDuplicatePolicyTests(unittest.TestCase):
 
         with patch("plugin.importer._show_conflict_dialog") as mock_dialog:
             mock_dialog.return_value = {0: "merge"}
-            imported, errors = importer.import_books(
-                mock_gui, [row], duplicate_policy="prompt"
-            )
+            imported, errors = importer.import_books(mock_gui, [row], duplicate_policy="prompt")
             self.assertEqual(imported, [100])
             self.assertEqual(row.get("import_status"), "merged")
             mock_dialog.assert_called_once()
@@ -211,7 +200,7 @@ class TakeoutDuplicatePolicyTests(unittest.TestCase):
         except ImportError:
             self.skipTest("PyQt6 not available for Qt widget test")
 
-        self._app = QApplication.instance() or QApplication([])
+        self.app = QApplication.instance() or QApplication([])
 
         conflicts = [
             {
