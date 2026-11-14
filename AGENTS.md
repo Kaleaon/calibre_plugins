@@ -60,10 +60,15 @@ The `--strict` flag ensures the build fails if vendored dependencies (such as `f
 QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest
 ```
 
-### Test Suite Execution with `unittest` (CI Alignment)
+When targeting a specific plugin's tests (as done in CI for pull requests):
+```bash
+QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest tests/test_calibre_link_ui.py
+```
+
+### Test Suite Execution with `pytest` (CI Alignment)
 To run the exact unit test suite command executed in CI:
 ```bash
-QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m unittest discover -s tests -p "test_*.py" -v
+QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m pytest tests/
 ```
 
 ### Edge Case: Environments Without Qt / PyQt6
@@ -75,6 +80,11 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m unittest discover -s tests -p "
 ## 5. Code Quality & Formatting
 
 ### Linting with Ruff
+To run the Ruff linter across modified files (as in PR CI):
+```bash
+ruff check <modified_files>
+```
+
 To run the Ruff linter across the codebase:
 ```bash
 ruff check .
@@ -86,6 +96,11 @@ ruff check . --fix
 ```
 
 ### Code Formatting with Ruff
+To check code formatting on modified files:
+```bash
+ruff format --check <modified_files>
+```
+
 To check code formatting:
 ```bash
 ruff format --check .

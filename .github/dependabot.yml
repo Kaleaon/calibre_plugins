@@ -22,3 +22,13 @@ updates:
       - "dependencies"
       - "python"
     open-pull-requests-limit: 10
+
+  # Enable version updates for Go (gomod) dependencies
+  - package-ecosystem: "gomod"
+    directory: "/calibre_link/sidecar"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "go"
+    open-pull-requests-limit: 10

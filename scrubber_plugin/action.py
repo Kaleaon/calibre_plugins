@@ -139,6 +139,7 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
                 "Scan selected books for promos & misplaced images…",
                 self.scan_selected_library,
             ),
+            ("Restore selected books from ORIGINAL_EPUB", self.restore_selected),
             ("Restore original EPUBs & metadata…", self.restore_manager),
             ("Scrub EPUB file or folder to a new folder…", self.scrub_folder),
             ("Restore EPUB files from folder…", self.restore_folder_action),
@@ -150,6 +151,61 @@ class ScrubAction(MergeSelectedActionMixin, InterfaceAction):
             action.triggered.connect(lambda checked=False, slot=slot: slot())
             menu.addAction(action)
         self.qaction.triggered.connect(self.scrub_selected)
+
+    def restore_selected(self):
+        ids = list(self.gui.library_view.get_selected_ids())
+        if not ids:
+            info_dialog(
+                self.gui,
+                "EPUB Promo Scrubber",
+                "Select one or more books in Calibre first.",
+                show=True,
+            )
+            return
+
+        db = self.gui.current_db.new_api
+        restorable_ids = [book_id for book_id in ids if "ORIGINAL_EPUB" in (db.formats(book_id) or ())]
+        if not restorable_ids:
+            info_dialog(
+                self.gui,
+                "EPUB Promo Scrubber",
+                "No ORIGINAL_EPUB backup available for the selected books.",
+                show=True,
+            )
+            return
+
+        if len(restorable_ids) == len(ids):
+            confirm_msg = f"Restore {len(restorable_ids)} selected book(s) from ORIGINAL_EPUB backup?"
+        else:
+            confirm_msg = (
+                f"Found {len(restorable_ids)} book(s) with ORIGINAL_EPUB backup(s) out of {len(ids)} selected.\n"
+                "Restore them to the primary EPUB format?"
+            )
+
+        sure = QMessageBox.question(self.gui, "Restore from ORIGINAL_EPUB?", confirm_msg)
+        if sure != QMessageBox.StandardButton.Yes:
+            return
+
+        restored, errors = [], []
+        for book_id in restorable_ids:
+            try:
+                backup_data = db.format(book_id, "ORIGINAL_EPUB")
+                if not backup_data:
+                    continue
+                stream = BytesIO(backup_data) if isinstance(backup_data, (bytes, bytearray)) else backup_data
+                if not db.add_format(book_id, "EPUB", stream, replace=True):
+                    raise ValueError("Calibre could not save the restored EPUB")
+                restored.append(book_id)
+            except Exception as exc:
+                errors.append(f"{book_id}: {exc}")
+
+        self.gui.library_view.model().refresh()
+        self.gui.tags_view.recount()
+
+        msg = f"{len(restored)} book(s) restored from ORIGINAL_EPUB backup."
+        if errors:
+            msg += f"\n{len(errors)} error(s):\n" + "\n".join(errors)
+        info_dialog(self.gui, "EPUB Promo Scrubber", msg, show=True)
 
     def restore_manager(self):
         try:

@@ -377,7 +377,10 @@ def load_undo():
 
 
 def save_undo(undo):
-    prefs['undo'] = dict(undo or {})
+    try:
+        prefs['undo'] = dict(undo or {})
+    except Exception:
+        pass
     path = _undo_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -571,9 +574,17 @@ class GeminiFixerAction(DialogAction):
                             try:
                                 fmt_path = db.format_abspath(book_id, fmt)
                                 if fmt_path:
-                                    desc = engine.find_back_cover_descriptor(fmt_path, fmt)
-                                    if desc:
-                                        images.append(desc)
+                                    res = engine.find_back_cover(fmt_path, fmt)
+                                    if res:
+                                        data, label = res
+                                        images.append({
+                                            'type': 'back',
+                                            'label': label,
+                                            'mime': 'image/jpeg',
+                                            'path': fmt_path,
+                                            'raw_bytes': data,
+                                            'loader': lambda d=data: d,
+                                        })
                                         break
                             except Exception:
                                 continue
@@ -666,28 +677,19 @@ class GeminiFixerAction(DialogAction):
 
     @staticmethod
     def _apply_field_batches(db, per_book):
-        """per_book: {book_id: {db_field: value}}. Writes each field for all books in one set_field call (one transaction
-        instead of one per book); if a batch fails, that field is retried book by book so one bad book does not sink the rest.
+        """per_book: {book_id: {db_field: value}}. Writes fields for each book;
+        if any write fails, records error for that book.
         Returns {book_id: error_text} for the books that failed."""
         failed = {}
-        fields = {}
         for book_id, values in per_book.items():
-            for name, value in values.items():
-                fields.setdefault(name, {})[book_id] = value
-        # series must exist before its index is set
-        order = sorted(fields, key=lambda n: (n == 'series_index', n))
-        for name in order:
-            mapping = {bid: v for bid, v in fields[name].items() if bid not in failed}
-            if not mapping:
-                continue
-            try:
-                db.set_field(name, mapping)
-            except Exception:
-                for bid, v in mapping.items():
-                    try:
-                        db.set_field(name, {bid: v})
-                    except Exception as exc:
-                        failed[bid] = f'{name}: {exc}'
+            order = sorted(values, key=lambda n: (n == 'series_index', n))
+            for name in order:
+                v = values[name]
+                try:
+                    db.set_field(name, {book_id: v})
+                except Exception as exc:
+                    failed[book_id] = f'{name}: {exc}'
+                    break
         return failed
 
     def write_changes(self, items, on_progress=None):
@@ -1795,6 +1797,7 @@ class GeminiFixerAction(DialogAction):
                 if undo:
                     undo_state[0] = undo
                     save_undo(undo)
+                    prefs['undo'] = undo
                     undo_btn.setEnabled(True)
                 self.refresh(done)
                 if embed_updated.isChecked() and done:
@@ -1852,6 +1855,7 @@ class GeminiFixerAction(DialogAction):
                 if not errors:
                     undo_state[0] = {}
                     save_undo({})
+                    prefs['undo'] = {}
                     undo_btn.setEnabled(False)
                 bar.setValue(len(done))
                 bar.setFormat(_('Restored %v of %m books (100%)'))

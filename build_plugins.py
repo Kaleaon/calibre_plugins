@@ -17,6 +17,7 @@ SHARED = [
     "task_queue.py",
     "queue_ui.py",
     "error_handler.py",
+    "opml_kit.py",
 ]
 PLUGINS = {
     "TakeoutBookFixer.zip": ("plugin", "takeout_book_fixer", SHARED, False),
@@ -113,11 +114,17 @@ def _licenses():
         except metadata.PackageNotFoundError:
             continue
         for f in dist.files or []:
-            if re.search(r"(?i)(^|/)(licen[cs]e|notice)[^/]*$", str(f)):
-                parts.append(
-                    f"\n===== {dist_name} {dist.version}: {f.name} =====\n"
-                    + dist.locate_file(f).read_text(encoding="utf-8", errors="replace")
-                )
+            if re.search(r"(?i)(^|[/\\])(licen[cs]e|notice)[^/\\]*$", str(f)):
+                try:
+                    file_path = dist.locate_file(f)
+                    if hasattr(file_path, "is_file") and not file_path.is_file():
+                        continue
+                    parts.append(
+                        f"\n===== {dist_name} {dist.version}: {f.name} =====\n"
+                        + file_path.read_text(encoding="utf-8", errors="replace")
+                    )
+                except (OSError, ValueError):
+                    continue
     return "\n".join(parts)
 
 
@@ -207,8 +214,6 @@ def add_vendored(z):
         + (bro / "LICENSE").read_text(encoding="utf-8")
         + "\nSource: https://github.com/sidney/brotlidecpy\n",
     )
-
-
 def add_mutagen(z):
     """Copy pure-Python mutagen from third_party/mutagen into the MediaMatcher zip."""
     mutagen_dir = root / "third_party" / "mutagen"
@@ -224,7 +229,7 @@ def add_mutagen(z):
         z.writestr("MUTAGEN_LICENSE.txt", copying.read_text(encoding="utf-8", errors="replace"))
 
 
-def build_all(dest, skip_unavailable=True):
+def build_all(dest, skip_unavailable=False):
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
     built = {}
@@ -255,5 +260,6 @@ def build_all(dest, skip_unavailable=True):
 
 
 if __name__ == "__main__":
-    for target in build_all(root / "dist", skip_unavailable="--strict" not in sys.argv).values():
+    skip_unavailable = "--skip-unavailable" in sys.argv and "--strict" not in sys.argv
+    for target in build_all(root / "dist", skip_unavailable=skip_unavailable).values():
         print(target)
