@@ -680,7 +680,7 @@ def hydrate_image(image, image_hydrator=None, db=None):
             b64 = hydrator(raw_data)
         except Exception:
             b64 = None
-    else:
+    if not b64:
         try:
             if isinstance(raw_data, str):
                 b64 = raw_data

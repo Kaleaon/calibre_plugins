@@ -37,7 +37,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m unittest discover -s tests -p "test_*.py" -v
+          QT_QPA_PLATFORM=offscreen PYTHONPATH=. python -m pytest tests/
 
       - name: Build plugin packages
         run: |
