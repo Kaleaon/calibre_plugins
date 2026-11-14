@@ -55,7 +55,10 @@ def restore_real_modules():
         sys.modules["lxml"] = _REAL_LXML
     if _REAL_LXML_ETREE is not None and isinstance(sys.modules.get("lxml.etree"), MagicMock):
         sys.modules["lxml.etree"] = _REAL_LXML_ETREE
-    if _QT_MOD is not None and "qt" not in sys.modules:
-        sys.modules["qt"] = _QT_MOD
+    if _QT_MOD is not None:
+        if "qt" not in sys.modules or not hasattr(sys.modules.get("qt"), "core"):
+            sys.modules["qt"] = _QT_MOD
+        if _QT_CORE is not None and not hasattr(sys.modules["qt"], "core"):
+            sys.modules["qt"].core = _QT_CORE
     if _QT_CORE is not None and "qt.core" not in sys.modules:
         sys.modules["qt.core"] = _QT_CORE
