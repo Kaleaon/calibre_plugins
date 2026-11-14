@@ -54,7 +54,7 @@ class EmptyStateOverlayTests(QtCase):
         from common.guikit import EmptyStateOverlay
         package = self.load('gemini_library_fixer')
         action_mod = importlib.import_module(package + '.action')
-        action = action_mod.GeminiFixerAction()
+        action = action_mod.GeminiFixerAction(MagicMock(), 'gemini_library_fixer')
         action.gui = MagicMock()
         action.gui.current_db.new_api.get_selected_ids.return_value = []
         action.gui.current_db.new_api.all_book_ids.return_value = []

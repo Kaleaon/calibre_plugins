@@ -1789,6 +1789,7 @@ class GeminiFixerAction(DialogAction):
                 if undo:
                     undo_state[0] = undo
                     save_undo(undo)
+                    prefs['undo'] = undo
                     undo_btn.setEnabled(True)
                 self.refresh(done)
                 if embed_updated.isChecked() and done:
@@ -1846,6 +1847,7 @@ class GeminiFixerAction(DialogAction):
                 if not errors:
                     undo_state[0] = {}
                     save_undo({})
+                    prefs['undo'] = {}
                     undo_btn.setEnabled(False)
                 bar.setValue(len(done))
                 bar.setFormat(_('Restored %v of %m books (100%)'))
