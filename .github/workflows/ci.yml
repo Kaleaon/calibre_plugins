@@ -97,7 +97,7 @@ jobs:
           python scripts/verify_plugins.py
 
       - name: Upload plugin packages artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: calibre-plugin-packages-${{ matrix.os }}-${{ matrix.python-version }}
           path: dist/*.zip
