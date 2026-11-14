@@ -93,7 +93,7 @@ def check_tests():
         "media": ["tests/test_media*.py"],
         "metabods": ["tests/test_metabods*.py"],
         "nifty": ["tests/test_nifty*.py"],
-        "reddit": ["tests/test_reddit*.py"],
+        "reddit": ["tests/test_reddit*.py", "tests/test_manifest_reordering.py"],
         "scrubber": ["tests/test_scrubber*.py"],
         "scrubber_plugin": ["tests/test_scrubber*.py", "tests/test_epub_merge*.py"],
         "story": ["tests/test_story*.py"],

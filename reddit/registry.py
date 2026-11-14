@@ -3,7 +3,7 @@
 Maintains thread-safe persistent state for cross-author series, multi-source feed rules,
 chapter manifests, deduplication, and author attributions.
 """
-import contextlib
+
 import json
 import os
 import sqlite3
@@ -11,13 +11,15 @@ import threading
 import time
 
 
-class _ConnectionContext:
+class ConnectionWrapper:
+    """Wrapper that supports both context manager and direct connection access."""
+
     def __init__(self, conn):
         self._conn = conn
 
     def __enter__(self):
         self._conn.__enter__()
-        return self._conn
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         try:
@@ -54,11 +56,11 @@ class SeriesRegistry:
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='series';")
         if not cursor.fetchone():
             self._create_tables(conn)
-        return _ConnectionContext(conn)
+        return ConnectionWrapper(conn)
 
     def _create_tables(self, conn):
         cursor = conn.cursor()
-        
+
         # 1. Series table
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS series (
@@ -138,16 +140,26 @@ class SeriesRegistry:
             author_attribution TEXT DEFAULT '',
             is_duplicate INTEGER DEFAULT 0,
             canonical_post_id TEXT DEFAULT '',
+            is_excluded INTEGER DEFAULT 0,
+            is_custom_order INTEGER DEFAULT 0,
             PRIMARY KEY (series_id, post_id),
             FOREIGN KEY(series_id) REFERENCES series(id) ON DELETE CASCADE,
             FOREIGN KEY(post_id) REFERENCES chapters(id) ON DELETE CASCADE
         );
         """)
+        try:
+            cursor.execute("ALTER TABLE manifests ADD COLUMN is_excluded INTEGER DEFAULT 0;")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE manifests ADD COLUMN is_custom_order INTEGER DEFAULT 0;")
+        except Exception:
+            pass
 
         conn.commit()
 
     def init_db(self):
-        with self._lock, self._get_connection() as conn:
+        with self._lock, self._get_connection():
             pass
 
     def get_all_series(self):
@@ -158,40 +170,48 @@ class SeriesRegistry:
             series_list = []
             for r in rows:
                 s_dict = dict(r)
-                s_id = s_dict['id']
-                
+                s_id = s_dict["id"]
+
                 # Fetch feed sources
                 cursor.execute("SELECT * FROM feed_sources WHERE series_id = ?", (s_id,))
-                s_dict['sources'] = [dict(src) for src in cursor.fetchall()]
-                
+                s_dict["sources"] = [dict(src) for src in cursor.fetchall()]
+
                 # Fetch authors
-                cursor.execute("SELECT author_name FROM authors WHERE series_id = ? ORDER BY author_name", (s_id,))
-                s_dict['authors'] = [a['author_name'] for a in cursor.fetchall()]
-                
-                sig = s_dict.get('signature', '')
+                cursor.execute(
+                    "SELECT author_name FROM authors WHERE series_id = ? ORDER BY author_name",
+                    (s_id,),
+                )
+                s_dict["authors"] = [a["author_name"] for a in cursor.fetchall()]
+
+                sig = s_dict.get("signature", "")
                 if sig and isinstance(sig, str):
                     try:
-                        s_dict['signature'] = json.loads(sig)
+                        s_dict["signature"] = json.loads(sig)
                     except Exception:
                         pass
 
                 # Backward compatibility: populate legacy fields from first feed source
-                if s_dict['sources']:
-                    first_src = s_dict['sources'][0]
-                    s_dict['source'] = {
-                        'kind': first_src['kind'],
-                        'subreddit': first_src['subreddit'],
-                        'user': first_src['user'],
-                        'query': first_src['query']
+                if s_dict["sources"]:
+                    first_src = s_dict["sources"][0]
+                    s_dict["source"] = {
+                        "kind": first_src["kind"],
+                        "subreddit": first_src["subreddit"],
+                        "user": first_src["user"],
+                        "query": first_src["query"],
                     }
-                    s_dict['title_filter'] = first_src['title_filter']
-                    s_dict['author_filter'] = first_src['author_filter']
-                    s_dict['flair_filter'] = first_src['flair_filter']
+                    s_dict["title_filter"] = first_src["title_filter"]
+                    s_dict["author_filter"] = first_src["author_filter"]
+                    s_dict["flair_filter"] = first_src["flair_filter"]
                 else:
-                    s_dict['source'] = {'kind': 'subreddit', 'subreddit': '', 'user': '', 'query': ''}
-                    s_dict['title_filter'] = ''
-                    s_dict['author_filter'] = ''
-                    s_dict['flair_filter'] = ''
+                    s_dict["source"] = {
+                        "kind": "subreddit",
+                        "subreddit": "",
+                        "user": "",
+                        "query": "",
+                    }
+                    s_dict["title_filter"] = ""
+                    s_dict["author_filter"] = ""
+                    s_dict["flair_filter"] = ""
 
                 series_list.append(s_dict)
             return series_list
@@ -199,19 +219,20 @@ class SeriesRegistry:
     def get_series(self, series_id):
         all_s = self.get_all_series()
         for s in all_s:
-            if s['id'] == series_id:
+            if s["id"] == series_id:
                 return s
         return None
 
     def save_series(self, series_dict):
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
-            s_id = series_dict['id']
-            now = series_dict.get('created_at') or time.time()
-            sig = series_dict.get('signature')
-            sig_str = json.dumps(sig) if sig is not None else ''
-            
-            cursor.execute("""
+            s_id = series_dict["id"]
+            now = series_dict.get("created_at") or time.time()
+            sig = series_dict.get("signature")
+            sig_str = json.dumps(sig) if sig is not None else ""
+
+            cursor.execute(
+                """
             INSERT INTO series (id, name, layout, author_note, title_from_body, index_url, last_checked, last_status, complete, newest_created, newest_id, index_data, signature, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
@@ -227,52 +248,59 @@ class SeriesRegistry:
                 newest_id = excluded.newest_id,
                 index_data = excluded.index_data,
                 signature = excluded.signature;
-            """, (
-                s_id,
-                series_dict['name'],
-                series_dict.get('layout', 'series'),
-                1 if series_dict.get('author_note') else 0,
-                1 if series_dict.get('title_from_body') else 0,
-                series_dict.get('index_url', ''),
-                float(series_dict.get('last_checked') or 0.0),
-                series_dict.get('last_status', ''),
-                1 if series_dict.get('complete') else 0,
-                float(series_dict.get('newest_created') or 0.0),
-                series_dict.get('newest_id', ''),
-                series_dict.get('index_data', ''),
-                sig_str,
-                now
-            ))
+            """,
+                (
+                    s_id,
+                    series_dict["name"],
+                    series_dict.get("layout", "series"),
+                    1 if series_dict.get("author_note") else 0,
+                    1 if series_dict.get("title_from_body") else 0,
+                    series_dict.get("index_url", ""),
+                    float(series_dict.get("last_checked") or 0.0),
+                    series_dict.get("last_status", ""),
+                    1 if series_dict.get("complete") else 0,
+                    float(series_dict.get("newest_created") or 0.0),
+                    series_dict.get("newest_id", ""),
+                    series_dict.get("index_data", ""),
+                    sig_str,
+                    now,
+                ),
+            )
 
             # Replace feed sources
             cursor.execute("DELETE FROM feed_sources WHERE series_id = ?", (s_id,))
-            sources = series_dict.get('sources')
-            if not sources and 'source' in series_dict:
+            sources = series_dict.get("sources")
+            if not sources and "source" in series_dict:
                 # Legacy or single source input
-                sources = [{
-                    'kind': series_dict['source'].get('kind', 'subreddit'),
-                    'subreddit': series_dict['source'].get('subreddit', ''),
-                    'user': series_dict['source'].get('user', ''),
-                    'query': series_dict['source'].get('query', ''),
-                    'title_filter': series_dict.get('title_filter', ''),
-                    'author_filter': series_dict.get('author_filter', ''),
-                    'flair_filter': series_dict.get('flair_filter', '')
-                }]
+                sources = [
+                    {
+                        "kind": series_dict["source"].get("kind", "subreddit"),
+                        "subreddit": series_dict["source"].get("subreddit", ""),
+                        "user": series_dict["source"].get("user", ""),
+                        "query": series_dict["source"].get("query", ""),
+                        "title_filter": series_dict.get("title_filter", ""),
+                        "author_filter": series_dict.get("author_filter", ""),
+                        "flair_filter": series_dict.get("flair_filter", ""),
+                    }
+                ]
 
-            for src in (sources or []):
-                cursor.execute("""
+            for src in sources or []:
+                cursor.execute(
+                    """
                 INSERT INTO feed_sources (series_id, kind, subreddit, user, query, title_filter, author_filter, flair_filter)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    s_id,
-                    src.get('kind', 'subreddit'),
-                    src.get('subreddit', ''),
-                    src.get('user', ''),
-                    src.get('query', ''),
-                    src.get('title_filter', ''),
-                    src.get('author_filter', ''),
-                    src.get('flair_filter', '')
-                ))
+                """,
+                    (
+                        s_id,
+                        src.get("kind", "subreddit"),
+                        src.get("subreddit", ""),
+                        src.get("user", ""),
+                        src.get("query", ""),
+                        src.get("title_filter", ""),
+                        src.get("author_filter", ""),
+                        src.get("flair_filter", ""),
+                    ),
+                )
 
             conn.commit()
 
@@ -286,11 +314,12 @@ class SeriesRegistry:
         """Save a post into chapters, register author, and update manifest entry."""
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
-            post_id = post['id']
-            author = (post.get('author') or 'Unknown').strip()
-            
+            post_id = post["id"]
+            author = (post.get("author") or "Unknown").strip()
+
             # Save chapter
-            cursor.execute("""
+            cursor.execute(
+                """
             INSERT INTO chapters (id, series_id, title, author, created, link, html, flair, note, sequence_number, added_to_lib)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
@@ -303,26 +332,31 @@ class SeriesRegistry:
                 note = CASE WHEN excluded.note != '' THEN excluded.note ELSE chapters.note END,
                 sequence_number = excluded.sequence_number,
                 added_to_lib = excluded.added_to_lib;
-            """, (
-                post_id,
-                series_id,
-                post['title'],
-                author,
-                float(post['created']),
-                post.get('link', ''),
-                post.get('html', ''),
-                post.get('flair', ''),
-                post.get('note', ''),
-                float(post.get('sequence_number', 0.0)),
-                1 if post.get('added') else 0
-            ))
+            """,
+                (
+                    post_id,
+                    series_id,
+                    post["title"],
+                    author,
+                    float(post["created"]),
+                    post.get("link", ""),
+                    post.get("html", ""),
+                    post.get("flair", ""),
+                    post.get("note", ""),
+                    float(post.get("sequence_number", 0.0)),
+                    1 if post.get("added") else 0,
+                ),
+            )
 
             # Register author
             if author:
-                cursor.execute("""
+                cursor.execute(
+                    """
                 INSERT OR IGNORE INTO authors (series_id, author_name)
                 VALUES (?, ?);
-                """, (series_id, author))
+                """,
+                    (series_id, author),
+                )
 
             # Re-generate/update manifests for series
             self._update_manifest_unlocked(conn, series_id)
@@ -335,9 +369,10 @@ class SeriesRegistry:
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
             for post in posts:
-                post_id = post['id']
-                author = (post.get('author') or 'Unknown').strip()
-                cursor.execute("""
+                post_id = post["id"]
+                author = (post.get("author") or "Unknown").strip()
+                cursor.execute(
+                    """
                 INSERT INTO chapters (id, series_id, title, author, created, link, html, flair, note, sequence_number, added_to_lib)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
@@ -350,39 +385,56 @@ class SeriesRegistry:
                     note = CASE WHEN excluded.note != '' THEN excluded.note ELSE chapters.note END,
                     sequence_number = excluded.sequence_number,
                     added_to_lib = excluded.added_to_lib;
-                """, (
-                    post_id,
-                    series_id,
-                    post['title'],
-                    author,
-                    float(post['created']),
-                    post.get('link', ''),
-                    post.get('html', ''),
-                    post.get('flair', ''),
-                    post.get('note', ''),
-                    float(post.get('sequence_number', 0.0)),
-                    1 if post.get('added') else 0
-                ))
+                """,
+                    (
+                        post_id,
+                        series_id,
+                        post["title"],
+                        author,
+                        float(post["created"]),
+                        post.get("link", ""),
+                        post.get("html", ""),
+                        post.get("flair", ""),
+                        post.get("note", ""),
+                        float(post.get("sequence_number", 0.0)),
+                        1 if post.get("added") else 0,
+                    ),
+                )
                 if author:
-                    cursor.execute("""
+                    cursor.execute(
+                        """
                     INSERT OR IGNORE INTO authors (series_id, author_name)
                     VALUES (?, ?);
-                    """, (series_id, author))
+                    """,
+                        (series_id, author),
+                    )
             self._update_manifest_unlocked(conn, series_id)
             conn.commit()
 
     def _update_manifest_unlocked(self, conn, series_id):
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC", (series_id,))
+        cursor.execute(
+            "SELECT post_id, sequence_order, is_excluded, is_custom_order, is_duplicate, canonical_post_id FROM manifests WHERE series_id = ?",
+            (series_id,),
+        )
+        existing_manifests = {r["post_id"]: dict(r) for r in cursor.fetchall()}
+        has_custom_order = any(r.get("is_custom_order") for r in existing_manifests.values())
+
+        cursor.execute(
+            "SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC",
+            (series_id,),
+        )
         chapters = [dict(c) for c in cursor.fetchall()]
 
         # Deduplicate and calculate sequence
         seen_canonical = {}
+        max_seq = max((r.get("sequence_order", 0) for r in existing_manifests.values()), default=0)
+
         for idx, ch in enumerate(chapters, start=1):
-            pid = ch['id']
-            link = ch.get('link', '')
+            pid = ch["id"]
+            link = ch.get("link", "")
             is_dup = 0
-            canonical_id = ''
+            canonical_id = ""
 
             # Check if duplicate by link or ID
             if link and link in seen_canonical:
@@ -392,52 +444,140 @@ class SeriesRegistry:
                 if link:
                     seen_canonical[link] = pid
 
-            cursor.execute("""
-            INSERT INTO manifests (series_id, post_id, sequence_order, chapter_title, author_attribution, is_duplicate, canonical_post_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            if pid in existing_manifests:
+                existing = existing_manifests[pid]
+                seq = existing["sequence_order"] if has_custom_order else idx
+                is_ex = existing.get("is_excluded", 0)
+                is_custom = existing.get("is_custom_order", 0)
+                dup = existing.get("is_duplicate", is_dup)
+                canon = existing.get("canonical_post_id", canonical_id)
+            else:
+                if has_custom_order:
+                    max_seq += 1
+                    seq = max_seq
+                    is_custom = 1
+                else:
+                    seq = idx
+                    is_custom = 0
+                is_ex = 0
+                dup = is_dup
+                canon = canonical_id
+
+            cursor.execute(
+                """
+            INSERT INTO manifests (series_id, post_id, sequence_order, chapter_title, author_attribution, is_duplicate, canonical_post_id, is_excluded, is_custom_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(series_id, post_id) DO UPDATE SET
                 sequence_order = excluded.sequence_order,
                 chapter_title = excluded.chapter_title,
                 author_attribution = excluded.author_attribution,
                 is_duplicate = excluded.is_duplicate,
-                canonical_post_id = excluded.canonical_post_id;
-            """, (
-                series_id,
-                pid,
-                idx,
-                ch['title'],
-                ch['author'],
-                is_dup,
-                canonical_id
-            ))
+                canonical_post_id = excluded.canonical_post_id,
+                is_excluded = excluded.is_excluded,
+                is_custom_order = excluded.is_custom_order;
+            """,
+                (
+                    series_id,
+                    pid,
+                    seq,
+                    ch["title"],
+                    ch["author"],
+                    dup,
+                    canon,
+                    is_ex,
+                    is_custom,
+                ),
+            )
+
+    def save_manifest_order(self, series_id, manifest_items):
+        """Persist custom sequence order, exclusion flags, and duplicate status for a series manifest."""
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.cursor()
+            for idx, item in enumerate(manifest_items, start=1):
+                if isinstance(item, dict):
+                    pid = item.get("post_id") or item.get("id")
+                    seq = item.get("sequence_order", idx)
+                    is_excluded = 1 if item.get("is_excluded") else 0
+                    is_duplicate = 1 if item.get("is_duplicate") else 0
+                else:
+                    pid = str(item)
+                    seq = idx
+                    is_excluded = 0
+                    is_duplicate = 0
+                if not pid:
+                    continue
+                cursor.execute(
+                    """
+                UPDATE manifests
+                SET sequence_order = ?,
+                    is_excluded = ?,
+                    is_duplicate = ?,
+                    is_custom_order = 1
+                WHERE series_id = ? AND post_id = ?;
+                """,
+                    (seq, is_excluded, is_duplicate, series_id, pid),
+                )
+                if cursor.rowcount == 0:
+                    cursor.execute("SELECT title, author FROM chapters WHERE id = ?", (pid,))
+                    ch = cursor.fetchone()
+                    title = ch["title"] if ch else ""
+                    author = ch["author"] if ch else ""
+                    cursor.execute(
+                        """
+                    INSERT INTO manifests (series_id, post_id, sequence_order, chapter_title, author_attribution, is_duplicate, canonical_post_id, is_excluded, is_custom_order)
+                    VALUES (?, ?, ?, ?, ?, ?, '', ?, 1)
+                    ON CONFLICT(series_id, post_id) DO UPDATE SET
+                        sequence_order = excluded.sequence_order,
+                        is_excluded = excluded.is_excluded,
+                        is_duplicate = excluded.is_duplicate,
+                        is_custom_order = 1;
+                    """,
+                        (series_id, pid, seq, title, author, is_duplicate, is_excluded),
+                    )
+            conn.commit()
 
     def get_chapters(self, series_id):
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC", (series_id,))
+            cursor.execute(
+                "SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC",
+                (series_id,),
+            )
             return [dict(r) for r in cursor.fetchall()]
 
-    def get_manifest(self, series_id):
+    def get_manifest(self, series_id, include_excluded=False, include_duplicates=False):
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            query = """
             SELECT m.*, c.created, c.link, c.html, c.flair, c.note
             FROM manifests m
             JOIN chapters c ON m.post_id = c.id
-            WHERE m.series_id = ? AND m.is_duplicate = 0
-            ORDER BY m.sequence_order ASC;
-            """, (series_id,))
+            WHERE m.series_id = ?
+            """
+            params = [series_id]
+            if not include_duplicates:
+                query += " AND m.is_duplicate = 0"
+            if not include_excluded:
+                query += " AND m.is_excluded = 0"
+            query += " ORDER BY m.sequence_order ASC;"
+            cursor.execute(query, tuple(params))
             return [dict(r) for r in cursor.fetchall()]
 
     def set_added_to_lib(self, series_id, post_ids):
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
             for pid in post_ids:
-                cursor.execute("UPDATE chapters SET added_to_lib = 1 WHERE series_id = ? AND id = ?", (series_id, pid))
+                cursor.execute(
+                    "UPDATE chapters SET added_to_lib = 1 WHERE series_id = ? AND id = ?",
+                    (series_id, pid),
+                )
             conn.commit()
 
     def get_added_post_ids(self, series_id):
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM chapters WHERE series_id = ? AND added_to_lib = 1", (series_id,))
-            return {r['id'] for r in cursor.fetchall()}
+            cursor.execute(
+                "SELECT id FROM chapters WHERE series_id = ? AND added_to_lib = 1",
+                (series_id,),
+            )
+            return {r["id"] for r in cursor.fetchall()}
