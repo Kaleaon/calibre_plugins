@@ -62,7 +62,7 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest
 
 When targeting a specific plugin's tests (as done in CI for pull requests):
 ```bash
-QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest tests/test_reddit.py tests/test_reddit_login.py tests/test_reddit_registry.py
+QT_QPA_PLATFORM=offscreen PYTHONPATH=. pytest tests/test_calibre_link_ui.py
 ```
 
 ### Test Suite Execution with `unittest` (CI Alignment)
