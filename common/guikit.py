@@ -5,7 +5,6 @@ import re
 import threading
 import time
 from pathlib import Path
-
 try:
     from qt.core import (
         QAbstractItemView,
@@ -23,8 +22,8 @@ try:
         QObject,
         QPalette,
         QPlainTextEdit,
-        QProgressDialog,
         QPushButton,
+        QProgressDialog,
         QSplitter,
         Qt,
         QTableWidget,
@@ -33,34 +32,31 @@ try:
         QVBoxLayout,
         QWidget,
     )
-except ImportError:
-    try:
-        from PyQt6.QtCore import QEvent, QObject, Qt
-        from PyQt6.QtGui import QPalette
-        from PyQt6.QtWidgets import (
-            QAbstractItemView,
-            QApplication,
-            QCheckBox,
-            QDialog,
-            QDialogButtonBox,
-            QFormLayout,
-            QFrame,
-            QHBoxLayout,
-            QHeaderView,
-            QLabel,
-            QLineEdit,
-            QPlainTextEdit,
-            QProgressDialog,
-            QPushButton,
-            QSplitter,
-            QTableWidget,
-            QTreeWidget,
-            QTreeWidgetItem,
-            QVBoxLayout,
-            QWidget,
-        )
-    except ImportError:
-        pass
+except (ImportError, ModuleNotFoundError):
+    from PyQt6.QtCore import QEvent, QObject, Qt
+    from PyQt6.QtGui import QPalette
+    from PyQt6.QtWidgets import (
+        QAbstractItemView,
+        QApplication,
+        QCheckBox,
+        QDialog,
+        QDialogButtonBox,
+        QFormLayout,
+        QFrame,
+        QHBoxLayout,
+        QHeaderView,
+        QLabel,
+        QLineEdit,
+        QPlainTextEdit,
+        QPushButton,
+        QProgressDialog,
+        QSplitter,
+        QTableWidget,
+        QTreeWidget,
+        QTreeWidgetItem,
+        QVBoxLayout,
+        QWidget,
+    )
 
 try:
     from .storykit import Cancelled, extract_epub_story, sort_by_posting_order

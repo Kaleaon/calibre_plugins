@@ -17,6 +17,7 @@ SHARED = [
     "task_queue.py",
     "queue_ui.py",
     "error_handler.py",
+    "opml_kit.py",
     "log_utils.py",
     "tree_utils.py",
 ]
@@ -127,11 +128,17 @@ def _licenses():
         except metadata.PackageNotFoundError:
             continue
         for f in dist.files or []:
-            if re.search(r"(?i)(^|/)(licen[cs]e|notice)[^/]*$", str(f)):
-                parts.append(
-                    f"\n===== {dist_name} {dist.version}: {f.name} =====\n"
-                    + dist.locate_file(f).read_text(encoding="utf-8", errors="replace")
-                )
+            if re.search(r"(?i)(^|[/\\])(licen[cs]e|notice)[^/\\]*$", str(f)):
+                try:
+                    file_path = dist.locate_file(f)
+                    if hasattr(file_path, "is_file") and not file_path.is_file():
+                        continue
+                    parts.append(
+                        f"\n===== {dist_name} {dist.version}: {f.name} =====\n"
+                        + file_path.read_text(encoding="utf-8", errors="replace")
+                    )
+                except (OSError, ValueError):
+                    continue
     return "\n".join(parts)
 
 

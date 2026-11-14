@@ -2,11 +2,13 @@ import zipfile
 from pathlib import Path
 
 root = Path(__file__).resolve().parent
+(root / "dist").mkdir(parents=True, exist_ok=True)
 SHARED = [
     "storykit.py",
     "guikit.py",
     "libkit.py",
     "error_handler.py",
+    "opml_kit.py",
     "log_utils.py",
     "tree_utils.py",
 ]
