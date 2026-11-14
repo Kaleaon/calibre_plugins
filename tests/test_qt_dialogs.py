@@ -2081,6 +2081,9 @@ class ScrubberFakeDb:
     def __init__(self):
         self.books = {}
 
+    def all_book_ids(self):
+        return list(self.books.keys())
+
     def formats(self, book_id):
         if book_id not in self.books:
             return ()
@@ -2317,6 +2320,58 @@ class ScrubberPluginTests(QtCase):
             action.scrub_selected()
             mock_q.assert_called_once()
         self.assertNotIn("ORIGINAL_EPUB", db.formats(1))
+
+    def test_library_scanner_dialog_start_clean_confirm_text_backup_enabled(self):
+        scrub_ui = importlib.import_module(self.package + ".ui")
+        db = ScrubberFakeDb()
+        db.books[1] = {"mi": StubMetadata("Book 1", ["Author"]), "formats": {}}
+        dialog = scrub_ui.LibraryScannerDialog(None, db, {"backup": True}, selected_book_ids=[1])
+        dialog.get_selected_change_ids = MagicMock(return_value={"finding_1", "finding_2"})
+        self.assertTrue(dialog.chk_backup.isChecked())
+
+        with unittest.mock.patch.object(
+            scrub_ui.QMessageBox, "question", return_value=QtWidgets.QMessageBox.StandardButton.No
+        ) as mock_q:
+            dialog.start_clean()
+            mock_q.assert_called_once()
+            self.assertEqual(mock_q.call_args[0][1], "Confirm Scrubbing")
+            confirm_text = mock_q.call_args[0][2]
+            self.assertIn("2 selected finding", confirm_text)
+            self.assertIn("ORIGINAL_EPUB", confirm_text)
+            self.assertIsNone(dialog.clean_worker)
+
+    def test_library_scanner_dialog_start_clean_confirm_text_backup_disabled(self):
+        scrub_ui = importlib.import_module(self.package + ".ui")
+        db = ScrubberFakeDb()
+        db.books[1] = {"mi": StubMetadata("Book 1", ["Author"]), "formats": {}}
+        dialog = scrub_ui.LibraryScannerDialog(None, db, {"backup": False}, selected_book_ids=[1])
+        dialog.get_selected_change_ids = MagicMock(return_value={"finding_1"})
+        self.assertFalse(dialog.chk_backup.isChecked())
+
+        with unittest.mock.patch.object(
+            scrub_ui.QMessageBox, "question", return_value=QtWidgets.QMessageBox.StandardButton.No
+        ) as mock_q:
+            dialog.start_clean()
+            mock_q.assert_called_once()
+            self.assertEqual(mock_q.call_args[0][1], "Confirm Scrubbing")
+            confirm_text = mock_q.call_args[0][2]
+            self.assertIn("1 selected finding", confirm_text)
+            self.assertIn("without creating backups", confirm_text)
+            self.assertIsNone(dialog.clean_worker)
+
+    def test_library_scanner_dialog_start_clean_nothing_selected(self):
+        scrub_ui = importlib.import_module(self.package + ".ui")
+        db = ScrubberFakeDb()
+        dialog = scrub_ui.LibraryScannerDialog(None, db, {}, selected_book_ids=[])
+        dialog.get_selected_change_ids = MagicMock(return_value=set())
+
+        with (
+            unittest.mock.patch.object(scrub_ui.QMessageBox, "information") as mock_info,
+            unittest.mock.patch.object(scrub_ui.QMessageBox, "question") as mock_q,
+        ):
+            dialog.start_clean()
+            mock_info.assert_called_once()
+            mock_q.assert_not_called()
 
 
 @unittest.skipUnless(HAVE_QT, "PyQt6 (with its system libraries) is not installed")

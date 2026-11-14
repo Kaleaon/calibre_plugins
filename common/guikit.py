@@ -33,7 +33,7 @@ try:
         QVBoxLayout,
         QWidget,
     )
-except ImportError:
+except (ImportError, ModuleNotFoundError):
     from PyQt6.QtCore import QEvent, QObject, Qt
     from PyQt6.QtGui import QPalette
     from PyQt6.QtWidgets import (

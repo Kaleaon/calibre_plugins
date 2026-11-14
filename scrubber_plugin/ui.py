@@ -131,15 +131,6 @@ if TreeCheckStateMixin is None or not isinstance(TreeCheckStateMixin, type):
         pass
 
 
-if isinstance(QDialog, type):
-    _ScrubDialogBase = QDialog
-else:
-
-    class _ScrubDialogBase:
-        def __init__(self, *args, **kwargs):
-            pass
-
-
 try:
     from calibre_plugins.epub_promo_scrubber.scanner import LibraryScanner
 except ImportError:
@@ -153,10 +144,14 @@ except ImportError:
                 from scrubber_plugin.scanner import LibraryScanner
             except ImportError:
                 import importlib.util
+                import sys
                 from pathlib import Path
 
                 sc_path = Path(__file__).parent / "scanner.py"
                 if sc_path.exists():
+                    parent_dir = str(sc_path.parent)
+                    if parent_dir not in sys.path:
+                        sys.path.insert(0, parent_dir)
                     spec = importlib.util.spec_from_file_location("scanner", sc_path)
                     sc_mod = importlib.util.module_from_spec(spec)
                     spec.loader.exec_module(sc_mod)
@@ -566,6 +561,15 @@ def open_side_by_side_diff(
         raw_data=raw_data,
         matcher=matcher,
     )
+
+
+if isinstance(QDialog, type):
+    _ScrubDialogBase = QDialog
+else:
+
+    class _ScrubDialogBase:
+        def __init__(self, *args, **kwargs):
+            pass
 
 
 class ScrubPreviewDialog(TreeCheckStateMixin, _ScrubDialogBase):
@@ -1822,11 +1826,17 @@ class LibraryScannerDialog(TreeCheckStateMixin, _ScrubDialogBase):
             return
 
         backup = self.chk_backup.isChecked()
-        confirm_text = (
-            f"Apply scrubbing to {len(allowed_ids)} selected finding(s)?\n\nOriginal files will be backed up as ORIGINAL_EPUB."
-            if backup
-            else f"Apply scrubbing to {len(allowed_ids)} selected finding(s)?\n\nWARNING: Backups are disabled."
-        )
+        count = len(allowed_ids)
+        if backup:
+            confirm_text = (
+                f"Are you sure you want to scrub {count} selected finding(s)?\n\n"
+                "An ORIGINAL_EPUB backup will be created for each modified book."
+            )
+        else:
+            confirm_text = (
+                f"Are you sure you want to scrub {count} selected finding(s)?\n\n"
+                "Warning: Backup creation is disabled. Modifications will be written without creating backups."
+            )
         sure = QMessageBox.question(self, "Confirm Scrubbing", confirm_text)
         if sure != QMessageBox.StandardButton.Yes:
             return

@@ -466,6 +466,105 @@ class CoverTests(unittest.TestCase):
             self.assertIsNone(engine.find_back_cover(Path(d) / 'junk.epub', 'EPUB'))
             self.assertIsNone(engine.find_back_cover(Path(d) / 'missing.epub', 'EPUB'))
 
+    def test_engine_public_module_exports(self):
+        self.assertTrue(hasattr(engine, '__all__'))
+        for helper in ('estimate_batch_usage', 'find_back_cover', 'plan_fixes_batched'):
+            self.assertIn(helper, engine.__all__)
+            self.assertTrue(callable(getattr(engine, helper)))
+
+    def test_action_calls_engine_find_back_cover(self):
+        saved_modules = dict(sys.modules)
+        try:
+            for name in ('calibre', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config'):
+                sys.modules[name] = MagicMock()
+            sys.modules['calibre.gui2.actions'].InterfaceAction = object
+            qt_mod = MagicMock()
+            sys.modules['qt'] = qt_mod
+            sys.modules['qt.core'] = qt_mod.core
+
+            gemini_pkg = types.ModuleType('calibre_plugins.gemini_library_fixer')
+            gemini_pkg.engine = engine
+            gemini_pkg.config = MagicMock(prefs={
+                'api_key': '', 'model': 'gemini-1.5-flash', 'fields': ['title'],
+                'tags_remove': False, 'excerpt': False, 'covers': False,
+                'min_confidence': 'medium', 'batch_size': 5, 'min_interval': 7, 'undo': {},
+                'enable_fallback': True, 'fallback_model': 'gemini-2.5-flash-lite'
+            })
+            gemini_pkg.guikit = MagicMock()
+            from common.guikit import DialogAction
+            gemini_pkg.guikit.DialogAction = DialogAction
+            sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
+            sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
+            sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine
+            sys.modules['calibre_plugins.gemini_library_fixer.config'] = gemini_pkg.config
+            sys.modules['calibre_plugins.gemini_library_fixer.guikit'] = gemini_pkg.guikit
+
+            spec_act = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+            action_mod = importlib.util.module_from_spec(spec_act)
+            spec_act.loader.exec_module(action_mod)
+            action_inst = action_mod.GeminiFixerAction()
+
+            with tempfile.TemporaryDirectory() as d:
+                epub_path = str(Path(d) / 'sample.epub')
+                with zipfile.ZipFile(epub_path, 'w') as z:
+                    z.writestr('cover.jpg', b'FRONT')
+                    z.writestr('back-cover.jpg', b'BACK_COVER_BYTES')
+
+                class MockMetadata:
+                    title = "Cover Book"
+                    authors = ["Author"]
+                    identifiers = {}
+                    series = ""
+                    series_index = None
+                    tags = []
+                    languages = []
+                    publisher = ""
+                    comments = ""
+
+                class MockDb:
+                    def get_metadata(self, book_id, get_cover=False):
+                        return MockMetadata()
+
+                    def formats(self, book_id):
+                        return ['EPUB']
+
+                    def format_abspath(self, book_id, fmt):
+                        return epub_path if fmt.upper() == 'EPUB' else None
+
+                    def has_cover(self, book_id):
+                        return False
+
+                    def cover(self, book_id):
+                        return None
+
+                action_inst.gui = MagicMock(current_db=MagicMock(new_api=MockDb()))
+
+                with patch.object(engine, 'find_back_cover', wraps=engine.find_back_cover) as spy_back_cover:
+                    books = action_inst.books_for([42], with_excerpt=False, with_covers=True)
+                    spy_back_cover.assert_called_once_with(epub_path, 'EPUB')
+
+                self.assertEqual(len(books), 1)
+                images = books[0]['images']
+                self.assertEqual(len(images), 1)
+                back_img = images[0]
+                self.assertEqual(back_img['type'], 'back')
+                self.assertIn('back-cover.jpg', back_img['label'])
+                self.assertEqual(back_img['mime'], 'image/jpeg')
+                self.assertEqual(back_img['raw_bytes'], b'BACK_COVER_BYTES')
+                self.assertTrue(callable(back_img.get('loader')))
+                self.assertEqual(back_img['loader'](), b'BACK_COVER_BYTES')
+
+                hydrated = engine.hydrate_image(back_img)
+                self.assertIsNotNone(hydrated)
+                self.assertEqual(hydrated['label'], back_img['label'])
+                import base64
+                self.assertEqual(hydrated['data'], base64.b64encode(b'BACK_COVER_BYTES').decode('ascii'))
+        finally:
+            for k in list(sys.modules.keys()):
+                if k not in saved_modules:
+                    del sys.modules[k]
+            sys.modules.update(saved_modules)
+
     def test_natural_sort_key(self):
         f = engine._natural_sort_key
         filenames = ['page10.jpg', 'page1.jpg', 'page2.jpg', 'cover.jpg', 'PAGE1A.JPG']
