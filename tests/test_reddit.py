@@ -2658,5 +2658,183 @@ class FollowDialogWarningTests(unittest.TestCase):
         self.assertEqual(edit_dialog.sources_table.rowCount(), 2)
 
 
+class ChapterManagerDialogTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        ensure_qt()
+        spec_ui = importlib.util.spec_from_file_location(
+            "rui_cmd", Path(__file__).resolve().parents[1] / "reddit/ui.py"
+        )
+        cls.rui = importlib.util.module_from_spec(spec_ui)
+        spec_ui.loader.exec_module(cls.rui)
+
+        spec_reg = importlib.util.spec_from_file_location(
+            "rreg_cmd", Path(__file__).resolve().parents[1] / "reddit/registry.py"
+        )
+        cls.rreg = importlib.util.module_from_spec(spec_reg)
+        spec_reg.loader.exec_module(cls.rreg)
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = os.path.join(self.temp_dir.name, "test_series.db")
+        self.reg = self.rreg.SeriesRegistry(self.db_path)
+
+        class MockAction:
+            def __init__(self, reg):
+                self._reg = reg
+
+            def registry(self):
+                return self._reg
+
+            def chapter_count(self, f):
+                return len(self._reg.get_chapters(f["id"]))
+
+            def update_library(self, f, changes):
+                return "Updated"
+
+        self.action = MockAction(self.reg)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_dialog_population_and_approval(self):
+        s_id = "dialog_pop_series"
+        follow = {"id": s_id, "name": "Dialog Pop Story", "sources": []}
+        self.reg.save_series(follow)
+        p1 = {"id": "t3_d1", "title": "Ch 1", "author": "Author1", "created": 100.0, "html": "<p>1</p>"}
+        p2 = {"id": "t3_d2", "title": "Ch 2", "author": "Author2", "created": 200.0, "html": "<p>2</p>"}
+        self.reg.save_chapter_and_manifest(s_id, p1)
+
+        # Set custom order on p1
+        self.reg.save_custom_manifest(s_id, [{"post_id": "t3_d1", "sequence_order": 1, "chapter_title": "Ch 1"}])
+        # Append p2 which will receive pending status
+        self.reg.save_chapter_and_manifest(s_id, p2)
+
+        dialog = self.rui.ChapterManagerDialog(None, follow, self.action)
+        dialog.show()
+        self.assertEqual(dialog.table.rowCount(), 2)
+
+        # Pending review banner should be visible
+        self.assertTrue(dialog.review_banner.isVisible())
+        self.assertIn("⚠️ Needs Review", dialog.table.item(1, 5).text())
+
+        # Select row 1 and approve
+        dialog.table.selectRow(1)
+        dialog.approve_selected()
+        self.assertEqual(dialog.table.item(1, 5).text(), "Approved")
+        self.assertFalse(dialog.review_banner.isVisible())
+
+        # Save manifest
+        dialog.save_manifest(quiet=True)
+        manifest = self.reg.get_manifest(s_id)
+        self.assertEqual(manifest[1]["reconciliation_status"], "approved")
+        self.assertFalse(self.reg.has_pending_reconciliation(s_id))
+
+    def test_inline_title_edit_and_toggle_exclusion(self):
+        s_id = "dialog_edit_series"
+        follow = {"id": s_id, "name": "Dialog Edit Story", "sources": []}
+        self.reg.save_series(follow)
+        p1 = {"id": "t3_e1", "title": "Original Title 1", "author": "Author1", "created": 100.0, "html": "<p>1</p>"}
+        p2 = {"id": "t3_e2", "title": "Original Title 2", "author": "Author2", "created": 200.0, "html": "<p>2</p>"}
+        self.reg.save_chapter_and_manifest(s_id, p1)
+        self.reg.save_chapter_and_manifest(s_id, p2)
+
+        dialog = self.rui.ChapterManagerDialog(None, follow, self.action)
+        dialog.show()
+
+        # Edit title of row 0 inline
+        dialog.table.item(0, 2).setText("Customized Narrative Title 1")
+
+        # Toggle exclusion on row 1
+        dialog.table.selectRow(1)
+        dialog.toggle_exclude_selected()
+        from qt.core import Qt
+
+        self.assertEqual(dialog.table.item(1, 1).checkState(), Qt.CheckState.Unchecked)
+        self.assertEqual(dialog.table.item(1, 1).text(), "Excluded")
+
+        # Save manifest
+        dialog.save_manifest(quiet=True)
+
+        manifest = self.reg.get_manifest(s_id)
+        self.assertEqual(manifest[0]["chapter_title"], "Customized Narrative Title 1")
+        self.assertEqual(manifest[0]["is_excluded"], 0)
+        self.assertEqual(manifest[1]["is_excluded"], 1)
+        self.assertEqual(manifest[0]["is_custom_order"], 1)
+
+    def test_drag_and_drop_and_move_reordering(self):
+        s_id = "dialog_reorder_series"
+        follow = {"id": s_id, "name": "Dialog Reorder Story", "sources": []}
+        self.reg.save_series(follow)
+        p1 = {"id": "t3_r1", "title": "Ch A", "author": "Author1", "created": 100.0, "html": "<p>A</p>"}
+        p2 = {"id": "t3_r2", "title": "Ch B", "author": "Author2", "created": 200.0, "html": "<p>B</p>"}
+        p3 = {"id": "t3_r3", "title": "Ch C", "author": "Author3", "created": 300.0, "html": "<p>C</p>"}
+        self.reg.save_chapters_batch(s_id, [p1, p2, p3])
+
+        dialog = self.rui.ChapterManagerDialog(None, follow, self.action)
+        dialog.show()
+
+        # Move bottom row (Ch C) up by one
+        dialog.table.selectRow(2)
+        dialog.move_selected_up()
+        # Order should be Ch A, Ch C, Ch B
+        self.assertEqual(dialog.table.item(0, 2).text(), "Ch A")
+        self.assertEqual(dialog.table.item(1, 2).text(), "Ch C")
+        self.assertEqual(dialog.table.item(2, 2).text(), "Ch B")
+
+        # Move top row (Ch A) down by one
+        dialog.table.selectRow(0)
+        dialog.move_selected_down()
+        # Order should be Ch C, Ch A, Ch B
+        self.assertEqual(dialog.table.item(0, 2).text(), "Ch C")
+        self.assertEqual(dialog.table.item(1, 2).text(), "Ch A")
+        self.assertEqual(dialog.table.item(2, 2).text(), "Ch B")
+
+        # Test table move_row (drag and drop simulation): move row 2 to 0
+        dialog.table.move_row(2, 0)
+        # Order should be Ch B, Ch C, Ch A
+        self.assertEqual(dialog.table.item(0, 2).text(), "Ch B")
+        self.assertEqual(dialog.table.item(1, 2).text(), "Ch C")
+        self.assertEqual(dialog.table.item(2, 2).text(), "Ch A")
+
+        # Sequences must be re-indexed
+        self.assertEqual(dialog.table.item(0, 0).text(), "1")
+        self.assertEqual(dialog.table.item(1, 0).text(), "2")
+        self.assertEqual(dialog.table.item(2, 0).text(), "3")
+
+        dialog.save_manifest(quiet=True)
+        manifest = self.reg.get_manifest(s_id)
+        self.assertEqual([m["post_id"] for m in manifest], ["t3_r2", "t3_r3", "t3_r1"])
+
+    def test_manage_dialog_reconciliation_banner_and_status(self):
+        s_id = "manage_recon_series"
+        follow = {"id": s_id, "name": "Manage Recon Story", "sources": [{"kind": "subreddit", "subreddit": "HFY"}]}
+        self.reg.save_series(follow)
+        p1 = {"id": "t3_m1", "title": "Ch 1", "author": "Author1", "created": 100.0, "html": "<p>1</p>"}
+        p2 = {"id": "t3_m2", "title": "Ch 2", "author": "Author2", "created": 200.0, "html": "<p>2</p>"}
+        self.reg.save_chapter_and_manifest(s_id, p1)
+        self.reg.save_custom_manifest(s_id, [{"post_id": "t3_m1", "sequence_order": 1, "chapter_title": "Ch 1"}])
+        self.reg.save_chapter_and_manifest(s_id, p2)
+
+        self.action.get_follows = lambda: [follow]
+        self.action.cache_dir = lambda: self.temp_dir.name
+
+        manage_dlg = self.rui.ManageDialog(None, self.action)
+        manage_dlg.show()
+
+        # Banner should be visible
+        self.assertTrue(manage_dlg.recon_banner.isVisible())
+        self.assertIn("need review", manage_dlg.recon_label.text())
+
+        # Status cell should reflect Needs Review
+        self.assertIn("Needs Review", manage_dlg.table.item(0, 4).text())
+
+        # Clear review by approving in ChapterManagerDialog
+        self.reg.approve_all_manifest_items(s_id)
+        manage_dlg.refresh()
+        self.assertFalse(manage_dlg.recon_banner.isVisible())
+        self.assertNotIn("Needs Review", manage_dlg.table.item(0, 4).text())
+
+
 if __name__ == "__main__":
     unittest.main()

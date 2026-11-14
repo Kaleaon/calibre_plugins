@@ -146,47 +146,379 @@ class SourceEditDialog(QDialog):
         }
 
 
-class ManifestDialog(QDialog):
-    """View post manifest entries and chapter order for a series."""
+class ReorderableChapterTable(QTableWidget):
+    """Table widget with row drag-and-drop reordering support."""
+
+    def __init__(self, rows, cols, parent=None):
+        super().__init__(rows, cols, parent)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        if hasattr(self, "viewport"):
+            self.viewport().setAcceptDrops(True)
+        self.setDragDropOverwriteMode(False)
+        self.setDropIndicatorShown(True)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.on_reordered_callback = None
+
+    def dropEvent(self, event):
+        if event.source() == self:
+            selected_rows = sorted({item.row() for item in self.selectedItems()})
+            if selected_rows:
+                source_row = selected_rows[0]
+                pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+                drop_row = self.rowAt(pos.y())
+                if drop_row == -1:
+                    drop_row = self.rowCount() - 1
+                if drop_row != source_row:
+                    self.move_row(source_row, drop_row)
+                    event.accept()
+                    if self.on_reordered_callback:
+                        self.on_reordered_callback()
+                    return
+        super().dropEvent(event)
+
+    def move_row(self, source_row, target_row):
+        if source_row == target_row or source_row < 0 or target_row < 0:
+            return
+        if source_row >= self.rowCount() or target_row >= self.rowCount():
+            return
+
+        self.blockSignals(True)
+        row_items = [self.takeItem(source_row, c) for c in range(self.columnCount())]
+        self.removeRow(source_row)
+        self.insertRow(target_row)
+        for c, it in enumerate(row_items):
+            if it:
+                self.setItem(target_row, c, it)
+        self.selectRow(target_row)
+        self.reindex_sequences()
+        self.blockSignals(False)
+
+    def reindex_sequences(self):
+        for r in range(self.rowCount()):
+            seq_item = self.item(r, 0)
+            if seq_item:
+                seq_item.setText(str(r + 1))
+
+
+class ChapterManagerDialog(QDialog):
+    """Standalone dialog for series chapter ordering, title editing, exclusions, and reconciliation."""
+
+    COLUMNS = ["Seq", "Include", "Chapter Title (Editable)", "Author", "Created", "Status", "Link"]
 
     def __init__(self, parent, follow, action):
         super().__init__(parent)
+        ThemeTokenEngine.register_widget(self)
         self.follow = follow
         self.action = action
-        self.setWindowTitle(f"Chapter Manifest \u2013 {follow['name']}")
-        self.resize(780, 420)
+        self.setWindowTitle(f"Chapter Manager \u2013 {follow['name']}")
+        self.resize(900, 520)
         layout = QVBoxLayout(self)
 
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["Seq", "Chapter Title", "Author", "Created", "Link", "Status"])
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.table, 1)
+        # Instructions
+        self.info_label = QLabel(
+            _(
+                "Drag and drop rows or use Move Up / Move Down to set narrative order. "
+                'Double-click titles to edit inline. Uncheck "Include" to exclude non-narrative posts.'
+            )
+        )
+        self.info_label.setWordWrap(True)
+        layout.addWidget(self.info_label)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        # Reconciliation warning banner
+        self.review_banner = QFrame(self)
+        self.review_banner.setFrameShape(QFrame.Shape.StyledPanel)
+        self.review_banner.setStyleSheet(
+            "QFrame { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; border-radius: 4px; padding: 6px; }"
+        )
+        banner_layout = QHBoxLayout(self.review_banner)
+        banner_layout.setContentsMargins(6, 4, 6, 4)
+        self.review_banner_label = QLabel(self.review_banner)
+        self.review_banner_label.setWordWrap(True)
+        banner_layout.addWidget(self.review_banner_label, 1)
+
+        self.banner_approve_all_btn = create_token_button(_("Approve All"))
+        self.banner_approve_all_btn.clicked.connect(self.approve_all)
+        banner_layout.addWidget(self.banner_approve_all_btn)
+        layout.addWidget(self.review_banner)
+        self.review_banner.setVisible(False)
+
+        # Main table and side controls
+        table_container = QHBoxLayout()
+        self.table = ReorderableChapterTable(0, len(self.COLUMNS), self)
+        self.table.setHorizontalHeaderLabels([_(col) for col in self.COLUMNS])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.SelectedClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+        )
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.itemChanged.connect(self.on_item_changed)
+        self.table.on_reordered_callback = self.on_table_reordered
+        table_container.addWidget(self.table, 1)
+
+        # Side action buttons
+        side_layout = QVBoxLayout()
+        self.move_up_btn = create_token_button(_("Move Up"))
+        self.move_up_btn.clicked.connect(self.move_selected_up)
+        side_layout.addWidget(self.move_up_btn)
+
+        self.move_down_btn = create_token_button(_("Move Down"))
+        self.move_down_btn.clicked.connect(self.move_selected_down)
+        side_layout.addWidget(self.move_down_btn)
+
+        self.toggle_exclude_btn = create_token_button(_("Toggle Exclude"))
+        self.toggle_exclude_btn.clicked.connect(self.toggle_exclude_selected)
+        side_layout.addWidget(self.toggle_exclude_btn)
+
+        self.approve_selected_btn = create_token_button(_("Approve Selected"))
+        self.approve_selected_btn.clicked.connect(self.approve_selected)
+        side_layout.addWidget(self.approve_selected_btn)
+
+        self.approve_all_btn = create_token_button(_("Approve All"))
+        self.approve_all_btn.clicked.connect(self.approve_all)
+        side_layout.addWidget(self.approve_all_btn)
+
+        self.reset_order_btn = create_token_button(_("Reset to Default"))
+        self.reset_order_btn.clicked.connect(self.reset_to_default)
+        side_layout.addWidget(self.reset_order_btn)
+
+        side_layout.addStretch()
+        table_container.addLayout(side_layout)
+        layout.addLayout(table_container, 1)
+
+        # Bottom buttons
+        bottom_layout = QHBoxLayout()
+        self.save_btn = create_token_button(_("Save Manifest"))
+        self.save_btn.clicked.connect(lambda: self.save_manifest(quiet=False))
+        bottom_layout.addWidget(self.save_btn)
+
+        self.rebuild_btn = create_token_button(_("Save & Rebuild EPUB"))
+        self.rebuild_btn.clicked.connect(self.rebuild_epub)
+        bottom_layout.addWidget(self.rebuild_btn)
+
+        bottom_layout.addStretch()
+
+        close_btn = create_token_button(_("Close"))
+        close_btn.clicked.connect(self.accept)
+        bottom_layout.addWidget(close_btn)
+        layout.addLayout(bottom_layout)
+
         self.refresh()
 
     def refresh(self):
-        reg = self.action.registry()
+        reg = self.action.registry() if hasattr(self.action, "registry") else None
+        if not reg:
+            return
         entries = reg.get_manifest(self.follow["id"])
+        self.table.blockSignals(True)
         self.table.setRowCount(len(entries))
+
         for row, entry in enumerate(entries):
             created_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(entry.get("created", 0.0)))
-            status = "Duplicate" if entry.get("is_duplicate") else "Canonical"
-            cells = [
-                str(entry.get("sequence_order", row + 1)),
-                entry.get("chapter_title") or entry.get("title", ""),
-                entry.get("author_attribution") or entry.get("author", ""),
-                created_str,
-                entry.get("link", ""),
-                status,
-            ]
-            for col, txt in enumerate(cells):
-                self.table.setItem(row, col, QTableWidgetItem(txt))
+            recon = entry.get("reconciliation_status", "approved")
+            is_dup = entry.get("is_duplicate", 0)
+            is_excl = bool(entry.get("is_excluded", 0))
+
+            if is_dup:
+                status_txt = _("Duplicate")
+            elif recon == "pending":
+                status_txt = _("⚠️ Needs Review")
+            else:
+                status_txt = _("Approved")
+
+            # 0: Seq
+            seq_item = QTableWidgetItem(str(row + 1))
+            seq_item.setData(Qt.ItemDataRole.UserRole, entry["post_id"])
+            seq_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.table.setItem(row, 0, seq_item)
+
+            # 1: Include (Checkbox)
+            incl_item = QTableWidgetItem(_("Excluded") if is_excl else _("Included"))
+            incl_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsUserCheckable
+            )
+            incl_item.setCheckState(Qt.CheckState.Unchecked if is_excl else Qt.CheckState.Checked)
+            self.table.setItem(row, 1, incl_item)
+
+            # 2: Title (Inline editable)
+            title_txt = entry.get("chapter_title") or entry.get("title", "")
+            title_item = QTableWidgetItem(title_txt)
+            title_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row, 2, title_item)
+
+            # 3: Author
+            author_txt = entry.get("author_attribution") or entry.get("author", "")
+            author_item = QTableWidgetItem(author_txt)
+            author_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.table.setItem(row, 3, author_item)
+
+            # 4: Created
+            created_item = QTableWidgetItem(created_str)
+            created_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.table.setItem(row, 4, created_item)
+
+            # 5: Status
+            status_item = QTableWidgetItem(status_txt)
+            status_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.table.setItem(row, 5, status_item)
+
+            # 6: Link
+            link_item = QTableWidgetItem(entry.get("link", ""))
+            link_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.table.setItem(row, 6, link_item)
+
+        self.table.blockSignals(False)
         self.table.resizeColumnsToContents()
+        self.update_review_banner()
+
+    def on_item_changed(self, item):
+        if item.column() == 1:
+            is_checked = item.checkState() == Qt.CheckState.Checked
+            expected_text = _("Included") if is_checked else _("Excluded")
+            if item.text() != expected_text:
+                self.table.blockSignals(True)
+                item.setText(expected_text)
+                self.table.blockSignals(False)
+
+    def on_table_reordered(self):
+        self.table.reindex_sequences()
+
+    def move_selected_up(self):
+        rows = sorted({item.row() for item in self.table.selectedItems()})
+        if not rows:
+            return
+        row = rows[0]
+        if row > 0:
+            self.table.move_row(row, row - 1)
+
+    def move_selected_down(self):
+        rows = sorted({item.row() for item in self.table.selectedItems()})
+        if not rows:
+            return
+        row = rows[0]
+        if row < self.table.rowCount() - 1:
+            self.table.move_row(row, row + 1)
+
+    def toggle_exclude_selected(self):
+        rows = sorted({item.row() for item in self.table.selectedItems()})
+        if not rows:
+            return
+        self.table.blockSignals(True)
+        for r in rows:
+            incl_item = self.table.item(r, 1)
+            if incl_item:
+                new_state = (
+                    Qt.CheckState.Unchecked
+                    if incl_item.checkState() == Qt.CheckState.Checked
+                    else Qt.CheckState.Checked
+                )
+                incl_item.setCheckState(new_state)
+                incl_item.setText(_("Included") if new_state == Qt.CheckState.Checked else _("Excluded"))
+        self.table.blockSignals(False)
+
+    def approve_selected(self):
+        rows = sorted({item.row() for item in self.table.selectedItems()})
+        if not rows:
+            return
+        for r in rows:
+            status_item = self.table.item(r, 5)
+            if status_item and "Needs Review" in status_item.text():
+                status_item.setText(_("Approved"))
+        self.update_review_banner()
+
+    def approve_all(self):
+        for r in range(self.table.rowCount()):
+            status_item = self.table.item(r, 5)
+            if status_item and "Needs Review" in status_item.text():
+                status_item.setText(_("Approved"))
+        self.update_review_banner()
+
+    def update_review_banner(self):
+        pending_cnt = 0
+        for r in range(self.table.rowCount()):
+            status_item = self.table.item(r, 5)
+            if status_item and "Needs Review" in status_item.text():
+                pending_cnt += 1
+
+        if pending_cnt > 0:
+            self.review_banner_label.setText(
+                _(
+                    "⚠️ {count} newly scraped chapter(s) need review relative to custom order. "
+                    "Drag into place and approve before rebuilding."
+                ).format(count=pending_cnt)
+            )
+            self.review_banner.setVisible(True)
+        else:
+            self.review_banner.setVisible(False)
+
+    def get_manifest_rows_data(self):
+        entries = []
+        for r in range(self.table.rowCount()):
+            seq_item = self.table.item(r, 0)
+            post_id = seq_item.data(Qt.ItemDataRole.UserRole) if seq_item else None
+            if not post_id:
+                continue
+            incl_item = self.table.item(r, 1)
+            is_excl = 1 if (incl_item and incl_item.checkState() == Qt.CheckState.Unchecked) else 0
+
+            title_item = self.table.item(r, 2)
+            title = title_item.text().strip() if title_item else ""
+
+            status_item = self.table.item(r, 5)
+            status_str = status_item.text() if status_item else ""
+            recon = "pending" if "Needs Review" in status_str else "approved"
+
+            entries.append(
+                {
+                    "post_id": post_id,
+                    "sequence_order": r + 1,
+                    "chapter_title": title,
+                    "is_excluded": is_excl,
+                    "reconciliation_status": recon,
+                }
+            )
+        return entries
+
+    def save_manifest(self, quiet=False):
+        reg = self.action.registry() if hasattr(self.action, "registry") else None
+        if not reg:
+            return
+        entries = self.get_manifest_rows_data()
+        reg.save_custom_manifest(self.follow["id"], entries)
+        self.update_review_banner()
+        if not quiet:
+            QMessageBox.information(self, _("Chapter Manager"), _("Chapter manifest saved successfully."))
+
+    def rebuild_epub(self):
+        self.save_manifest(quiet=True)
+        if hasattr(self.action, "update_library"):
+            res = self.action.update_library(self.follow, True)
+            msg = res or _("EPUB compilation complete.")
+            QMessageBox.information(self, _("Rebuild EPUB"), msg)
+
+    def reset_to_default(self):
+        if (
+            QMessageBox.question(
+                self,
+                _("Reset Order"),
+                _("Reset chapter order to chronological and approve pending items?"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
+        reg = self.action.registry() if hasattr(self.action, "registry") else None
+        if reg:
+            reg.reset_manifest_order(self.follow["id"])
+            self.refresh()
+
+
+# Backwards compatibility alias
+ManifestDialog = ChapterManagerDialog
 
 
 class FollowDialog(QDialog):
@@ -1302,6 +1634,19 @@ class ManageDialog(QDialog):
         layout.addWidget(self.backoff_banner)
         self.backoff_banner.setVisible(False)
 
+        self.recon_banner = QFrame(self)
+        self.recon_banner.setFrameShape(QFrame.Shape.StyledPanel)
+        self.recon_banner.setStyleSheet(
+            "QFrame { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; border-radius: 4px; padding: 4px; }"
+        )
+        recon_layout = QHBoxLayout(self.recon_banner)
+        recon_layout.setContentsMargins(6, 2, 6, 2)
+        self.recon_label = QLabel(self.recon_banner)
+        self.recon_label.setWordWrap(True)
+        recon_layout.addWidget(self.recon_label, 1)
+        layout.addWidget(self.recon_banner)
+        self.recon_banner.setVisible(False)
+
         self.table = create_token_table(0, len(self.COLUMNS), header_labels=self.COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -1314,7 +1659,7 @@ class ManageDialog(QDialog):
             (_("Find stories…"), self.find),
             (_("Add…"), self.add),
             (_("Edit…"), self.edit),
-            (_("Manifest…"), self.manifest),
+            (_("Chapter manager…"), self.manifest),
             (_("Remove"), self.remove),
             (_("Queue manager…"), self.open_queue_manager),
             (_("Test selected"), self.test_selected),
@@ -1409,6 +1754,9 @@ class ManageDialog(QDialog):
 
         follows = self.follows()
         self.table.setRowCount(len(follows))
+        pending_total = 0
+        reg = self.action.registry() if hasattr(self.action, "registry") else None
+
         for r, follow in enumerate(follows):
             checked = (
                 time.strftime("%Y-%m-%d %H:%M", time.localtime(follow["last_checked"]))
@@ -1423,22 +1771,43 @@ class ManageDialog(QDialog):
                     + (", …" if len(sources) > 2 else "")
                     + ")"
                 )
-            elif sources:
+            elif sources and sources[0].get("kind"):
                 source_desc = core.describe_source(sources[0])
+            elif follow.get("source") and follow["source"].get("kind"):
+                source_desc = core.describe_source(follow["source"])
             else:
-                source_desc = core.describe_source(follow.get("source", {}))
+                source_desc = ""
+
+            status_str = follow.get("last_status", "")
+            if reg and hasattr(reg, "has_pending_reconciliation") and reg.has_pending_reconciliation(follow["id"]):
+                pending_cnt = reg.get_pending_manifest_count(follow["id"])
+                pending_total += pending_cnt
+                status_str = f"{status_str} [Needs Review]" if status_str else _("Needs Review")
+
             cells = [
                 follow["name"],
                 source_desc + core.describe_filters(follow),
                 str(self.action.chapter_count(follow)),
                 checked,
-                follow.get("last_status", ""),
+                status_str,
             ]
             for c, text in enumerate(cells):
                 item = QTableWidgetItem(text)
                 item.setData(Qt.ItemDataRole.UserRole, follow["id"])
                 self.table.setItem(r, c, item)
         self.table.resizeColumnsToContents()
+
+        if hasattr(self, "recon_banner"):
+            if pending_total > 0:
+                self.recon_label.setText(
+                    _(
+                        "⚠️ {count} newly scraped chapter(s) need review relative to custom order. Open Chapter Manager to review."
+                    ).format(count=pending_total)
+                )
+                self.recon_banner.setVisible(True)
+            else:
+                self.recon_banner.setVisible(False)
+
         mode_str = _("the official API") if prefs["mode"] == "api" else _("public feeds")
         auto_str = (
             _("; automatic checks every {hours:.1f} hours.").format(
@@ -1498,7 +1867,11 @@ class ManageDialog(QDialog):
         current = next((f for f in self.follows() if f["id"] == ids[0]), None)
         if not current:
             return
-        ManifestDialog(self, current, self.action).exec()
+        ChapterManagerDialog(self, current, self.action).exec()
+        self.refresh()
+
+    def chapter_manager(self):
+        self.manifest()
 
     def remove(self):
         ids = self.selected_ids()
