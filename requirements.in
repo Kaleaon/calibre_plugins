@@ -13,3 +13,4 @@ pyparsing
 PyMuPDF
 pytest
 ruff
+soupsieve>=4.0.0
