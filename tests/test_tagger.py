@@ -34,21 +34,14 @@ class DetectTests(unittest.TestCase):
         s = rules.DEFAULT_SITES
         self.assertEqual(rules.detect_sites(book(1, identifiers={"metabods": "x"}), s), ["Metabods"])
         self.assertEqual(
-            rules.detect_sites(book(1, identifiers={"url": "https://www.royalroad.com/fiction/1/x"}), s),
-            ["Royal Road"],
+            rules.detect_sites(book(1, identifiers={"url": "https://www.royalroad.com/fiction/1/x"}), s), ["Royal Road"]
         )
-        self.assertEqual(
-            rules.detect_sites(book(1, publisher="archiveofourown.org"), s),
-            ["Archive of Our Own"],
-        )
+        self.assertEqual(rules.detect_sites(book(1, publisher="archiveofourown.org"), s), ["Archive of Our Own"])
         self.assertEqual(rules.detect_sites(book(1, identifiers={"isbn": "123"}), s), [])
 
     def test_host_must_be_whole_word_and_comments_opt_in(self):
         s = rules.DEFAULT_SITES
-        self.assertEqual(
-            rules.detect_sites(book(1, identifiers={"url": "https://notnifty.org.evil.com/"}), s),
-            [],
-        )
+        self.assertEqual(rules.detect_sites(book(1, identifiers={"url": "https://notnifty.org.evil.com/"}), s), [])
         text = book(1, comments="<p>originally on royalroad.com</p>")
         self.assertEqual(rules.detect_sites(text, s), [])
         self.assertEqual(rules.detect_sites(text, s, scan_comments=True), ["Royal Road"])
@@ -65,11 +58,7 @@ class DetectTests(unittest.TestCase):
     def test_bulk_site_detection_uses_cache(self):
         rules._host_pattern.cache_clear()
         books = [
-            book(
-                i,
-                publisher=f"publisher-{i}.com",
-                identifiers={"url": f"https://www.royalroad.com/fiction/{i}"},
-            )
+            book(i, publisher=f"publisher-{i}.com", identifiers={"url": f"https://www.royalroad.com/fiction/{i}"})
             for i in range(10)
         ]
         plan = rules.plan_changes(books)
@@ -83,11 +72,7 @@ class FanFicFareTests(unittest.TestCase):
     def test_fanficfare_identifier_form(self):
         # FanFicFare stores url identifiers with ':' turned into '|', and the publisher is the site's domain.
         s = rules.DEFAULT_SITES
-        rr = book(
-            1,
-            identifiers={"url": "https|//www.royalroad.com/fiction/21220"},
-            publisher="www.royalroad.com",
-        )
+        rr = book(1, identifiers={"url": "https|//www.royalroad.com/fiction/21220"}, publisher="www.royalroad.com")
         self.assertEqual(rules.detect_sites(rr, s), ["Royal Road"])
         sb = book(2, identifiers={"url": "https|//forums.spacebattles.com/threads/x.1/"})
         self.assertEqual(rules.detect_sites(sb, s), ["SpaceBattles"])
@@ -147,26 +132,11 @@ class PlanTests(unittest.TestCase):
             "tag:=Muscle Growth => Theme.Growth\nsource:Royal => Web serial\ntitle:re:^The\\b => Starts with The\nlitrpg => LitRPG"
         )
         books = [
-            book(
-                1,
-                tags=["Muscle Growth", "Other"],
-                title="The End",
-                series="Saga",
-                identifiers={"royalroad": "1"},
-            ),
+            book(1, tags=["Muscle Growth", "Other"], title="The End", series="Saga", identifiers={"royalroad": "1"}),
             book(2, tags=["Muscle Growth Extra"], title="Zed"),
         ]
         plan = {p["id"]: p["add"] for p in rules.plan_changes(books, series_prefix="Series.", rules=parsed)}
-        self.assertEqual(
-            plan[1],
-            [
-                "Source.Royal Road",
-                "Series.Saga",
-                "Theme.Growth",
-                "Web serial",
-                "Starts with The",
-            ],
-        )
+        self.assertEqual(plan[1], ["Source.Royal Road", "Series.Saga", "Theme.Growth", "Web serial", "Starts with The"])
         self.assertNotIn(2, plan)  # '=' means exact tag match, so "Muscle Growth Extra" does not trigger
 
     def test_idempotent(self):
@@ -294,6 +264,7 @@ class TaggerDialogTests(unittest.TestCase):
             if k not in self.saved_modules:
                 del sys.modules[k]
         sys.modules.update(self.saved_modules)
+        sys.modules.pop("common.guikit", None)
 
     def test_show_dialog_sets_word_wrap_on_labels(self):
         spec = importlib.util.spec_from_file_location(
@@ -759,12 +730,7 @@ class TaggerPreviewDialogUITests(unittest.TestCase):
                 "add": ["Source.Metabods", "Theme.Growth"],
                 "tags": ["Fiction", "Source.Metabods", "Theme.Growth"],
             },
-            {
-                "id": 2,
-                "title": "Book Two",
-                "add": ["LitRPG"],
-                "tags": ["Sci-Fi", "LitRPG"],
-            },
+            {"id": 2, "title": "Book Two", "add": ["LitRPG"], "tags": ["Sci-Fi", "LitRPG"]},
         ]
 
     def test_tree_populates_correctly(self):
@@ -973,6 +939,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             if k not in self.saved_modules:
                 del sys.modules[k]
         sys.modules.update(self.saved_modules)
+        sys.modules.pop("common.guikit", None)
 
     def test_manager_dialog_initialization_and_commit(self):
         spec = importlib.util.spec_from_file_location(
@@ -982,9 +949,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         spec.loader.exec_module(action_mod)
 
         dlg = action_mod.RuleSetManagerDialog(
-            None,
-            current_rules="litrpg => LitRPG",
-            current_sites="sol.net => Stories Online",
+            None, current_rules="litrpg => LitRPG", current_sites="sol.net => Stories Online"
         )
         self.assertEqual(len(dlg.local_rules), 1)
         self.assertEqual(len(dlg.local_sites), 1)
@@ -1022,9 +987,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         spec.loader.exec_module(action_mod)
 
         dlg = action_mod.RuleSetManagerDialog(
-            None,
-            current_rules="rule1 => Tag1\nrule2 => Tag2",
-            current_sites="site1.com => Site1\nsite2.com => Site2",
+            None, current_rules="rule1 => Tag1\nrule2 => Tag2", current_sites="site1.com => Site1\nsite2.com => Site2"
         )
 
         # Mock table item check state for row 1 to be Unchecked
@@ -1118,10 +1081,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             export_path = tf.name
 
         qt_core = sys.modules["qt.core"]
-        qt_core.QFileDialog.getSaveFileName.return_value = (
-            export_path,
-            "JSON files (*.json)",
-        )
+        qt_core.QFileDialog.getSaveFileName.return_value = (export_path, "JSON files (*.json)")
 
         action.show_dialog()
 
@@ -1181,10 +1141,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             import_path = tf.name
 
         qt_core = sys.modules["qt.core"]
-        qt_core.QFileDialog.getOpenFileName.return_value = (
-            import_path,
-            "JSON files (*.json)",
-        )
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, "JSON files (*.json)")
 
         # Mock QMessageBox clickedButton to simulate clicking 'Replace'
         msg_mock = MagicMock()
@@ -1220,10 +1177,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
 
         # Find do_import callback
         connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
-        do_import = next(
-            (c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"),
-            None,
-        )
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"), None)
         self.assertIsNotNone(do_import)
 
         do_import()
@@ -1259,10 +1213,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             import_path = tf.name
 
         qt_core = sys.modules["qt.core"]
-        qt_core.QFileDialog.getOpenFileName.return_value = (
-            import_path,
-            "JSON files (*.json)",
-        )
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, "JSON files (*.json)")
 
         msg_mock = MagicMock()
         qt_core.QMessageBox.return_value = msg_mock
@@ -1274,10 +1225,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         action.show_dialog()
 
         connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
-        do_import = next(
-            (c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"),
-            None,
-        )
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"), None)
 
         do_import()
 
@@ -1309,10 +1257,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             import_path = tf.name
 
         qt_core = sys.modules["qt.core"]
-        qt_core.QFileDialog.getOpenFileName.return_value = (
-            import_path,
-            "JSON files (*.json)",
-        )
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, "JSON files (*.json)")
 
         msg_mock = MagicMock()
         qt_core.QMessageBox.return_value = msg_mock
@@ -1323,10 +1268,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         action.show_dialog()
 
         connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
-        do_import = next(
-            (c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"),
-            None,
-        )
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"), None)
 
         prefs = sys.modules["calibre_plugins.story_collection_tagger.config"].prefs
         original_rules = prefs["rules"]
@@ -1354,18 +1296,12 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             import_path = tf.name
 
         qt_core = sys.modules["qt.core"]
-        qt_core.QFileDialog.getOpenFileName.return_value = (
-            import_path,
-            "JSON files (*.json)",
-        )
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, "JSON files (*.json)")
 
         action.show_dialog()
 
         connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
-        do_import = next(
-            (c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"),
-            None,
-        )
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"), None)
 
         prefs = sys.modules["calibre_plugins.story_collection_tagger.config"].prefs
         original_rules = prefs["rules"]
@@ -1374,6 +1310,52 @@ class RuleSetManagerDialogTests(unittest.TestCase):
 
         # Prefs should remain unchanged
         self.assertEqual(prefs["rules"], original_rules)
+
+    def test_import_rule_set_unknown_button_aborts(self):
+        import json
+        import tempfile
+
+        spec = importlib.util.spec_from_file_location(
+            "action", Path(__file__).resolve().parents[1] / "tagger/action.py"
+        )
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = []
+
+        prefs = sys.modules["calibre_plugins.story_collection_tagger.config"].prefs
+        prefs["rules"] = "tag:=Existing => TagOld"
+        prefs["sites"] = "oldsite.org => Old Site"
+
+        import_data = {
+            "rules": "tag:=New => TagNew",
+            "sites": "newsite.org => New Site",
+        }
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
+            json.dump(import_data, tf)
+            import_path = tf.name
+
+        qt_core = sys.modules["qt.core"]
+        qt_core.QFileDialog.getOpenFileName.return_value = (import_path, "JSON files (*.json)")
+
+        msg_mock = MagicMock()
+        qt_core.QMessageBox.return_value = msg_mock
+        added_btns = []
+        msg_mock.addButton = lambda name, role=None: added_btns.append(name) or name
+        unknown_btn = MagicMock(name="UnknownButton")
+        msg_mock.clickedButton.side_effect = lambda: unknown_btn
+
+        action.show_dialog()
+
+        connect_call = qt_core.QPushButton.return_value.clicked.connect.call_args_list
+        do_import = next((c[0][0] for c in connect_call if getattr(c[0][0], "__name__", "") == "do_import"), None)
+
+        do_import()
+
+        self.assertEqual(prefs["rules"], "tag:=Existing => TagOld")
+        self.assertEqual(prefs["sites"], "oldsite.org => Old Site")
 
 
 if __name__ == "__main__":
