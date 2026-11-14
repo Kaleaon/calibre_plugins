@@ -12,4 +12,6 @@ requests-toolbelt
 pyparsing
 PyMuPDF
 pytest
+colorama; sys_platform == "win32"
+pywin32; platform_system == "Windows"
 ruff

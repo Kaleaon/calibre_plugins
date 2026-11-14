@@ -6,6 +6,8 @@ include = [
     "scrubber_plugin/action.py",
     "scrubber_plugin/core.py",
     "scrubber_plugin/ui.py",
+    "tagger/action.py",
+    "tests/test_rule_set_manager_dialog.py",
     "tests/test_scrubber.py",
     "tests/test_scrubber_restore.py",
 ]
@@ -23,14 +25,18 @@ extend-exclude = [
     "plugin",
     "reddit",
     "scripts",
-    "scrubber_plugin",
-    "tagger",
     "build.py",
     "build_plugins.py",
     "calibre_link/adapter.py",
     "calibre_link/build_zip.py",
     "calibre_link/config.py",
     "calibre_link/server.py",
+    "tagger/__init__.py",
+    "tagger/config.py",
+    "tagger/fff_sites.py",
+    "tagger/presets.py",
+    "tagger/rules.py",
+    "tagger/ui.py",
     "tests/calibre_integration.py",
     "tests/conftest.py",
     "tests/harness_utils.py",
@@ -62,7 +68,6 @@ extend-exclude = [
     "tests/test_reddit.py",
     "tests/test_reddit_login.py",
     "tests/test_reddit_registry.py",
-    "tests/test_scrubber.py",
     "tests/test_scrubber_config.py",
     "tests/test_scrubber_history.py",
     "tests/test_scrubber_pipeline.py",
@@ -85,13 +90,14 @@ select = [
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
 ]
-ignore = ["E501"]
+ignore = ["E501", "UP017"]
 
 [tool.ruff.lint.isort]
 known-first-party = [
     "calibre_link",
     "common",
     "fanfic",
+    "furry",
     "gemini",
     "media",
     "metabods",
