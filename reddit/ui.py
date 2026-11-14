@@ -18,6 +18,7 @@ from qt.core import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QRadioButton,
     QSpinBox,
@@ -63,12 +64,21 @@ except ImportError:
         run_task,
     )
 try:
-    from calibre_plugins.reddit_follower.error_handler import show_friendly_error_dialog
+    from calibre_plugins.reddit_follower.error_handler import (
+        format_exception,
+        show_friendly_error_dialog,
+    )
 except ImportError:
     try:
-        from .error_handler import show_friendly_error_dialog
+        from .error_handler import format_exception, show_friendly_error_dialog
     except ImportError:
-        from error_handler import show_friendly_error_dialog
+        try:
+            from error_handler import format_exception, show_friendly_error_dialog
+        except ImportError:
+            from common.error_handler import (
+                format_exception,
+                show_friendly_error_dialog,
+            )
 from calibre_plugins.reddit_follower.storykit import Fetcher
 
 ACCESS_NOTE = (
@@ -1590,3 +1600,192 @@ class ManageDialog(QDialog):
             )
         except Exception as exc:
             show_friendly_error_dialog(self, _("Failed to import OPML"), exc)
+
+
+try:
+    from calibre.gui2.dialogs.message_box import ErrorDialog
+except ImportError:
+    try:
+        from calibre.gui2 import ErrorDialog
+    except ImportError:
+        ErrorDialog = None
+
+_ErrorDialogBase = ErrorDialog if (ErrorDialog is not None and isinstance(ErrorDialog, type)) else QDialog
+
+
+class RedditAuthErrorDialog(_ErrorDialogBase):
+    """Specialized modal recovery dialog for Reddit authentication and rate-limit errors."""
+
+    open_browser = staticmethod(webbrowser.open)
+    login_endpoints = {}
+
+    def __init__(
+        self,
+        parent=None,
+        error=None,
+        action=None,
+        follows=None,
+        det_msg=None,
+        title="Reddit stories",
+    ):
+        self.action = action
+        self.error = error
+        if follows is not None:
+            self.follows = list(follows)
+        elif action is not None and hasattr(action, "get_follows"):
+            self.follows = list(action.get_follows())
+        else:
+            self.follows = []
+
+        friendly = format_exception(error, det_msg=det_msg)
+        self.friendly = friendly
+        self.primary_msg = friendly.user_message
+        self.details_msg = friendly.details
+
+        if _ErrorDialogBase is not QDialog:
+            try:
+                super().__init__(
+                    title,
+                    f"{friendly.category}\n\n{self.primary_msg}",
+                    det_msg=self.details_msg,
+                    parent=parent,
+                )
+            except TypeError:
+                super().__init__(parent)
+        else:
+            super().__init__(parent)
+
+        ThemeTokenEngine.register_widget(self)
+        self.setWindowTitle(title or _("Reddit stories"))
+        self.resize(560, 360)
+
+        layout = self.layout()
+        if layout is None:
+            layout = QVBoxLayout(self)
+
+        header_text = (
+            f"<b>{friendly.category}</b>" if friendly.category else "<b>Reddit Authentication / Rate Limit</b>"
+        )
+        self.header_label = QLabel(header_text)
+        self.header_label.setWordWrap(True)
+        layout.addWidget(self.header_label)
+
+        self.msg_label = QLabel(self.primary_msg)
+        self.msg_label.setWordWrap(True)
+        layout.addWidget(self.msg_label)
+
+        if self.details_msg:
+            self.details_toggle_btn = QPushButton(_("Show Technical Details"))
+            self.details_toggle_btn.clicked.connect(self._toggle_details)
+            layout.addWidget(self.details_toggle_btn)
+
+            self.details_box = QPlainTextEdit()
+            self.details_box.setReadOnly(True)
+            self.details_box.setPlainText(self.details_msg)
+            self.details_box.setVisible(False)
+            layout.addWidget(self.details_box)
+        else:
+            self.details_toggle_btn = None
+            self.details_box = None
+
+        btn_layout = QHBoxLayout()
+        self.login_button = self.login_btn = QPushButton(_("Log in with Reddit Now"))
+        self.login_button.setToolTip(_("Authenticate with Reddit via OAuth to obtain fresh API credentials"))
+        self.login_button.clicked.connect(self.on_login)
+
+        self.retry_button = self.retry_btn = QPushButton(_("Retry Check"))
+        self.retry_button.setToolTip(_("Clear backoff, reset queue tasks, and retry checking now"))
+        self.retry_button.clicked.connect(self.on_retry)
+
+        self.snooze_button = self.snooze_btn = QPushButton(_("Snooze"))
+        self.snooze_button.setToolTip(_("Snooze chapter checks and back off temporarily"))
+        self.snooze_button.clicked.connect(self.on_snooze)
+
+        btn_layout.addWidget(self.login_button)
+        btn_layout.addWidget(self.retry_button)
+        btn_layout.addWidget(self.snooze_button)
+        layout.addLayout(btn_layout)
+
+    def _toggle_details(self):
+        if self.details_box is not None:
+            vis = not self.details_box.isVisible()
+            self.details_box.setVisible(vis)
+            self.details_toggle_btn.setText(_("Hide Technical Details") if vis else _("Show Technical Details"))
+
+    def exec(self):
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen" and not getattr(self, "_force_modal", False):
+            return QDialog.DialogCode.Rejected
+        return super().exec()
+
+    exec_ = exec
+
+    def on_snooze(self):
+        if self.action is not None:
+            wait = getattr(self.error, "retry_after", None) or (15 * 60)
+            self.action.backoff_until = time.time() + wait
+        self.reject()
+
+    def on_retry(self):
+        self._reset_backoff_and_queue()
+        self.accept()
+        if self.action is not None and hasattr(self.action, "check_now"):
+            self.action.check_now(self.follows)
+
+    def _reset_backoff_and_queue(self):
+        if self.action is not None:
+            self.action.backoff_until = 0.0
+            try:
+                qm = self.action.get_queue_manager()
+                for task_item in qm.get_tasks():
+                    if (
+                        task_item.get("status") in ("BACKOFF", "DEAD_LETTER")
+                        and task_item.get("task_type") == "check_follow"
+                    ):
+                        qm.retry_task(task_item["task_id"])
+            except Exception:
+                pass
+
+    def on_login(self):
+        client_id = (prefs.get("client_id") or "").strip()
+        client_secret = (prefs.get("client_secret") or "").strip()
+        if not client_id:
+            QMessageBox.warning(
+                self,
+                _("Reddit Story Follower"),
+                _("Enter your Reddit app's client id in Settings first."),
+            )
+            return
+
+        try:
+            with login.CallbackServer() as server:
+                task = run_task(
+                    self,
+                    _("Waiting for you to approve the login in your browser…"),
+                    lambda t: login.log_in(
+                        Fetcher(cancelled=t.cancelled),
+                        client_id,
+                        client_secret,
+                        server,
+                        self.open_browser,
+                        t.cancelled,
+                        **{k: v for k, v in self.login_endpoints.items() if k != "revoke_url"},
+                    ),
+                )
+        except login.LoginError as exc:
+            show_friendly_error_dialog(self, _("Reddit Story Follower"), exc, show=True)
+            return
+
+        if task.error:
+            if "cancelled" not in str(task.error).lower():
+                show_friendly_error_dialog(self, _("Reddit Story Follower"), task.error, show=True)
+            return
+
+        if task.result:
+            prefs["refresh_token"] = task.result["refresh_token"]
+            prefs["account_name"] = task.result["username"]
+            prefs["mode"] = "api"
+
+            self._reset_backoff_and_queue()
+            self.accept()
+            if self.action is not None and hasattr(self.action, "check_now"):
+                self.action.check_now(self.follows)
