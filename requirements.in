@@ -14,3 +14,5 @@ PyMuPDF
 pytest
 ruff
 soupsieve>=4.0.0
+colorama>=0.4.6; sys_platform == 'win32'
+pywin32>=312; sys_platform == 'win32'

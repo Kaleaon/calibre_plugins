@@ -256,7 +256,7 @@ class TaggerDialogTests(unittest.TestCase):
             if k not in self.saved_modules:
                 del sys.modules[k]
         sys.modules.update(self.saved_modules)
-        sys.modules.pop("common.guikit", None)
+        sys.modules.pop('common.guikit', None)
 
     def test_show_dialog_sets_word_wrap_on_labels(self):
         spec = importlib.util.spec_from_file_location(
@@ -441,13 +441,13 @@ class TaggerDialogTests(unittest.TestCase):
         scope_selected.toggled.connect.assert_called_with(handler)
         scope_all.toggled.connect.assert_called_with(handler)
 
-    def _setup_dialog_with_tracking_rules_edit(self, initial_rules="litrpg => LitRPG"):
+    def _setup_dialog_with_tracking_rules_edit(self, initial_rules='litrpg => LitRPG'):
         action_mod = self._load_action_mod()
         action = action_mod.TaggerAction()
         action.gui = MagicMock()
         action.gui.library_view.get_selected_ids.return_value = [1]
 
-        qt_core = sys.modules["qt.core"]
+        qt_core = sys.modules['qt.core']
         widgets = {}
 
         class MockCursor:
@@ -460,16 +460,16 @@ class TaggerDialogTests(unittest.TestCase):
             def setPosition(self, p):
                 self._pos = p
 
-        def make_tracking_plain_text_edit(text=""):
+        def make_tracking_plain_text_edit(text=''):
             m = MagicMock()
-            m._text = str(text or "")
+            m._text = str(text or '')
             m._cursor_pos = 0
             m._signals_blocked = False
             m.signal_block_log = []
             m.toPlainText.side_effect = lambda: m._text
 
             def _set_plain_text(t):
-                m._text = str(t or "")
+                m._text = str(t or '')
                 m._cursor_pos = 0
 
             m.setPlainText.side_effect = _set_plain_text
@@ -485,13 +485,13 @@ class TaggerDialogTests(unittest.TestCase):
             m.textCursor.side_effect = lambda: MockCursor(m._cursor_pos)
 
             def _set_text_cursor(c):
-                m._cursor_pos = c.position() if hasattr(c, "position") else getattr(c, "_pos", 0)
+                m._cursor_pos = c.position() if hasattr(c, 'position') else getattr(c, '_pos', 0)
 
             m.setTextCursor.side_effect = _set_text_cursor
             return m
 
         def mock_widget(cls_name, *a, **k):
-            if cls_name == "QPlainTextEdit" and a and a[0] == action_mod.prefs["rules"]:
+            if cls_name == 'QPlainTextEdit' and a and a[0] == action_mod.prefs['rules']:
                 m = make_tracking_plain_text_edit(*a)
             else:
                 m = MagicMock()
@@ -499,31 +499,31 @@ class TaggerDialogTests(unittest.TestCase):
             widgets.setdefault(cls_name, []).append(m)
             return m
 
-        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget("QPlainTextEdit", *a, **k)
-        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget("QLineEdit", *a, **k)
-        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget("QCheckBox", *a, **k)
-        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget("QRadioButton", *a, **k)
-        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget("QPushButton", *a, **k)
-        qt_core.QTreeWidget.side_effect = lambda *a, **k: mock_widget("QTreeWidget", *a, **k)
-        qt_core.QTreeWidgetItem.side_effect = lambda *a, **k: mock_widget("QTreeWidgetItem", *a, **k)
-        qt_core.QSplitter.side_effect = lambda *a, **k: mock_widget("QSplitter", *a, **k)
-        qt_core.QWidget.side_effect = lambda *a, **k: mock_widget("QWidget", *a, **k)
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget('QPlainTextEdit', *a, **k)
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget('QLineEdit', *a, **k)
+        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget('QCheckBox', *a, **k)
+        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget('QRadioButton', *a, **k)
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget('QPushButton', *a, **k)
+        qt_core.QTreeWidget.side_effect = lambda *a, **k: mock_widget('QTreeWidget', *a, **k)
+        qt_core.QTreeWidgetItem.side_effect = lambda *a, **k: mock_widget('QTreeWidgetItem', *a, **k)
+        qt_core.QSplitter.side_effect = lambda *a, **k: mock_widget('QSplitter', *a, **k)
+        qt_core.QWidget.side_effect = lambda *a, **k: mock_widget('QWidget', *a, **k)
 
-        action_mod.prefs["rules"] = initial_rules
+        action_mod.prefs['rules'] = initial_rules
 
         action.show_dialog()
 
-        rules_edit = next(w for w in widgets["QPlainTextEdit"] if hasattr(w, "signal_block_log"))
+        rules_edit = next(w for w in widgets['QPlainTextEdit'] if hasattr(w, 'signal_block_log'))
         on_raw_text_changed = next(
             c[0][0]
             for c in rules_edit.textChanged.connect.call_args_list
-            if getattr(c[0][0], "__name__", "") == "on_raw_text_changed"
+            if getattr(c[0][0], '__name__', '') == 'on_raw_text_changed'
         )
         return action_mod, action, rules_edit, on_raw_text_changed
 
     def test_rules_edit_cursor_preservation_on_raw_text_changed(self):
         action_mod, action, rules_edit, on_raw_text_changed = self._setup_dialog_with_tracking_rules_edit(
-            "litrpg => LitRPG"
+            'litrpg => LitRPG'
         )
 
         # Simulate user having moved the cursor to position 7
@@ -540,11 +540,11 @@ class TaggerDialogTests(unittest.TestCase):
 
     def test_rules_edit_cursor_clamped_when_document_shrinks(self):
         action_mod, action, rules_edit, on_raw_text_changed = self._setup_dialog_with_tracking_rules_edit(
-            "litrpg => LitRPG\nauthor:Bob => Sci-Fi"
+            'litrpg => LitRPG\nauthor:Bob => Sci-Fi'
         )
 
         # User updates text to something shorter and cursor was at a high offset (e.g., 50)
-        rules_edit._text = "litrpg => LitRPG"
+        rules_edit._text = 'litrpg => LitRPG'
         rules_edit._cursor_pos = 50
         rules_edit.signal_block_log.clear()
 
@@ -558,7 +558,7 @@ class TaggerDialogTests(unittest.TestCase):
 
     def test_rules_edit_block_signals_active_during_text_replacement(self):
         action_mod, action, rules_edit, on_raw_text_changed = self._setup_dialog_with_tracking_rules_edit(
-            "litrpg => LitRPG"
+            'litrpg => LitRPG'
         )
 
         signals_blocked_during_set_text = []
@@ -573,6 +573,7 @@ class TaggerDialogTests(unittest.TestCase):
 
         self.assertEqual(signals_blocked_during_set_text, [True])
         self.assertFalse(rules_edit.signalsBlocked())
+
 
 
 class SelectionStateTests(unittest.TestCase):
@@ -850,6 +851,7 @@ class TaggerPreviewDialogUITests(unittest.TestCase):
         self.assertFalse(edit.signalsBlocked())
 
 
+
 class RuleSetSchemaTests(unittest.TestCase):
     def test_export_and_import_roundtrip(self):
         rules_text = "tags:=Muscle Growth => Theme.Growth\nlitrpg => LitRPG"
@@ -995,7 +997,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             if k not in self.saved_modules:
                 del sys.modules[k]
         sys.modules.update(self.saved_modules)
-        sys.modules.pop("common.guikit", None)
+        sys.modules.pop('common.guikit', None)
 
     def test_manager_dialog_initialization_and_commit(self):
         spec = importlib.util.spec_from_file_location(

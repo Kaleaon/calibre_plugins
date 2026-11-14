@@ -734,9 +734,7 @@ class TaggerAction(DialogAction):
                     mode_item = QTableWidgetItem((r_dict.get("match_mode") or "substring").title())
                     pat_item = QTableWidgetItem(r_dict.get("pattern", ""))
                     tags_list = r_dict.get("tags") or []
-                    tags_item = QTableWidgetItem(
-                        ", ".join(tags_list) if isinstance(tags_list, list) else str(tags_list)
-                    )
+                    tags_item = QTableWidgetItem(", ".join(tags_list) if isinstance(tags_list, list) else str(tags_list))
 
                     rules_table.setItem(idx, 0, field_item)
                     rules_table.setItem(idx, 1, mode_item)
