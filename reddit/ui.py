@@ -6,6 +6,7 @@ import webbrowser
 
 from qt.core import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -71,6 +72,20 @@ except ImportError:
         from error_handler import show_friendly_error_dialog
 from calibre_plugins.reddit_follower.storykit import Fetcher
 
+_ENSURED_QT_APP = None
+
+
+def _ensure_qt_app():
+    global _ENSURED_QT_APP
+    try:
+        if QApplication.instance() is None:
+            _ENSURED_QT_APP = QApplication([])
+    except Exception:
+        pass
+
+
+_ensure_qt_app()
+
 ACCESS_NOTE = (
     "Two ways to read Reddit, and what is known about each:\n"
     "• Public feeds (no account): the same Atom feeds a feed reader uses. They need nothing from you, but only reach the newest "
@@ -87,6 +102,7 @@ class SourceEditDialog(QDialog):
     """Add or edit one feed source rule for a series."""
 
     def __init__(self, parent, source=None):
+        _ensure_qt_app()
         super().__init__(parent)
         self.setWindowTitle("Feed source rule")
         self.resize(500, 260)
@@ -144,6 +160,176 @@ class SourceEditDialog(QDialog):
             "author_filter": self.author_filter.text().strip().lstrip("/").replace("u/", "", 1),
             "flair_filter": self.flair_filter.text().strip(),
         }
+
+
+class ManifestTableWidget(QTableWidget):
+    """Table widget with internal drag and drop row reordering support."""
+
+    def __init__(self, parent=None):
+        super().__init__(0, 7, parent)
+        self.dialog = parent
+        self.setHorizontalHeaderLabels(["Seq", "Chapter Title", "Author", "Created", "Link", "Status", "Excluded"])
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.horizontalHeader().setStretchLastSection(True)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
+        self.setDragDropOverwriteMode(False)
+        self.setDropIndicatorShown(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+
+    def dropEvent(self, event):
+        source_row = self.currentRow()
+        drop_pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+        target_item = self.itemAt(drop_pos)
+        target_row = self.row(target_item) if target_item else self.rowCount() - 1
+        if target_row < 0:
+            target_row = self.rowCount() - 1
+        parent = self.dialog or self.parent()
+        while parent and not hasattr(parent, "reorder_row"):
+            parent = parent.parent() if hasattr(parent, "parent") else None
+        if (
+            parent
+            and hasattr(parent, "reorder_row")
+            and source_row >= 0
+            and target_row >= 0
+            and source_row != target_row
+        ):
+            parent.reorder_row(source_row, target_row)
+            if hasattr(event, "accept"):
+                event.accept()
+        else:
+            super().dropEvent(event)
+
+
+class ManifestDialog(QDialog):
+    """View and customize post manifest entries and chapter order for a series."""
+
+    def __init__(self, parent, follow, action):
+        _ensure_qt_app()
+        super().__init__(parent)
+        ThemeTokenEngine.register_widget(self)
+        self.follow = follow
+        self.action = action
+        self.entries = []
+        self.setWindowTitle(f"Chapter Manifest \u2013 {follow['name']}")
+        self.resize(880, 480)
+        layout = QVBoxLayout(self)
+
+        self.table = ManifestTableWidget(self)
+        layout.addWidget(self.table, 1)
+
+        # Control buttons for reordering and exclusion toggling
+        ctrl_layout = QHBoxLayout()
+        self.btn_move_up = QPushButton(_("Move Up"))
+        self.btn_move_down = QPushButton(_("Move Down"))
+        self.btn_toggle_exclude = QPushButton(_("Toggle Exclude"))
+        self.btn_toggle_duplicate = QPushButton(_("Toggle Duplicate"))
+
+        self.btn_move_up.clicked.connect(self.move_up)
+        self.btn_move_down.clicked.connect(self.move_down)
+        self.btn_toggle_exclude.clicked.connect(self.toggle_exclude)
+        self.btn_toggle_duplicate.clicked.connect(self.toggle_duplicate)
+
+        ctrl_layout.addWidget(self.btn_move_up)
+        ctrl_layout.addWidget(self.btn_move_down)
+        ctrl_layout.addWidget(self.btn_toggle_exclude)
+        ctrl_layout.addWidget(self.btn_toggle_duplicate)
+        ctrl_layout.addStretch(1)
+        layout.addLayout(ctrl_layout)
+
+        # Bottom action buttons
+        bottom_layout = QHBoxLayout()
+        self.btn_save_rebuild = QPushButton(_("Save & Rebuild"))
+        self.btn_save_rebuild.clicked.connect(self.save_and_rebuild)
+        bottom_layout.addStretch(1)
+        bottom_layout.addWidget(self.btn_save_rebuild)
+
+        close_btn = QPushButton(_("Close"))
+        close_btn.clicked.connect(self.reject)
+        bottom_layout.addWidget(close_btn)
+        layout.addLayout(bottom_layout)
+
+        self.refresh()
+
+    def refresh(self):
+        reg = self.action.registry() if hasattr(self.action, "registry") else None
+        if reg:
+            self.entries = reg.get_manifest(self.follow["id"], include_excluded=True, include_duplicates=True)
+        else:
+            self.entries = []
+        self._update_table_view()
+
+    def _update_table_view(self):
+        self.table.setRowCount(len(self.entries))
+        for row, entry in enumerate(self.entries):
+            entry["sequence_order"] = row + 1
+            created_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(entry.get("created", 0.0)))
+            status = "Duplicate" if entry.get("is_duplicate") else "Canonical"
+            excluded_str = "Yes" if entry.get("is_excluded") else "No"
+            cells = [
+                str(row + 1),
+                entry.get("chapter_title") or entry.get("title", ""),
+                entry.get("author_attribution") or entry.get("author", ""),
+                created_str,
+                entry.get("link", ""),
+                status,
+                excluded_str,
+            ]
+            for col, txt in enumerate(cells):
+                item = QTableWidgetItem(txt)
+                if entry.get("is_excluded"):
+                    item.setToolTip(_("This chapter is excluded from EPUB compilation."))
+                self.table.setItem(row, col, item)
+        self.table.resizeColumnsToContents()
+
+    def reorder_row(self, from_idx, to_idx):
+        if from_idx == to_idx or from_idx < 0 or to_idx < 0:
+            return
+        if from_idx >= len(self.entries) or to_idx >= len(self.entries):
+            return
+        item = self.entries.pop(from_idx)
+        self.entries.insert(to_idx, item)
+        self._update_table_view()
+        self.table.selectRow(to_idx)
+
+    def move_up(self):
+        row = self.table.currentRow()
+        if row > 0:
+            self.reorder_row(row, row - 1)
+
+    def move_down(self):
+        row = self.table.currentRow()
+        if 0 <= row < len(self.entries) - 1:
+            self.reorder_row(row, row + 1)
+
+    def toggle_exclude(self):
+        row = self.table.currentRow()
+        if 0 <= row < len(self.entries):
+            current = self.entries[row].get("is_excluded", 0)
+            self.entries[row]["is_excluded"] = 0 if current else 1
+            self._update_table_view()
+            self.table.selectRow(row)
+
+    def toggle_duplicate(self):
+        row = self.table.currentRow()
+        if 0 <= row < len(self.entries):
+            current = self.entries[row].get("is_duplicate", 0)
+            self.entries[row]["is_duplicate"] = 0 if current else 1
+            self._update_table_view()
+            self.table.selectRow(row)
+
+    def save_and_rebuild(self):
+        reg = self.action.registry() if hasattr(self.action, "registry") else None
+        if reg:
+            reg.save_manifest_order(self.follow["id"], self.entries)
+        if hasattr(self.action, "rebuild_book"):
+            self.action.rebuild_book(self.follow)
+        elif hasattr(self.action, "update_library"):
+            self.action.update_library(self.follow, has_changes=True)
+        self.accept()
 
 
 class ReorderableChapterTable(QTableWidget):
@@ -209,6 +395,7 @@ class ChapterManagerDialog(QDialog):
     COLUMNS = ["Seq", "Include", "Chapter Title (Editable)", "Author", "Created", "Status", "Link"]
 
     def __init__(self, parent, follow, action):
+        _ensure_qt_app()
         super().__init__(parent)
         ThemeTokenEngine.register_widget(self)
         self.follow = follow
@@ -517,14 +704,11 @@ class ChapterManagerDialog(QDialog):
             self.refresh()
 
 
-# Backwards compatibility alias
-ManifestDialog = ChapterManagerDialog
-
-
 class FollowDialog(QDialog):
     """Add or edit one followed series with multi-source support."""
 
     def __init__(self, parent, follow=None):
+        _ensure_qt_app()
         super().__init__(parent)
         ThemeTokenEngine.register_widget(self)
         self.setWindowTitle(_("Follow a Reddit story") if follow is None else _("Edit followed story"))
@@ -777,6 +961,7 @@ class FollowDialog(QDialog):
 
 class SettingsDialog(QDialog):
     def __init__(self, parent):
+        _ensure_qt_app()
         super().__init__(parent)
         ThemeTokenEngine.register_widget(self)
         self.setWindowTitle("Reddit Story Follower settings")
@@ -1017,6 +1202,7 @@ class DiscoverDialog(QDialog):
     """Search or browse a subreddit such as r/HFY, see the stories grouped into series, and follow a whole series."""
 
     def __init__(self, parent, action):
+        _ensure_qt_app()
         super().__init__(parent)
         ThemeTokenEngine.register_widget(self)
         self.action = action
@@ -1264,6 +1450,7 @@ class SubscriptionExchangeDialog(QDialog):
     """Multi-tab dialog for subscription export and import with category mapping and conflict resolution."""
 
     def __init__(self, parent, action=None):
+        _ensure_qt_app()
         super().__init__(parent)
         self.action = action
         self.preview_subs = []
@@ -1595,6 +1782,7 @@ class ManageDialog(QDialog):
     ]
 
     def __init__(self, parent, action):
+        _ensure_qt_app()
         super().__init__(parent)
         ThemeTokenEngine.register_widget(self)
         self.action = action
@@ -1756,7 +1944,6 @@ class ManageDialog(QDialog):
         self.table.setRowCount(len(follows))
         pending_total = 0
         reg = self.action.registry() if hasattr(self.action, "registry") else None
-
         for r, follow in enumerate(follows):
             checked = (
                 time.strftime("%Y-%m-%d %H:%M", time.localtime(follow["last_checked"]))
@@ -1771,12 +1958,10 @@ class ManageDialog(QDialog):
                     + (", …" if len(sources) > 2 else "")
                     + ")"
                 )
-            elif sources and sources[0].get("kind"):
+            elif sources:
                 source_desc = core.describe_source(sources[0])
-            elif follow.get("source") and follow["source"].get("kind"):
-                source_desc = core.describe_source(follow["source"])
             else:
-                source_desc = ""
+                source_desc = core.describe_source(follow.get("source", {}))
 
             status_str = follow.get("last_status", "")
             if reg and hasattr(reg, "has_pending_reconciliation") and reg.has_pending_reconciliation(follow["id"]):
@@ -1807,7 +1992,6 @@ class ManageDialog(QDialog):
                 self.recon_banner.setVisible(True)
             else:
                 self.recon_banner.setVisible(False)
-
         mode_str = _("the official API") if prefs["mode"] == "api" else _("public feeds")
         auto_str = (
             _("; automatic checks every {hours:.1f} hours.").format(

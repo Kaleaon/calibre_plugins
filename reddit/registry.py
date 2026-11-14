@@ -68,6 +68,9 @@ class _ConnectionWrapper:
         return getattr(self._ensure(), item)
 
 
+ConnectionWrapper = _ConnectionWrapper
+
+
 class SeriesRegistry:
     """Thread-safe manager for series_registry.db."""
 
@@ -546,21 +549,73 @@ class SeriesRegistry:
             cursor.execute("SELECT * FROM chapters WHERE series_id = ? ORDER BY created ASC, title ASC", (series_id,))
             return [dict(r) for r in cursor.fetchall()]
 
-    def get_manifest(self, series_id, include_duplicates=False):
+    def get_manifest(self, series_id, include_excluded=True, include_duplicates=False):
         with self._lock, self._get_connection() as conn:
             cursor = conn.cursor()
-            dup_clause = "" if include_duplicates else "AND m.is_duplicate = 0"
-            cursor.execute(
-                f"""
+            query = """
             SELECT m.*, c.created, c.link, c.html, c.flair, c.note
             FROM manifests m
             JOIN chapters c ON m.post_id = c.id
-            WHERE m.series_id = ? {dup_clause}
-            ORDER BY m.sequence_order ASC;
-            """,
-                (series_id,),
-            )
+            WHERE m.series_id = ?
+            """
+            params = [series_id]
+            if not include_duplicates:
+                query += " AND m.is_duplicate = 0"
+            if not include_excluded:
+                query += " AND m.is_excluded = 0"
+            query += " ORDER BY m.sequence_order ASC;"
+            cursor.execute(query, tuple(params))
             return [dict(r) for r in cursor.fetchall()]
+
+    def save_manifest_order(self, series_id, manifest_items):
+        """Persist custom sequence order, exclusion flags, and duplicate status for a series manifest."""
+        with self._lock, self._get_connection() as conn:
+            cursor = conn.cursor()
+            for idx, item in enumerate(manifest_items, start=1):
+                if isinstance(item, dict):
+                    pid = item.get("post_id") or item.get("id")
+                    seq = item.get("sequence_order", idx)
+                    is_excluded = 1 if item.get("is_excluded") else 0
+                    is_duplicate = 1 if item.get("is_duplicate") else 0
+                else:
+                    pid = str(item)
+                    seq = idx
+                    is_excluded = 0
+                    is_duplicate = 0
+                if not pid:
+                    continue
+                cursor.execute(
+                    """
+                UPDATE manifests
+                SET sequence_order = ?,
+                    is_excluded = ?,
+                    is_duplicate = ?,
+                    is_custom_order = 1
+                WHERE series_id = ? AND post_id = ?;
+                """,
+                    (seq, is_excluded, is_duplicate, series_id, pid),
+                )
+                if cursor.rowcount == 0:
+                    cursor.execute("SELECT title, author FROM chapters WHERE id = ?", (pid,))
+                    ch = cursor.fetchone()
+                    title = ch["title"] if ch else ""
+                    author = ch["author"] if ch else ""
+                    cursor.execute(
+                        """
+                    INSERT INTO manifests (
+                        series_id, post_id, sequence_order, chapter_title, author_attribution,
+                        is_duplicate, canonical_post_id, is_excluded, is_custom_order, reconciliation_status
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, '', ?, 1, 'approved')
+                    ON CONFLICT(series_id, post_id) DO UPDATE SET
+                        sequence_order = excluded.sequence_order,
+                        is_excluded = excluded.is_excluded,
+                        is_duplicate = excluded.is_duplicate,
+                        is_custom_order = 1;
+                    """,
+                        (series_id, pid, seq, title, author, is_duplicate, is_excluded),
+                    )
+            conn.commit()
 
     def save_custom_manifest(self, series_id, manifest_entries):
         """Persist user-specified custom manifest order, titles, exclusions, and reconciliation statuses."""

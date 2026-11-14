@@ -17,7 +17,12 @@ except ImportError:
         from .error_handler import show_friendly_error_dialog
     except ImportError:
         from error_handler import show_friendly_error_dialog
-from calibre_plugins.reddit_follower.ui import DiscoverDialog, ManageDialog, SettingsDialog, SubscriptionExchangeDialog
+from calibre_plugins.reddit_follower.ui import (
+    DiscoverDialog,
+    ManageDialog,
+    SettingsDialog,
+    SubscriptionExchangeDialog,
+)
 
 IDENTIFIER = "redditfollow"
 TICK_MS = 15 * 60 * 1000  # how often we look at which stories are due; looking costs nothing
@@ -27,7 +32,12 @@ MIN_BACKOFF = 15 * 60  # seconds to leave Reddit alone after it asks us to slow 
 
 class FollowerAction(InterfaceAction):
     name = "Reddit Story Follower"
-    action_spec = ("Reddit stories", None, "Follow story series on Reddit as books that grow", None)
+    action_spec = (
+        "Reddit stories",
+        None,
+        "Follow story series on Reddit as books that grow",
+        None,
+    )
 
     def genesis(self):
         menu = QMenu(self.gui)
@@ -99,7 +109,6 @@ class FollowerAction(InterfaceAction):
                 except ImportError:
                     import os as _os
                     import sys as _sys
-
                     _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
                     if _pkg_dir not in _sys.path:
                         _sys.path.insert(0, _pkg_dir)
@@ -123,7 +132,6 @@ class FollowerAction(InterfaceAction):
                     try:
                         import os as _os
                         import sys as _sys
-
                         _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
                         if _pkg_dir not in _sys.path:
                             _sys.path.insert(0, _pkg_dir)
@@ -218,7 +226,9 @@ class FollowerAction(InterfaceAction):
     def test_follow(self, follow):
         """One request for the first page of this follow, reported to the user. Changes nothing."""
         task = run_task(
-            self.gui, "Testing…", lambda t: core.probe(self.make_source(t.cancelled), follow["source"], follow)
+            self.gui,
+            "Testing…",
+            lambda t: core.probe(self.make_source(t.cancelled), follow["source"], follow),
         )
         if task.error:
             return show_friendly_error_dialog(self.gui, "Reddit stories", task.error, show=True)
@@ -339,19 +349,33 @@ class FollowerAction(InterfaceAction):
                 except Exception:
                     pass
         if interactive:
-            info_dialog(self.gui, "Reddit stories", "\n".join(lines) or "Nothing to report.", show=True)
+            info_dialog(
+                self.gui,
+                "Reddit stories",
+                "\n".join(lines) or "Nothing to report.",
+                show=True,
+            )
         elif changed_books:
             self.gui.status_bar.show_message(
-                "Reddit stories updated: " + "; ".join(line for line in lines if "up to date" not in line), 15000
+                "Reddit stories updated: " + "; ".join(line for line in lines if "up to date" not in line),
+                15000,
             )
         else:
             pending_notes = [line for line in lines if "need review in Chapter Manager" in line]
             if pending_notes:
                 self.gui.status_bar.show_message("; ".join(pending_notes), 15000)
 
+    def rebuild_book(self, follow):
+        """Rebuild the EPUB book for this follow using current manifest sequence and exclusions."""
+        return self.update_library(follow, has_changes=True)
+
     def update_library(self, follow, has_changes):
         """Rebuild the book from the cached chapters when something changed or the book is missing. Returns a message or ''."""
-        cache = core.ChapterCache(self.cache_dir(), follow["id"])
+        cache = core.ChapterCache(
+            self.cache_dir(),
+            follow["id"],
+            registry=getattr(self, "registry", lambda: None)(),
+        )
         if not cache.posts:
             return ""
         if follow.get("layout") == "each":

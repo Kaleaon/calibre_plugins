@@ -19,10 +19,24 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 try:  # inside Calibre the shared module ships in the plugin package
-    from .storykit import Cancelled, Fetcher, RateLimited, clean_fragment, escape, strip_tags  # noqa: F401
+    from .storykit import (  # noqa: F401
+        Cancelled,
+        Fetcher,
+        RateLimited,
+        clean_fragment,
+        escape,
+        strip_tags,
+    )
     from .storykit import build_epub as _build_epub
 except ImportError:  # tests load this file directly with common/ on sys.path
-    from storykit import Cancelled, Fetcher, RateLimited, clean_fragment, escape, strip_tags  # noqa: F401
+    from storykit import (  # noqa: F401
+        Cancelled,
+        Fetcher,
+        RateLimited,
+        clean_fragment,
+        escape,
+        strip_tags,
+    )
     from storykit import build_epub as _build_epub
 
 WWW = "https://www.reddit.com"
@@ -104,7 +118,12 @@ def parse_source(text):
     if m_sub:
         if (m_sub.group(2) or "").lower().startswith("/comments"):
             raise SourceError("That is a single post. Follow the subreddit, the author, or a search instead.")
-        return {"kind": "subreddit", "subreddit": m_sub.group(1), "user": "", "query": ""}
+        return {
+            "kind": "subreddit",
+            "subreddit": m_sub.group(1),
+            "user": "",
+            "query": "",
+        }
     if m_user:
         raw_user_part = re.split(r"(?i)/(?:submitted|search|comments)", m_user.group(1))[0]
         user_names = parse_authors(raw_user_part)
@@ -112,7 +131,12 @@ def parse_source(text):
             user_str = "+".join(user_names)
             return {"kind": "user", "subreddit": "", "user": user_str, "query": ""}
     if path.lower().startswith("/search") and query.get("q"):
-        return {"kind": "search", "subreddit": "", "user": "", "query": query["q"][0].strip()}
+        return {
+            "kind": "search",
+            "subreddit": "",
+            "user": "",
+            "query": query["q"][0].strip(),
+        }
     raise SourceError("Could not tell what to follow. Use r/NAME, u/NAME, or a Reddit search address.")
 
 
@@ -266,7 +290,8 @@ def main_html(content):
 
 
 _BLOCK = re.compile(
-    r"<p(?: [^>]*)?>.*?</p>|<hr/>|<(?P<tag>div|blockquote|ul|ol|pre|h[1-6])(?: [^>]*)?>.*?</(?P=tag)>", re.S
+    r"<p(?: [^>]*)?>.*?</p>|<hr/>|<(?P<tag>div|blockquote|ul|ol|pre|h[1-6])(?: [^>]*)?>.*?</(?P=tag)>",
+    re.S,
 )
 
 
@@ -373,7 +398,10 @@ class FeedSource:
     def page(self, src, after=None, limit=100):
         text = self.fetcher.get(
             feed_url(src, limit, after),
-            headers={"User-Agent": FEED_USER_AGENT, "Accept": "application/atom+xml, application/xml"},
+            headers={
+                "User-Agent": FEED_USER_AGENT,
+                "Accept": "application/atom+xml, application/xml",
+            },
         )
         return parse_atom(text)
 
@@ -387,8 +415,21 @@ class ApiSource:
 
     mode = "api"
 
-    def __init__(self, fetcher, client_id, client_secret="", username="", token_url=None, base=None, refresh_token=""):
-        self.fetcher, self.client_id, self.client_secret = fetcher, client_id.strip(), (client_secret or "").strip()
+    def __init__(
+        self,
+        fetcher,
+        client_id,
+        client_secret="",
+        username="",
+        token_url=None,
+        base=None,
+        refresh_token="",
+    ):
+        self.fetcher, self.client_id, self.client_secret = (
+            fetcher,
+            client_id.strip(),
+            (client_secret or "").strip(),
+        )
         self.token_url, self.base = token_url or TOKEN_URL, base or OAUTH
         self.refresh_token = (refresh_token or "").strip()
         self.user_agent = (
@@ -407,7 +448,10 @@ class ApiSource:
             body = urlencode({"grant_type": "client_credentials"})
         else:
             body = urlencode(
-                {"grant_type": "https://oauth.reddit.com/grants/installed_client", "device_id": self._device}
+                {
+                    "grant_type": "https://oauth.reddit.com/grants/installed_client",
+                    "device_id": self._device,
+                }
             )
         reply = json.loads(
             self.fetcher.get(
@@ -435,7 +479,10 @@ class ApiSource:
         try:
             text = self.fetcher.get(
                 self.base + api_path(src, limit, after),
-                headers={"Authorization": f"bearer {self._token}", "User-Agent": self.user_agent},
+                headers={
+                    "Authorization": f"bearer {self._token}",
+                    "User-Agent": self.user_agent,
+                },
             )
         except OSError as exc:
             if "HTTP Error 403" in str(exc) and "insufficient_scope" in str(exc) and self.refresh_token:
@@ -453,7 +500,10 @@ class ApiSource:
         post_id = entry["id"].split("_", 1)[-1]
         text = self.fetcher.get(
             f"{self.base}/comments/{post_id}?limit=100&depth=1&sort=top&raw_json=1",
-            headers={"Authorization": f"bearer {self._token}", "User-Agent": self.user_agent},
+            headers={
+                "Authorization": f"bearer {self._token}",
+                "User-Agent": self.user_agent,
+            },
         )
         return top_level_author_comment(text, entry.get("author", ""))
 
@@ -575,7 +625,15 @@ def group_series(entries, cross_author=False):
 def rank_groups(groups, by="score"):
     """Series first, then by total rating of the posts found ('score') or by how many parts were found ('posts')."""
     key = (lambda g: g.get("score", 0)) if by == "score" else (lambda g: len(g["posts"]))
-    return sorted(groups, key=lambda g: (-g["is_series"], -key(g), -len(g["posts"]), g["name"].casefold()))
+    return sorted(
+        groups,
+        key=lambda g: (
+            -g["is_series"],
+            -key(g),
+            -len(g["posts"]),
+            g["name"].casefold(),
+        ),
+    )
 
 
 def followed_keys(follows):
@@ -688,11 +746,21 @@ def series_follow(group, author_note=False):
     else:
         source_str = f"u/{author_str}" if author_str else "r/HFY"
     return new_follow(
-        stem, source_str, "re:^\\s*" + _LEAD_TAGS + name + r"(?![A-Za-z0-9])", author_str, author_note=author_note
+        stem,
+        source_str,
+        "re:^\\s*" + _LEAD_TAGS + name + r"(?![A-Za-z0-9])",
+        author_str,
+        author_note=author_note,
     )
 
 
-def preview_series(source, follow, pages=FIRST_RUN_PAGES, cancelled=lambda: False, progress=lambda msg: None):
+def preview_series(
+    source,
+    follow,
+    pages=FIRST_RUN_PAGES,
+    cancelled=lambda: False,
+    progress=lambda msg: None,
+):
     """Everything the author has under this series name, so the whole series can be judged before following it.
     Returns {'count', 'first', 'last', 'titles'} (titles: first and last few)."""
     posts, after = {}, None
@@ -749,7 +817,13 @@ def _index_ts(text):
     (CEST, so UTC+2 like the rest of the sheet), but occasional rows use the ISO form '2026-07-19T20:44' — those rows
     used to be dropped entirely, which lost their chapter (Into A Wider Galaxy, Chapter 726 in the real sheet)."""
     text = (text or "").strip()
-    for fmt in ("%Y/%m/%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+    for fmt in (
+        "%Y/%m/%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+    ):
         try:
             return datetime.strptime(text.replace("T", " "), fmt).replace(tzinfo=timezone.utc).timestamp() - 2 * 3600
         except ValueError:
@@ -795,7 +869,11 @@ def parse_index(csv_text, author=""):
         cols.get("author", 1),
         cols.get("chapter", 2),
     )
-    col_note, col_seq, col_ref = cols.get("note"), cols.get("seq"), cols.get("short link")
+    col_note, col_seq, col_ref = (
+        cols.get("note"),
+        cols.get("seq"),
+        cols.get("short link"),
+    )
     author_set = {a.casefold() for a in parse_authors(author)}
     out = []
     for r in rows[head + 1 :]:
@@ -869,7 +947,13 @@ def match_index(posts, rows):
             )
         ]
         if near:
-            best = min(near, key=lambda r: (_suffix_rank(r, p["title"]), abs(r["ts"] - p["created"])))
+            best = min(
+                near,
+                key=lambda r: (
+                    _suffix_rank(r, p["title"]),
+                    abs(r["ts"] - p["created"]),
+                ),
+            )
             matched[p["id"]] = best
             free.remove(best)
         else:
@@ -911,7 +995,10 @@ def refresh_index(source, follow, cache, now=time.time):
         cache.data["index"] = {"url": url, "fetched": now(), "rows": rows, "error": ""}
     except (OSError, ValueError, SourceError) as exc:
         cache.data["index"] = dict(
-            data, url=url, fetched=now() - INDEX_REFRESH_HOURS * 3600 + 3600, error=str(exc)[:200]
+            data,
+            url=url,
+            fetched=now() - INDEX_REFRESH_HOURS * 3600 + 3600,
+            error=str(exc)[:200],
         )
     cache.save()
 
@@ -930,7 +1017,14 @@ def index_report(follow, cache):
     }
 
 
-def make_source(mode, client_id="", client_secret="", username="", cancelled=lambda: False, refresh_token=""):
+def make_source(
+    mode,
+    client_id="",
+    client_secret="",
+    username="",
+    cancelled=lambda: False,
+    refresh_token="",
+):
     """The reader for the chosen mode, paced so as to stay within Reddit's limits for that mode."""
     if mode == "api":
         return ApiSource(
@@ -1016,7 +1110,6 @@ def new_follow(
     else:
         src = sources[0] if sources else {"kind": "subreddit", "subreddit": "", "user": "", "query": ""}
 
-    _ = source_input or (source_text(src) if src.get("kind") else "")
     return {
         "id": uuid.uuid4().hex[:10],
         "name": name.strip() or describe_source(src),
@@ -1176,7 +1269,10 @@ class ChapterCache:
         return self.data["posts"]
 
     def save(self):
-        s_dict = self.registry.get_series(self.follow_id) or {"id": self.follow_id, "name": self.follow_id}
+        s_dict = self.registry.get_series(self.follow_id) or {
+            "id": self.follow_id,
+            "name": self.follow_id,
+        }
         s_dict["complete"] = self.data.get("complete", False)
         s_dict["newest_created"] = self.data.get("newest_created", 0.0)
         s_dict["newest_id"] = self.data.get("newest_id", "")
@@ -1207,24 +1303,24 @@ class ChapterCache:
         os.replace(tmp, self.path)
 
     def ordered(self):
-        if not self.posts:
-            return []
-        manifest = self.registry.get_manifest(self.follow_id)
-        if manifest:
-            p_map = self.posts
-            out = []
-            for m in manifest:
-                if m.get("is_excluded"):
-                    continue
-                if m.get("reconciliation_status") == "pending":
-                    continue
-                pid = m["post_id"]
-                if pid in p_map:
-                    post = dict(p_map[pid])
-                    if m.get("chapter_title"):
-                        post["title"] = m["chapter_title"]
-                    out.append(post)
-            return out
+        if hasattr(self, "registry") and self.registry:
+            all_entries = self.registry.get_manifest(self.follow_id, include_excluded=True)
+            if all_entries:
+                manifest = self.registry.get_manifest(self.follow_id, include_excluded=False)
+                p_map = self.posts
+                out = []
+                for m in manifest:
+                    if m.get("is_excluded"):
+                        continue
+                    if m.get("reconciliation_status") == "pending":
+                        continue
+                    pid = m["post_id"]
+                    if pid in p_map:
+                        post = dict(p_map[pid])
+                        if m.get("chapter_title"):
+                            post["title"] = m["chapter_title"]
+                        out.append(post)
+                return out
         return sorted(self.posts.values(), key=lambda p: (p["created"], p["title"]))
 
     def delete(self):
@@ -1235,7 +1331,14 @@ class ChapterCache:
             pass
 
 
-def check_follow(source, follow, cache, max_pages=None, cancelled=lambda: False, progress=lambda msg: None):
+def check_follow(
+    source,
+    follow,
+    cache,
+    max_pages=None,
+    cancelled=lambda: False,
+    progress=lambda msg: None,
+):
     """Fetch new posts for one follow across all its configured feed sources into the cache."""
     if hasattr(cache, "registry") and cache.registry and follow.get("id"):
         cache.registry.save_series(follow)
@@ -1310,7 +1413,16 @@ def check_follow(source, follow, cache, max_pages=None, cancelled=lambda: False,
                     else:
                         continue
                     cache.posts[e["id"]] = {
-                        k: e.get(k, "") for k in ("id", "title", "author", "created", "link", "html", "flair")
+                        k: e.get(k, "")
+                        for k in (
+                            "id",
+                            "title",
+                            "author",
+                            "created",
+                            "link",
+                            "html",
+                            "flair",
+                        )
                     }
                     if old is not None and "note" in old:
                         cache.posts[e["id"]]["note"] = old["note"]
@@ -1337,13 +1449,25 @@ def check_follow(source, follow, cache, max_pages=None, cancelled=lambda: False,
 
     pending = fetch_notes(source, follow, cache, cancelled, progress)
     refresh_index(source, follow, cache)
-    res = {"new": new, "changed": changed, "pages": total_pages, "notes_pending": pending}
+    res = {
+        "new": new,
+        "changed": changed,
+        "pages": total_pages,
+        "notes_pending": pending,
+    }
     if follow.get("author_note") and not hasattr(source, "author_comment"):
         res["warning"] = "author comments need the official API"
     return res
 
 
-def fetch_notes(source, follow, cache, cancelled=lambda: False, progress=lambda msg: None, batch=None):
+def fetch_notes(
+    source,
+    follow,
+    cache,
+    cancelled=lambda: False,
+    progress=lambda msg: None,
+    batch=None,
+):
     """Fetch the author's own comment for cached chapters that lack one."""
     if not follow.get("author_note") or not hasattr(source, "author_comment"):
         return 0
@@ -1520,7 +1644,10 @@ def build_each(follow, post):
     }
     part = _PART.match(post["title"])
     if part and len(re.sub(r"\W", "", part.group("stem"))) >= 4:
-        story["series"], story["series_index"] = part.group("stem").strip(" ,:;-\u2013\u2014"), float(part.group("n"))
+        story["series"], story["series_index"] = (
+            part.group("stem").strip(" ,:;-\u2013\u2014"),
+            float(part.group("n")),
+        )
     return story
 
 
@@ -1548,7 +1675,14 @@ def due(follow, hours, now=None):
     return now - follow["last_checked"] >= max(hours, MIN_CHECK_HOURS) * 3600
 
 
-def run_follows(source, follows, cache_dir, cancelled=lambda: False, progress=lambda msg: None, now=time.time):
+def run_follows(
+    source,
+    follows,
+    cache_dir,
+    cancelled=lambda: False,
+    progress=lambda msg: None,
+    now=time.time,
+):
     """Check each follow in turn. Returns a list of {'follow', 'new', 'changed', 'error', 'rate_limited', 'retry_after'}.
 
     A rate limit ends the whole run (the remaining follows are reported as skipped) because the limit applies to
@@ -1780,7 +1914,12 @@ def import_opml(target, existing=None):
         flair_flt = _get_attr(elem, "flair_filter")
         layout = _get_attr(elem, "layout") or "series"
         author_note = _get_attr(elem, "author_note") in ("1", "true", "True", "yes")
-        title_from_body = _get_attr(elem, "title_from_body") in ("1", "true", "True", "yes")
+        title_from_body = _get_attr(elem, "title_from_body") in (
+            "1",
+            "true",
+            "True",
+            "yes",
+        )
         index_url = _get_attr(elem, "index_url")
 
         name = elem.attrib.get("title") or elem.attrib.get("text") or ""

@@ -574,9 +574,17 @@ class GeminiFixerAction(DialogAction):
                             try:
                                 fmt_path = db.format_abspath(book_id, fmt)
                                 if fmt_path:
-                                    desc = engine.find_back_cover_descriptor(fmt_path, fmt)
-                                    if desc:
-                                        images.append(desc)
+                                    res = engine.find_back_cover(fmt_path, fmt)
+                                    if res:
+                                        data, label = res
+                                        images.append({
+                                            'type': 'back',
+                                            'label': label,
+                                            'mime': 'image/jpeg',
+                                            'path': fmt_path,
+                                            'raw_bytes': data,
+                                            'loader': lambda d=data: d,
+                                        })
                                         break
                             except Exception:
                                 continue
@@ -1789,6 +1797,7 @@ class GeminiFixerAction(DialogAction):
                 if undo:
                     undo_state[0] = undo
                     save_undo(undo)
+                    prefs['undo'] = undo
                     undo_btn.setEnabled(True)
                 self.refresh(done)
                 if embed_updated.isChecked() and done:
@@ -1846,6 +1855,7 @@ class GeminiFixerAction(DialogAction):
                 if not errors:
                     undo_state[0] = {}
                     save_undo({})
+                    prefs['undo'] = {}
                     undo_btn.setEnabled(False)
                 bar.setValue(len(done))
                 bar.setFormat(_('Restored %v of %m books (100%)'))
