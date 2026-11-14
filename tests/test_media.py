@@ -1052,6 +1052,12 @@ class SimilarityTests(unittest.TestCase):
 
 
 class MusicMatchTests(unittest.TestCase):
+    def test_matching_public_module_exports(self):
+        self.assertTrue(hasattr(matching, "__all__"))
+        for helper in ("best_music_candidate", "best_book_candidate"):
+            self.assertIn(helper, matching.__all__)
+            self.assertTrue(callable(getattr(matching, helper)))
+
     def test_canonical_recording_wins_with_release_cover_and_track(self):
         best = matching.best_music_candidate(MB, want(duration=125.6))
         self.assertEqual(best["recording_id"], "0aa1938a-ee7f-487b-b742-8b2cfa110c85")

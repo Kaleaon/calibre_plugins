@@ -77,8 +77,8 @@ def check_lint():
 
     targets = [os.path.normpath(f) for f in targets]
     print(f"Running ruff checks on {len(targets)} target(s): {targets}")
-    subprocess.run([sys.executable, "-m", "ruff", "check"] + targets, check=True)
-    subprocess.run([sys.executable, "-m", "ruff", "format", "--check"] + targets, check=True)
+    subprocess.run([sys.executable, "-m", "ruff", "check", "--force-exclude"] + targets, check=True)
+    subprocess.run([sys.executable, "-m", "ruff", "format", "--check", "--force-exclude"] + targets, check=True)
     return 0
 
 
@@ -95,12 +95,13 @@ def check_tests():
         "media": ["tests/test_media*.py"],
         "metabods": ["tests/test_metabods*.py"],
         "nifty": ["tests/test_nifty*.py"],
-        "reddit": ["tests/test_reddit*.py"],
+        "reddit": ["tests/test_reddit*.py", "tests/test_manifest_reordering.py"],
         "scrubber": ["tests/test_scrubber*.py"],
-        "scrubber_plugin": ["tests/test_scrubber*.py"],
+        "scrubber_plugin": ["tests/test_scrubber*.py", "tests/test_epub_merge*.py"],
         "story": ["tests/test_story*.py"],
         "takeout": ["tests/test_takeout*.py"],
         "takeout_plugin": ["tests/test_takeout*.py"],
+        "plugin": ["tests/test_takeout*.py", "tests/test_plugin*.py"],
     }
 
     for f in changed_files:
