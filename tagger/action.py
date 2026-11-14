@@ -458,13 +458,7 @@ class RuleSetManagerDialog(QDialog):
                 self._insert_rule_row(r.field, r.pattern, r.tags, checked=True, status="New")
                 new_rules += 1
             elif status == "Conflict":
-                self._insert_rule_row(
-                    r.field,
-                    r.pattern,
-                    r.tags,
-                    checked=False,
-                    status="Conflict (differs)",
-                )
+                self._insert_rule_row(r.field, r.pattern, r.tags, checked=False, status="Conflict (differs)")
                 conflict_rules += 1
             elif status == "Duplicate":
                 self._insert_rule_row(r.field, r.pattern, r.tags, checked=is_replace, status="Duplicate")
@@ -604,12 +598,7 @@ class RuleSetManagerDialog(QDialog):
 
 class TaggerAction(DialogAction):
     name = "Story Collection Tagger"
-    action_spec = (
-        "Auto-tag stories",
-        None,
-        "Add source-site and keyword-rule tags to books",
-        None,
-    )
+    action_spec = ("Auto-tag stories", None, "Add source-site and keyword-rule tags to books", None)
 
     def books_for(self, ids):
         db = self.gui.current_db.new_api
@@ -676,18 +665,7 @@ class TaggerAction(DialogAction):
         form_row1 = QHBoxLayout()
         form_row1.addWidget(QLabel("Field:"))
         field_combo = QComboBox()
-        field_combo.addItems(
-            [
-                "any",
-                "title",
-                "tags",
-                "series",
-                "authors",
-                "comments",
-                "publisher",
-                "source",
-            ]
-        )
+        field_combo.addItems(["any", "title", "tags", "series", "authors", "comments", "publisher", "source"])
         form_row1.addWidget(field_combo)
 
         form_row1.addWidget(QLabel("Match Mode:"))
@@ -945,12 +923,7 @@ class TaggerAction(DialogAction):
             raw_tags = tags_edit.text().strip()
             tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
 
-            r_dict = {
-                "field": field,
-                "match_mode": mode,
-                "pattern": pattern,
-                "tags": tags,
-            }
+            r_dict = {"field": field, "match_mode": mode, "pattern": pattern, "tags": tags}
             ok, err = presets_mod.validate_rule_dict(r_dict)
 
             if ok:
@@ -976,12 +949,7 @@ class TaggerAction(DialogAction):
             raw_tags = tags_edit.text().strip()
             tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
 
-            r_dict = {
-                "field": field,
-                "match_mode": mode,
-                "pattern": pattern,
-                "tags": tags,
-            }
+            r_dict = {"field": field, "match_mode": mode, "pattern": pattern, "tags": tags}
             ok, _ = presets_mod.validate_rule_dict(r_dict)
             if not ok:
                 return
@@ -1118,10 +1086,7 @@ class TaggerAction(DialogAction):
 
         def do_export_preset():
             filepath, _ = QFileDialog.getSaveFileName(
-                dialog,
-                "Export Rules as Preset Pack (JSON)",
-                "custom_preset.json",
-                "JSON Files (*.json)",
+                dialog, "Export Rules as Preset Pack (JSON)", "custom_preset.json", "JSON Files (*.json)"
             )
             if not filepath:
                 return
@@ -1190,10 +1155,7 @@ class TaggerAction(DialogAction):
                     for j in range(book_item.childCount()):
                         tag_item = book_item.child(j)
                         if getattr(tag_item, "_tag", None) == tag:
-                            tag_item.setCheckState(
-                                0,
-                                Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked,
-                            )
+                            tag_item.setCheckState(0, Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
             finally:
                 state["updating"] = False
 
@@ -1218,10 +1180,7 @@ class TaggerAction(DialogAction):
                     checked = item.checkState(0) == Qt.CheckState.Checked
                     for j in range(item.childCount()):
                         tag_item = item.child(j)
-                        tag_item.setCheckState(
-                            0,
-                            Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked,
-                        )
+                        tag_item.setCheckState(0, Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
                         child_tag = getattr(tag_item, "_tag", None)
                         if child_tag:
                             sel.set_book_tag(book_id, child_tag, checked)
@@ -1235,9 +1194,7 @@ class TaggerAction(DialogAction):
 
         def do_manage():
             dlg = RuleSetManagerDialog(
-                dialog,
-                current_rules=rules_edit.toPlainText(),
-                current_sites=sites_edit.toPlainText(),
+                dialog, current_rules=rules_edit.toPlainText(), current_sites=sites_edit.toPlainText()
             )
             res = dlg.exec()
             accepted_val = getattr(QDialog.DialogCode, "Accepted", 1)
@@ -1255,10 +1212,7 @@ class TaggerAction(DialogAction):
 
         def do_export():
             path, _ = QFileDialog.getSaveFileName(
-                dialog,
-                "Export Rule Set",
-                "tagger_rules.json",
-                "JSON files (*.json);;All files (*)",
+                dialog, "Export Rule Set", "tagger_rules.json", "JSON files (*.json);;All files (*)"
             )
             if not path:
                 return
@@ -1273,19 +1227,10 @@ class TaggerAction(DialogAction):
             try:
                 with open(path, "w", encoding="utf-8") as f:
                     json.dump(package, f, indent=2)
-                info_dialog(
-                    dialog,
-                    "Export Rule Set",
-                    "Rule set exported successfully.",
-                    show=True,
-                )
+                info_dialog(dialog, "Export Rule Set", "Rule set exported successfully.", show=True)
             except Exception as exc:
                 show_friendly_error_dialog(
-                    dialog,
-                    "Export Rule Set",
-                    exc,
-                    det_msg="Could not write export file.",
-                    show=True,
+                    dialog, "Export Rule Set", exc, det_msg="Could not write export file.", show=True
                 )
 
         def do_import():
@@ -1299,11 +1244,7 @@ class TaggerAction(DialogAction):
                     raise ValueError("Imported file must contain a JSON object.")
             except Exception as exc:
                 show_friendly_error_dialog(
-                    dialog,
-                    "Import Rule Set",
-                    exc,
-                    det_msg="Could not read or parse the JSON file.",
-                    show=True,
+                    dialog, "Import Rule Set", exc, det_msg="Could not read or parse the JSON file.", show=True
                 )
                 return
 
@@ -1327,7 +1268,7 @@ class TaggerAction(DialogAction):
                 "Replace: Overwrite current active rules, sites, and prefix settings."
             )
             merge_btn = msg.addButton("Merge", QMessageBox.ButtonRole.AcceptRole)
-            msg.addButton("Replace", QMessageBox.ButtonRole.DestructiveRole)
+            replace_btn = msg.addButton("Replace", QMessageBox.ButtonRole.DestructiveRole)
             cancel_btn = msg.addButton(QMessageBox.StandardButton.Cancel)
             msg.exec()
 
@@ -1335,7 +1276,12 @@ class TaggerAction(DialogAction):
             if clicked == cancel_btn or clicked is None:
                 return
 
-            mode = "merge" if clicked == merge_btn else "replace"
+            if clicked == merge_btn:
+                mode = "merge"
+            elif clicked == replace_btn:
+                mode = "replace"
+            else:
+                return
 
             if mode == "merge":
                 target_rules = rules_mod.merge_text_lines(rules_edit.toPlainText(), imported_rules)
@@ -1455,12 +1401,7 @@ class TaggerAction(DialogAction):
                     det_msg=f"Could not apply the tags to {len(active_plan)} book(s)",
                     show=True,
                 )
-            info_dialog(
-                self.gui,
-                "Auto-tag",
-                f"Tags added to {len(active_plan)} book(s).",
-                show=True,
-            )
+            info_dialog(self.gui, "Auto-tag", f"Tags added to {len(active_plan)} book(s).", show=True)
             dialog.accept()
 
         def invalidate_preview(*args):
