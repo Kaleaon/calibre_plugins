@@ -71,6 +71,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
 
+      - name: Fetch base branch for pull request comparison
+        if: github.base_ref != ''
+        run: |
+          git fetch origin +refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }} || true
+
       - name: Install system dependencies for Qt (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -97,9 +102,10 @@ jobs:
           python scripts/verify_plugins.py
 
       - name: Upload plugin packages artifact
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         uses: actions/upload-artifact@v4
         with:
-          name: calibre-plugin-packages-${{ matrix.os }}-${{ matrix.python-version }}
+          name: calibre-plugin-packages
           path: dist/*.zip
           retention-days: 14
           overwrite: true
