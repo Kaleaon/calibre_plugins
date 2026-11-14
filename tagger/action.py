@@ -1063,7 +1063,7 @@ class TaggerAction(DialogAction):
                 "Replace: Overwrite current active rules, sites, and prefix settings."
             )
             merge_btn = msg.addButton("Merge", QMessageBox.ButtonRole.AcceptRole)
-            msg.addButton("Replace", QMessageBox.ButtonRole.DestructiveRole)
+            replace_btn = msg.addButton("Replace", QMessageBox.ButtonRole.DestructiveRole)
             cancel_btn = msg.addButton(QMessageBox.StandardButton.Cancel)
             msg.exec()
 
@@ -1071,7 +1071,12 @@ class TaggerAction(DialogAction):
             if clicked == cancel_btn or clicked is None:
                 return
 
-            mode = "merge" if clicked == merge_btn else "replace"
+            if clicked == merge_btn:
+                mode = "merge"
+            elif clicked == replace_btn:
+                mode = "replace"
+            else:
+                return
 
             if mode == "merge":
                 target_rules = rules_mod.merge_text_lines(rules_edit.toPlainText(), imported_rules)
