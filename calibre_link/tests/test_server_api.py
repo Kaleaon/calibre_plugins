@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.expanduser("~/workspace/calibre-plugin/src"))
-from server import BridgeServer
+from server import BridgeServer  # noqa: E402
 
 HOME = os.path.expanduser("~")
 SRC_LIB = os.path.join(HOME, "workspace/calibre-bridge/test-library/Calibre Library")

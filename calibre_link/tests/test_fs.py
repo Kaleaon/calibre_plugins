@@ -10,7 +10,7 @@ import sqlite3
 import sys
 
 sys.path.insert(0, os.path.expanduser("~/workspace/calibre-plugin/src"))
-from adapter import CalibreAdapter
+from adapter import CalibreAdapter  # noqa: E402
 
 HOME = os.path.expanduser("~")
 LIB = os.path.join(HOME, "workspace/tools/test-tmp/lib-fs/Calibre Library")
