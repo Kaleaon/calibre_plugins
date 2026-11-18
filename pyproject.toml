@@ -68,6 +68,7 @@ extend-exclude = [
     "tests/test_media.py",
     "tests/test_media_dialogs.py",
     "tests/test_metabods.py",
+    "tests/test_mutagen_writer.py",
     "tests/test_nifty.py",
     "tests/test_nifty_authors.py",
     "tests/test_nifty_posting_order.py",

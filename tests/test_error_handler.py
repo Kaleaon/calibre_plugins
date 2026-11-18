@@ -130,6 +130,30 @@ class ErrorHandlerTests(unittest.TestCase):
         self.assertIn("Permission denied in worker", task.error.details)
         self.assertIn("Troubleshooting steps:", str(task.error))
 
+    def test_audio_tagging_error_formatting(self):
+        try:
+            import mutagen
+
+            exc = mutagen.MutagenError("corrupted MP3 ID3 header at offset 128")
+        except ImportError:
+
+            class DummyMutagenError(Exception):
+                pass
+
+            DummyMutagenError.__module__ = "mutagen.id3"
+            exc = DummyMutagenError("corrupted MP3 ID3 header at offset 128")
+
+        friendly = format_exception(exc)
+        self.assertEqual(friendly.category, "Audio Tagging Error")
+        self.assertIn("audio file tags could not be read or written", friendly.explanation)
+        self.assertTrue(any("intact and plays in a media player" in step for step in friendly.recovery))
+        self.assertIn("corrupted MP3 ID3 header", friendly.details)
+
+    def test_audio_tag_string_error_formatting(self):
+        msg = "Audio tag header is malformed or invalid"
+        friendly = format_exception(msg)
+        self.assertEqual(friendly.category, "Audio Tagging Error")
+
 
 if __name__ == '__main__':
     unittest.main()
