@@ -647,48 +647,61 @@ class CoverTests(unittest.TestCase):
             self.assertIsNone(engine.find_back_cover(Path(d) / "missing.epub", "EPUB"))
 
     def test_engine_public_module_exports(self):
-        self.assertTrue(hasattr(engine, '__all__'))
-        for helper in ('estimate_batch_usage', 'find_back_cover', 'plan_fixes_batched'):
+        self.assertTrue(hasattr(engine, "__all__"))
+        for helper in ("estimate_batch_usage", "find_back_cover", "plan_fixes_batched"):
             self.assertIn(helper, engine.__all__)
             self.assertTrue(callable(getattr(engine, helper)))
 
     def test_action_calls_engine_find_back_cover(self):
         saved_modules = dict(sys.modules)
         try:
-            for name in ('calibre', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config'):
+            for name in ("calibre", "calibre.gui2", "calibre.gui2.actions", "calibre.utils", "calibre.utils.config"):
                 sys.modules[name] = MagicMock()
-            sys.modules['calibre.gui2.actions'].InterfaceAction = object
+            sys.modules["calibre.gui2.actions"].InterfaceAction = object
             qt_mod = MagicMock()
-            sys.modules['qt'] = qt_mod
-            sys.modules['qt.core'] = qt_mod.core
+            sys.modules["qt"] = qt_mod
+            sys.modules["qt.core"] = qt_mod.core
 
-            gemini_pkg = types.ModuleType('calibre_plugins.gemini_library_fixer')
+            gemini_pkg = types.ModuleType("calibre_plugins.gemini_library_fixer")
             gemini_pkg.engine = engine
-            gemini_pkg.config = MagicMock(prefs={
-                'api_key': '', 'model': 'gemini-1.5-flash', 'fields': ['title'],
-                'tags_remove': False, 'excerpt': False, 'covers': False,
-                'min_confidence': 'medium', 'batch_size': 5, 'min_interval': 7, 'undo': {},
-                'enable_fallback': True, 'fallback_model': 'gemini-2.5-flash-lite'
-            })
+            gemini_pkg.config = MagicMock(
+                prefs={
+                    "api_key": "",
+                    "model": "gemini-1.5-flash",
+                    "fields": ["title"],
+                    "tags_remove": False,
+                    "excerpt": False,
+                    "covers": False,
+                    "min_confidence": "medium",
+                    "batch_size": 5,
+                    "min_interval": 7,
+                    "undo": {},
+                    "enable_fallback": True,
+                    "fallback_model": "gemini-2.5-flash-lite",
+                }
+            )
             gemini_pkg.guikit = MagicMock()
             from common.guikit import DialogAction
-            gemini_pkg.guikit.DialogAction = DialogAction
-            sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
-            sys.modules['calibre_plugins.gemini_library_fixer'] = gemini_pkg
-            sys.modules['calibre_plugins.gemini_library_fixer.engine'] = engine
-            sys.modules['calibre_plugins.gemini_library_fixer.config'] = gemini_pkg.config
-            sys.modules['calibre_plugins.gemini_library_fixer.guikit'] = gemini_pkg.guikit
 
-            spec_act = importlib.util.spec_from_file_location('action', Path(__file__).resolve().parents[1] / 'gemini/action.py')
+            gemini_pkg.guikit.DialogAction = DialogAction
+            sys.modules["calibre_plugins"] = types.ModuleType("calibre_plugins")
+            sys.modules["calibre_plugins.gemini_library_fixer"] = gemini_pkg
+            sys.modules["calibre_plugins.gemini_library_fixer.engine"] = engine
+            sys.modules["calibre_plugins.gemini_library_fixer.config"] = gemini_pkg.config
+            sys.modules["calibre_plugins.gemini_library_fixer.guikit"] = gemini_pkg.guikit
+
+            spec_act = importlib.util.spec_from_file_location(
+                "action", Path(__file__).resolve().parents[1] / "gemini/action.py"
+            )
             action_mod = importlib.util.module_from_spec(spec_act)
             spec_act.loader.exec_module(action_mod)
             action_inst = action_mod.GeminiFixerAction()
 
             with tempfile.TemporaryDirectory() as d:
-                epub_path = str(Path(d) / 'sample.epub')
-                with zipfile.ZipFile(epub_path, 'w') as z:
-                    z.writestr('cover.jpg', b'FRONT')
-                    z.writestr('back-cover.jpg', b'BACK_COVER_BYTES')
+                epub_path = str(Path(d) / "sample.epub")
+                with zipfile.ZipFile(epub_path, "w") as z:
+                    z.writestr("cover.jpg", b"FRONT")
+                    z.writestr("back-cover.jpg", b"BACK_COVER_BYTES")
 
                 class MockMetadata:
                     title = "Cover Book"
@@ -706,10 +719,10 @@ class CoverTests(unittest.TestCase):
                         return MockMetadata()
 
                     def formats(self, book_id):
-                        return ['EPUB']
+                        return ["EPUB"]
 
                     def format_abspath(self, book_id, fmt):
-                        return epub_path if fmt.upper() == 'EPUB' else None
+                        return epub_path if fmt.upper() == "EPUB" else None
 
                     def has_cover(self, book_id):
                         return False
@@ -719,26 +732,27 @@ class CoverTests(unittest.TestCase):
 
                 action_inst.gui = MagicMock(current_db=MagicMock(new_api=MockDb()))
 
-                with patch.object(engine, 'find_back_cover', wraps=engine.find_back_cover) as spy_back_cover:
+                with patch.object(engine, "find_back_cover", wraps=engine.find_back_cover) as spy_back_cover:
                     books = action_inst.books_for([42], with_excerpt=False, with_covers=True)
-                    spy_back_cover.assert_called_once_with(epub_path, 'EPUB')
+                    spy_back_cover.assert_called_once_with(epub_path, "EPUB")
 
                 self.assertEqual(len(books), 1)
-                images = books[0]['images']
+                images = books[0]["images"]
                 self.assertEqual(len(images), 1)
                 back_img = images[0]
-                self.assertEqual(back_img['type'], 'back')
-                self.assertIn('back-cover.jpg', back_img['label'])
-                self.assertEqual(back_img['mime'], 'image/jpeg')
-                self.assertEqual(back_img['raw_bytes'], b'BACK_COVER_BYTES')
-                self.assertTrue(callable(back_img.get('loader')))
-                self.assertEqual(back_img['loader'](), b'BACK_COVER_BYTES')
+                self.assertEqual(back_img["type"], "back")
+                self.assertIn("back-cover.jpg", back_img["label"])
+                self.assertEqual(back_img["mime"], "image/jpeg")
+                self.assertEqual(back_img["raw_bytes"], b"BACK_COVER_BYTES")
+                self.assertTrue(callable(back_img.get("loader")))
+                self.assertEqual(back_img["loader"](), b"BACK_COVER_BYTES")
 
                 hydrated = engine.hydrate_image(back_img)
                 self.assertIsNotNone(hydrated)
-                self.assertEqual(hydrated['label'], back_img['label'])
+                self.assertEqual(hydrated["label"], back_img["label"])
                 import base64
-                self.assertEqual(hydrated['data'], base64.b64encode(b'BACK_COVER_BYTES').decode('ascii'))
+
+                self.assertEqual(hydrated["data"], base64.b64encode(b"BACK_COVER_BYTES").decode("ascii"))
         finally:
             for k in list(sys.modules.keys()):
                 if k not in saved_modules:
@@ -992,6 +1006,7 @@ class BackgroundScanTests(unittest.TestCase):
         action = action_mod.GeminiFixerAction()
 
         active_threads = set()
+        second_worker_started = threading.Event()
         lock = threading.Lock()
 
         class MockMetadata:
@@ -1008,6 +1023,9 @@ class BackgroundScanTests(unittest.TestCase):
             def get_metadata(self, book_id, get_cover=False):
                 with lock:
                     active_threads.add(threading.current_thread().name)
+                    if len(active_threads) >= 2:
+                        second_worker_started.set()
+                second_worker_started.wait(timeout=2.0)
                 return MockMetadata()
 
             def formats(self, book_id):
@@ -2863,20 +2881,20 @@ class SeriesIndexNormalizationTests(unittest.TestCase):
         action.gui = MagicMock(current_db=MagicMock(new_api=mock_db))
 
         # Both series and series_index changed independently
-        items = [(1, {'series': ('', 'Harry Potter'), 'series_index': (None, 2.0)})]
+        items = [(1, {"series": ("", "Harry Potter"), "series_index": (None, 2.0)})]
         done, errors, undo = action.write_changes(items)
         self.assertEqual(done, [1])
         self.assertEqual(errors, [])
-        self.assertEqual(undo['1']['series'], '')
-        self.assertEqual(undo['1']['series_index'], 1.0)
-        mock_db.set_field.assert_any_call('series', {1: 'Harry Potter'})
-        mock_db.set_field.assert_any_call('series_index', {1: 2.0})
+        self.assertEqual(undo["1"]["series"], "")
+        self.assertEqual(undo["1"]["series_index"], 1.0)
+        mock_db.set_field.assert_any_call("series", {1: "Harry Potter"})
+        mock_db.set_field.assert_any_call("series_index", {1: 2.0})
 
         restored_done, restored_errors = action.restore(undo)
         self.assertEqual(restored_done, [1])
         self.assertEqual(restored_errors, [])
-        mock_db.set_field.assert_any_call('series', {1: None})
-        mock_db.set_field.assert_any_call('series_index', {1: 1.0})
+        mock_db.set_field.assert_any_call("series", {1: None})
+        mock_db.set_field.assert_any_call("series_index", {1: 1.0})
 
     def test_write_changes_and_restore_decoupled_series_index_only(self):
         action = self.action_mod.GeminiFixerAction()
@@ -2884,28 +2902,28 @@ class SeriesIndexNormalizationTests(unittest.TestCase):
         mock_db.has_id.return_value = True
         action.gui = MagicMock(current_db=MagicMock(new_api=mock_db))
 
-        items = [(1, {'series_index': (1.0, 3.0)})]
+        items = [(1, {"series_index": (1.0, 3.0)})]
         done, errors, undo = action.write_changes(items)
         self.assertEqual(done, [1])
         self.assertEqual(errors, [])
-        self.assertEqual(undo['1']['series_index'], 1.0)
-        self.assertNotIn('series', undo['1'])
-        mock_db.set_field.assert_any_call('series_index', {1: 3.0})
+        self.assertEqual(undo["1"]["series_index"], 1.0)
+        self.assertNotIn("series", undo["1"])
+        mock_db.set_field.assert_any_call("series_index", {1: 3.0})
 
         restored_done, restored_errors = action.restore(undo)
         self.assertEqual(restored_done, [1])
         self.assertEqual(restored_errors, [])
-        mock_db.set_field.assert_any_call('series_index', {1: 1.0})
+        mock_db.set_field.assert_any_call("series_index", {1: 1.0})
 
     def test_ui_labels_and_describe_change_decoupled(self):
-        self.assertIn('series_index', self.action_mod.SHOW)
-        self.assertEqual(self.action_mod.show_value('series', 'Dune'), 'Dune')
-        self.assertEqual(self.action_mod.show_value('series', ''), '(none)')
-        self.assertEqual(self.action_mod.show_value('series_index', 2.0), '2')
-        self.assertEqual(self.action_mod.show_value('series_index', None), '(none)')
-        self.assertEqual(engine.describe_change('series', '', 'Dune'), 'series (none) → Dune')
-        self.assertEqual(engine.describe_change('series_index', None, 2.0), 'series_index (none) → 2')
-        self.assertEqual(engine.describe_change('series_index', 1.0, 2.0), 'series_index 1 → 2')
+        self.assertIn("series_index", self.action_mod.SHOW)
+        self.assertEqual(self.action_mod.show_value("series", "Dune"), "Dune")
+        self.assertEqual(self.action_mod.show_value("series", ""), "(none)")
+        self.assertEqual(self.action_mod.show_value("series_index", 2.0), "2")
+        self.assertEqual(self.action_mod.show_value("series_index", None), "(none)")
+        self.assertEqual(engine.describe_change("series", "", "Dune"), "series (none) → Dune")
+        self.assertEqual(engine.describe_change("series_index", None, 2.0), "series_index (none) → 2")
+        self.assertEqual(engine.describe_change("series_index", 1.0, 2.0), "series_index 1 → 2")
 
 
 class FieldLevelQuickActionsTests(unittest.TestCase):
@@ -3492,7 +3510,10 @@ class ApiKeyValidationTests(unittest.TestCase):
         self.assertIn("Could not reach Google", str(cm.exception))
 
     def test_action_ui_test_api_key_button_and_dialogs(self):
+        import shutil
+
         saved_modules = dict(sys.modules)
+        tmp_batch_dir = tempfile.mkdtemp()
         try:
             for name in ("calibre", "calibre.gui2", "calibre.gui2.actions", "calibre.utils", "calibre.utils.config"):
                 sys.modules[name] = MagicMock()
@@ -3518,7 +3539,7 @@ class ApiKeyValidationTests(unittest.TestCase):
                     "batch_size": 2,
                     "min_interval": 0,
                     "undo": {},
-                    "batch_dir": "/tmp/gemini_batches",
+                    "batch_dir": tmp_batch_dir,
                     "system_instruction_mode": "append",
                     "custom_system_instructions": "",
                 }
@@ -3628,6 +3649,7 @@ class ApiKeyValidationTests(unittest.TestCase):
                 check_handler()
             val_mock.assert_called_once_with("valid-key")
         finally:
+            shutil.rmtree(tmp_batch_dir, ignore_errors=True)
             for k in list(sys.modules):
                 if k not in saved_modules:
                     del sys.modules[k]

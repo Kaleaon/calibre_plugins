@@ -438,7 +438,7 @@ def load_undo():
     if legacy:
         save_undo(legacy)
         try:
-            prefs['undo'] = {}
+            prefs["undo"] = {}
         except Exception:
             pass
         return dict(legacy)
@@ -682,14 +682,16 @@ class GeminiFixerAction(DialogAction):
                                     res = engine.find_back_cover(fmt_path, fmt)
                                     if res:
                                         data, label = res
-                                        images.append({
-                                            'type': 'back',
-                                            'label': label,
-                                            'mime': 'image/jpeg',
-                                            'path': fmt_path,
-                                            'raw_bytes': data,
-                                            'loader': lambda d=data: d,
-                                        })
+                                        images.append(
+                                            {
+                                                "type": "back",
+                                                "label": label,
+                                                "mime": "image/jpeg",
+                                                "path": fmt_path,
+                                                "raw_bytes": data,
+                                                "loader": lambda d=data: d,
+                                            }
+                                        )
                                         break
                             except Exception:
                                 continue
@@ -837,7 +839,11 @@ class GeminiFixerAction(DialogAction):
                     else:
                         continue
                     if field == "series":
-                        saved[field] = [old[0], old[1] if old[1] is not None else 1.0] if isinstance(old, (list, tuple)) and len(old) == 2 else old
+                        saved[field] = (
+                            [old[0], old[1] if old[1] is not None else 1.0]
+                            if isinstance(old, (list, tuple)) and len(old) == 2
+                            else old
+                        )
                     elif field == "series_index":
                         saved[field] = old if old is not None else 1.0
                     else:
@@ -2185,7 +2191,7 @@ class GeminiFixerAction(DialogAction):
                 if undo:
                     undo_state[0] = undo
                     save_undo(undo)
-                    prefs['undo'] = undo
+                    prefs["undo"] = undo
                     undo_btn.setEnabled(True)
                 self.refresh(done)
                 if embed_updated.isChecked() and done:
@@ -2250,7 +2256,7 @@ class GeminiFixerAction(DialogAction):
                 if not errors:
                     undo_state[0] = {}
                     save_undo({})
-                    prefs['undo'] = {}
+                    prefs["undo"] = {}
                     undo_btn.setEnabled(False)
                 bar.setValue(len(done))
                 bar.setFormat(_("Restored %v of %m books (100%)"))
