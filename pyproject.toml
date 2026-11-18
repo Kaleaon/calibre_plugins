@@ -2,7 +2,11 @@
 target-version = "py310"
 line-length = 120
 include = [
+    "build.py",
+    "build_plugins.py",
     "common/guikit.py",
+    "common/log_utils.py",
+    "common/tree_utils.py",
     "fanfic/ui.py",
     "nifty/core.py",
     "plugin/action.py",
@@ -12,17 +16,14 @@ include = [
     "scrubber_plugin/action.py",
     "scrubber_plugin/core.py",
     "scrubber_plugin/ui.py",
+    "tagger/action.py",
+    "tests/test_guikit.py",
     "tests/test_importer.py",
     "tests/test_nifty_authors.py",
     "tests/test_qt_dialogs.py",
+    "tests/test_rule_set_manager_dialog.py",
     "tests/test_scrubber.py",
     "tests/test_scrubber_restore.py",
-    "common/guikit.py",
-    "common/log_utils.py",
-    "common/tree_utils.py",
-    "build.py",
-    "build_plugins.py",
-    "tests/test_guikit.py",
 ]
 extend-exclude = [
     "dist",
@@ -39,13 +40,18 @@ extend-exclude = [
     "reddit",
     "scripts",
     "scrubber_plugin",
-    "tagger",
     "build.py",
     "build_plugins.py",
     "calibre_link/adapter.py",
     "calibre_link/build_zip.py",
     "calibre_link/config.py",
     "calibre_link/server.py",
+    "tagger/__init__.py",
+    "tagger/config.py",
+    "tagger/fff_sites.py",
+    "tagger/presets.py",
+    "tagger/rules.py",
+    "tagger/ui.py",
     "tests/calibre_integration.py",
     "tests/conftest.py",
     "tests/harness_utils.py",
@@ -101,13 +107,14 @@ select = [
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
 ]
-ignore = ["E501", "E741", "UP031"]
+ignore = ["E501", "E741", "UP031", "UP017"]
 
 [tool.ruff.lint.isort]
 known-first-party = [
     "calibre_link",
     "common",
     "fanfic",
+    "furry",
     "gemini",
     "media",
     "metabods",
