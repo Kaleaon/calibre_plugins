@@ -10,3 +10,7 @@ What it does inside the EPUB: deletes short blocks (250 characters or fewer) tha
 Limits: watermarks baked into images or cover art are not detected. XHTML files that are not well-formed XML (including older files relying on `&nbsp;`-style DTD entities, and encrypted files) are left unchanged and flagged in the report. DRM is not touched. The text-matching rules can remove legitimate short passages that mention a blocked name, which is why the original is kept by default and each removal is reported.
 
 Testing: the cleaning logic has unit tests (`python -m unittest tests.test_scrubber`) run against synthetic EPUBs. The Calibre GUI wrapper (`scrubber_plugin/action.py`) has **not** been run inside Calibre, and no real-world EPUBs have been tried.
+
+## Metadata source
+
+This plugin also ships as a Calibre metadata source in a separate ZIP, `EpubPromoScrubberSource.zip` (Calibre allows only one plugin per ZIP). The source **Promo Scrubber** has no external catalogue: it returns the book's own title with promo-site marks (OceanofPDF, PDFDrive, …) removed, using the same patterns and extra patterns as the scrubber, and returns nothing when the title is already clean. It touches the title only. Install it alongside the scrubber and enable it in Calibre's Download metadata source list.

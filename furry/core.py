@@ -8,7 +8,9 @@ Two very different sites behind one interface:
   metadata and file list for a batch of ids. Writing submissions carry their text as uploaded files (.txt/.html).
 - SoFurry (sofurry.com, the current site) is a Remix app. A story page's data is at <story url>.data in
   turbo-stream encoding; its content files (txt/html) are fetched from short-lived display URLs. Folders and
-  galleries are listed by the JSON endpoint /api/profile.
+  galleries are listed by the JSON endpoint /api/profile. Without a login only public stories are visible;
+  a personal access token, sent as a Bearer header on sofurry.com requests only, unlocks the login-only
+  and adult-rated ones.
 
 A "work" here is one story. Works that arrive from a collection (an Inkbunny pool, a SoFurry folder) carry a
 group id; the action compiles each group into a single EPUB, which is how a pool or folder becomes one book.
@@ -47,6 +49,31 @@ PUBLISHERS = {INKBUNNY: 'Inkbunny', SOFURRY: 'SoFurry'}
 IB_BASE = 'https://inkbunny.net'
 SF_BASE = 'https://sofurry.com'
 WRITING_TYPE_ID = '12'  # the API's submission type id for Writing - Document (poetry uses it too)
+
+
+class SoFurryAuthFetcher:
+    """Fetcher wrapper that sends a SoFurry personal access token as a Bearer
+    header on sofurry.com requests, so login-only and adult-rated stories can be
+    read. Content files are served from signed addresses on other hosts; those
+    requests never receive the token."""
+
+    def __init__(self, inner, token):
+        self._inner = inner
+        self._token = token
+
+    def get(self, url, retries=3, headers=None, limit=None, post=None):
+        if urlparse(url).netloc.lower().endswith('sofurry.com'):
+            headers = {**(headers or {}), 'Authorization': f'Bearer {self._token}'}
+        return self._inner.get(url, retries=retries, headers=headers, limit=limit, post=post)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+def authed_fetcher(fetcher, sofurry_token=''):
+    """The fetcher wrapped for SoFurry token auth when a token was given; unchanged otherwise."""
+    token = (sofurry_token or '').strip()
+    return SoFurryAuthFetcher(fetcher, token) if token else fetcher
 
 
 def build_epub(stories, title=None, author=None, publisher=None, tags=None, summary=None, preserve_story_order=False):
@@ -585,11 +612,13 @@ def sf_resolve_legacy(fetcher, numeric_id):
 
 # ---------------------------------------------------------------- dispatch
 
-def expand_targets(fetcher, lines, progress=lambda msg: None, inkbunny_username='', inkbunny_password=''):
+def expand_targets(fetcher, lines, progress=lambda msg: None, inkbunny_username='', inkbunny_password='',
+                   sofurry_token=''):
     """Resolve pasted addresses into story references. Returns (refs, errors).
 
     Inkbunny collections need an API session; the guest session is used unless credentials were given.
-    SoFurry folder and author listings are public API reads."""
+    SoFurry reads carry the personal access token when one is given; without one they are public reads."""
+    fetcher = authed_fetcher(fetcher, sofurry_token)
     refs, errors, seen = [], [], set()
 
     def add(new_refs):
@@ -649,8 +678,9 @@ def fetch_story(fetcher, ref, progress=lambda msg: None, chapter_range=None,
 
 
 def download_refs(fetcher, refs, skip_ids=frozenset(), progress=lambda msg: None, chapter_range=None,
-                  inkbunny_username='', inkbunny_password=''):
+                  inkbunny_username='', inkbunny_password='', sofurry_token=''):
     """Download each reference in turn. Returns (stories, skipped, failures); a failure never stops the rest."""
+    fetcher = authed_fetcher(fetcher, sofurry_token)
     stories, failures, skipped = [], [], 0
     for n, ref in enumerate(refs, 1):
         if ref['id'] in skip_ids:

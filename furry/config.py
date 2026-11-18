@@ -8,3 +8,6 @@ prefs.defaults['skip_existing'] = True
 # own login endpoint.
 prefs.defaults['inkbunny_username'] = ''
 prefs.defaults['inkbunny_password'] = ''
+# Same arrangement for SoFurry (Joe's request, Nov 7, 2026): his personal access token is saved in prefs
+# so it does not have to be re-entered each time. It is sent only to sofurry.com, as a Bearer header.
+prefs.defaults['sofurry_token'] = ''
