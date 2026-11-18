@@ -13,6 +13,12 @@ spec = importlib.util.spec_from_file_location("rules", Path(__file__).resolve().
 rules = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(rules)
 
+spec_presets = importlib.util.spec_from_file_location(
+    "presets", Path(__file__).resolve().parents[1] / "tagger/presets.py"
+)
+presets = importlib.util.module_from_spec(spec_presets)
+spec_presets.loader.exec_module(presets)
+
 
 def book(i, **kw):
     base = {
@@ -101,6 +107,14 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(len(parsed), 2)
         self.assertEqual(parsed[0].tags, ["Theme.Growth", "Growth"])
         self.assertEqual(len(errors), 3)
+
+    def test_rules_regex_strip_whitespace_and_empty(self):
+        parsed, errors = rules.parse_rules(
+            "re:  [a-z]+  => Letters\nre:(( => Bad Regex\ntitle:re:  ^Start  => StartsWith"
+        )
+        self.assertEqual(len(parsed), 2)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("bad regular expression", errors[0])
 
     def test_sites(self):
         sites, errors = rules.parse_sites("storiesonline.net, sol.net => Stories Online\nbroken")
@@ -238,17 +252,24 @@ class TaggerDialogTests(unittest.TestCase):
         tagger_pkg.rules = rules
         error_handler_mod = MagicMock()
         tagger_pkg.error_handler = error_handler_mod
+        sys.modules.pop("common.guikit", None)
         from common.guikit import DialogAction
 
         tagger_pkg.guikit = MagicMock()
         tagger_pkg.guikit.DialogAction = DialogAction
+        tagger_pkg.presets = presets
+        tagger_pkg.ui = MagicMock()
+        tagger_pkg.ui.TaggerPreviewDialog = MagicMock()
         sys.modules["calibre_plugins"] = types.ModuleType("calibre_plugins")
         sys.modules["calibre_plugins"].__path__ = []
+        setattr(sys.modules["calibre_plugins"], "story_collection_tagger", tagger_pkg)
         sys.modules["calibre_plugins.story_collection_tagger"] = tagger_pkg
         sys.modules["calibre_plugins.story_collection_tagger.config"] = tagger_pkg.config
         sys.modules["calibre_plugins.story_collection_tagger.rules"] = tagger_pkg.rules
         sys.modules["calibre_plugins.story_collection_tagger.error_handler"] = tagger_pkg.error_handler
         sys.modules["calibre_plugins.story_collection_tagger.guikit"] = tagger_pkg.guikit
+        sys.modules["calibre_plugins.story_collection_tagger.presets"] = tagger_pkg.presets
+        sys.modules["calibre_plugins.story_collection_tagger.ui"] = tagger_pkg.ui
         sys.modules["error_handler"] = tagger_pkg.error_handler
 
     def tearDown(self):
@@ -256,7 +277,7 @@ class TaggerDialogTests(unittest.TestCase):
             if k not in self.saved_modules:
                 del sys.modules[k]
         sys.modules.update(self.saved_modules)
-        sys.modules.pop('common.guikit', None)
+        sys.modules.pop("common.guikit", None)
 
     def test_show_dialog_sets_word_wrap_on_labels(self):
         spec = importlib.util.spec_from_file_location(
@@ -574,6 +595,100 @@ class TaggerDialogTests(unittest.TestCase):
         self.assertEqual(signals_blocked_during_set_text, [True])
         self.assertFalse(rules_edit.signalsBlocked())
 
+    def test_live_regex_validation_in_form_builder(self):
+        action_mod = self._load_action_mod()
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+
+        qt_core = sys.modules["qt.core"]
+        widgets = {}
+
+        def mock_widget(cls_name, *a, **k):
+            m = MagicMock()
+            m._args = a
+            widgets.setdefault(cls_name, []).append(m)
+            return m
+
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget("QPlainTextEdit", *a, **k)
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget("QLineEdit", *a, **k)
+        qt_core.QComboBox.side_effect = lambda *a, **k: mock_widget("QComboBox", *a, **k)
+        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget("QCheckBox", *a, **k)
+        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget("QRadioButton", *a, **k)
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget("QPushButton", *a, **k)
+        qt_core.QLabel.side_effect = lambda *a, **k: mock_widget("QLabel", *a, **k)
+
+        action.show_dialog()
+
+        mode_combo = widgets["QComboBox"][1]
+        pat_edit = widgets["QLineEdit"][0]
+        tags_edit = widgets["QLineEdit"][1]
+        add_rule_btn = next(w for w in widgets["QPushButton"] if w._args and w._args[0] == "Add Rule")
+
+        validate_form = pat_edit.textChanged.connect.call_args[0][0]
+
+        # Mode = Regex, Pattern = invalid
+        mode_combo.currentText.return_value = "Regex"
+        pat_edit.text.return_value = "(("
+        tags_edit.text.return_value = "LitRPG"
+        validate_form()
+
+        pat_edit.setStyleSheet.assert_called_with("border: 1px solid red;")
+        add_rule_btn.setEnabled.assert_called_with(False)
+
+        # Mode = Regex, Pattern = valid
+        pat_edit.text.return_value = "litrpg"
+        validate_form()
+
+        pat_edit.setStyleSheet.assert_called_with("")
+        add_rule_btn.setEnabled.assert_called_with(True)
+
+        # Mode = Regex, Pattern = empty
+        pat_edit.text.return_value = ""
+        validate_form()
+
+        pat_edit.setStyleSheet.assert_called_with("")
+        add_rule_btn.setEnabled.assert_called_with(False)
+
+    def test_live_raw_text_regex_validation(self):
+        action_mod = self._load_action_mod()
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+
+        qt_core = sys.modules["qt.core"]
+        widgets = {}
+
+        def mock_widget(cls_name, *a, **k):
+            m = MagicMock()
+            m._args = a
+            widgets.setdefault(cls_name, []).append(m)
+            return m
+
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget("QPlainTextEdit", *a, **k)
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget("QLineEdit", *a, **k)
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget("QPushButton", *a, **k)
+
+        action.show_dialog()
+
+        rules_edit = next(w for w in widgets["QPlainTextEdit"] if w._args and w._args[0] == action_mod.prefs["rules"])
+        preview_btn = next(w for w in widgets["QPushButton"] if w._args and w._args[0] == "Preview")
+
+        on_raw_text_changed = rules_edit.textChanged.connect.call_args_list[0][0][0]
+
+        # Simulate typing invalid regex
+        rules_edit.toPlainText.return_value = "re:(( => Bad"
+        on_raw_text_changed()
+
+        rules_edit.setStyleSheet.assert_called_with("border: 1px solid red;")
+        preview_btn.setEnabled.assert_called_with(False)
+
+        # Simulate typing valid regex
+        rules_edit.toPlainText.return_value = "re:valid => Good"
+        on_raw_text_changed()
+
+        rules_edit.setStyleSheet.assert_called_with("")
+        preview_btn.setEnabled.assert_called_with(True)
 
 
 class SelectionStateTests(unittest.TestCase):
@@ -961,11 +1076,19 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             m.setChecked.side_effect = lambda c: setattr(m, "_checked", bool(c))
             return m
 
+        def make_radio_button(text=""):
+            m = MagicMock()
+            m._checked = False
+            m.isChecked.side_effect = lambda: m._checked
+            m.setChecked.side_effect = lambda c: setattr(m, "_checked", bool(c))
+            return m
+
         qt_mod = MagicMock()
         qt_mod.core.QDialog = StubDialog
         qt_mod.core.QPlainTextEdit.side_effect = lambda *args: make_plain_text_edit(args[0] if args else "")
         qt_mod.core.QLineEdit.side_effect = lambda *args: make_line_edit(args[0] if args else "")
         qt_mod.core.QCheckBox.side_effect = lambda *args: make_check_box(args[0] if args else "")
+        qt_mod.core.QRadioButton.side_effect = lambda *args: make_radio_button(args[0] if args else "")
         sys.modules["qt"] = qt_mod
         sys.modules["qt.core"] = qt_mod.core
 
@@ -982,14 +1105,25 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             }
         )
         tagger_pkg.rules = rules
+        error_handler_mod = MagicMock()
+        tagger_pkg.error_handler = error_handler_mod
+        sys.modules.pop("common.guikit", None)
         from common.guikit import DialogAction
 
         tagger_pkg.guikit = MagicMock()
         tagger_pkg.guikit.DialogAction = DialogAction
+        tagger_pkg.presets = presets
+        tagger_pkg.ui = MagicMock()
+        tagger_pkg.ui.TaggerPreviewDialog = MagicMock()
         sys.modules["calibre_plugins"] = types.ModuleType("calibre_plugins")
+        sys.modules["calibre_plugins"].__path__ = []
+        setattr(sys.modules["calibre_plugins"], "story_collection_tagger", tagger_pkg)
         sys.modules["calibre_plugins.story_collection_tagger"] = tagger_pkg
         sys.modules["calibre_plugins.story_collection_tagger.config"] = tagger_pkg.config
         sys.modules["calibre_plugins.story_collection_tagger.rules"] = tagger_pkg.rules
+        sys.modules["calibre_plugins.story_collection_tagger.error_handler"] = error_handler_mod
+        sys.modules["calibre_plugins.story_collection_tagger.presets"] = tagger_pkg.presets
+        sys.modules["calibre_plugins.story_collection_tagger.ui"] = tagger_pkg.ui
         sys.modules["calibre_plugins.story_collection_tagger.guikit"] = tagger_pkg.guikit
 
     def tearDown(self):
@@ -997,7 +1131,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             if k not in self.saved_modules:
                 del sys.modules[k]
         sys.modules.update(self.saved_modules)
-        sys.modules.pop('common.guikit', None)
+        sys.modules.pop("common.guikit", None)
 
     def test_manager_dialog_initialization_and_commit(self):
         spec = importlib.util.spec_from_file_location(
@@ -1031,7 +1165,11 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         elapsed = time.time() - start
 
         self.assertEqual(len(dlg.local_rules), 1000)
-        self.assertLess(elapsed, 2.0, f"Table population for 1000 rules took too long ({elapsed:.2f}s)")
+        self.assertLess(
+            elapsed,
+            2.0,
+            f"Table population for 1000 rules took too long ({elapsed:.2f}s)",
+        )
 
     def test_manager_dialog_unchecked_rules_are_excluded(self):
         spec = importlib.util.spec_from_file_location(
@@ -1085,6 +1223,185 @@ class RuleSetManagerDialogTests(unittest.TestCase):
 
         dlg._on_accept()
         dlg.accept.assert_not_called()
+
+    def test_manager_dialog_live_table_cell_pattern_validation(self):
+        spec = importlib.util.spec_from_file_location(
+            "action", Path(__file__).resolve().parents[1] / "tagger/action.py"
+        )
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        dlg = action_mod.RuleSetManagerDialog(None, current_rules="rule1 => Tag1", current_sites="")
+
+        mock_pat_item = MagicMock()
+        mock_pat_item.column = MagicMock(return_value=2)
+        mock_pat_item.text = MagicMock(return_value="re:((")
+
+        dlg.rules_table.rowCount = MagicMock(return_value=1)
+        dlg.rules_table.item = MagicMock(return_value=mock_pat_item)
+
+        ok_btn = MagicMock()
+        dlg.button_box.button = MagicMock(return_value=ok_btn)
+
+        # Trigger pattern change to invalid regex
+        dlg._on_item_changed(mock_pat_item)
+
+        mock_pat_item.setBackground.assert_called()
+        ok_btn.setEnabled.assert_called_with(False)
+
+        # Trigger pattern change to valid regex
+        mock_pat_item.text = MagicMock(return_value="re:valid")
+        dlg._on_item_changed(mock_pat_item)
+
+        ok_btn.setEnabled.assert_called_with(True)
+
+    def test_manager_dialog_commit_modes(self):
+        spec = importlib.util.spec_from_file_location(
+            "action", Path(__file__).resolve().parents[1] / "tagger/action.py"
+        )
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        dlg = action_mod.RuleSetManagerDialog(
+            None,
+            current_rules="litrpg => LitRPG",
+            current_sites="sol.net => Stories Online",
+        )
+        self.assertEqual(dlg.get_commit_mode(), "merge")
+        self.assertEqual(dlg.commit_mode, "merge")
+
+        dlg.set_commit_mode("replace")
+        self.assertEqual(dlg.get_commit_mode(), "replace")
+        self.assertEqual(dlg.commit_mode, "replace")
+
+        dlg.commit_mode = "merge"
+        self.assertEqual(dlg.get_commit_mode(), "merge")
+
+    def test_manager_dialog_load_json_error_handling(self):
+        import json
+        import tempfile
+
+        spec = importlib.util.spec_from_file_location(
+            "action", Path(__file__).resolve().parents[1] / "tagger/action.py"
+        )
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        dlg = action_mod.RuleSetManagerDialog(
+            None,
+            current_rules="litrpg => LitRPG",
+            current_sites="sol.net => Stories Online",
+        )
+
+        # 1. Invalid JSON syntax
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
+            tf.write("INVALID JSON CONTENT")
+            invalid_path = tf.name
+
+        dlg._load_json(invalid_path)
+        self.assertEqual(len(dlg.local_rules), 1)
+
+        # 2. Unsupported schema version
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
+            json.dump({"version": 99, "rules": []}, tf)
+            bad_ver_path = tf.name
+
+        dlg._load_json(bad_ver_path)
+        self.assertEqual(len(dlg.local_rules), 1)
+
+        # 3. Invalid rule regex syntax
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
+            json.dump({"version": 1, "rules": ["re:(( => BadRegex"]}, tf)
+            bad_regex_path = tf.name
+
+        dlg._load_json(bad_regex_path)
+        self.assertEqual(len(dlg.local_rules), 1)
+
+        # 4. Missing file
+        dlg._load_json("/nonexistent/file/path.json")
+        self.assertEqual(len(dlg.local_rules), 1)
+
+    def test_manager_dialog_load_and_save_json(self):
+        import json
+        import tempfile
+
+        spec = importlib.util.spec_from_file_location(
+            "action", Path(__file__).resolve().parents[1] / "tagger/action.py"
+        )
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        dlg = action_mod.RuleSetManagerDialog(
+            None,
+            current_rules="litrpg => LitRPG",
+            current_sites="sol.net => Stories Online",
+        )
+
+        valid_data = {
+            "version": 1,
+            "metadata": {
+                "title": "Community Pack",
+                "description": "Shared story tags",
+                "exported_at": "2026-11-07T00:00:00Z",
+            },
+            "rules": [
+                {"field": "", "pattern": "litrpg", "tags": ["LitRPG"]},
+                {"field": "", "pattern": "litrpg", "tags": ["GameLit"]},
+                {"field": "", "pattern": "cultivation", "tags": ["Xianxia"]},
+            ],
+            "sites": [
+                {"name": "Stories Online", "hosts": ["sol.net"]},
+                {"name": "Royal Road", "hosts": ["royalroad.com"]},
+            ],
+        }
+
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
+            json.dump(valid_data, tf)
+            import_path = tf.name
+
+        dlg._load_json(import_path)
+
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
+            export_path = tf.name
+
+        dlg._save_json(export_path)
+
+        with open(export_path, encoding="utf-8") as f:
+            exported = json.load(f)
+
+        self.assertEqual(exported["version"], 1)
+        self.assertIn("metadata", exported)
+        self.assertIn("rules", exported)
+        self.assertIn("sites", exported)
+
+    def test_manager_dialog_select_all_deselect_all(self):
+        spec = importlib.util.spec_from_file_location(
+            "action", Path(__file__).resolve().parents[1] / "tagger/action.py"
+        )
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        dlg = action_mod.RuleSetManagerDialog(None, current_rules="rule1 => Tag1\nrule2 => Tag2", current_sites="")
+
+        items = []
+        for _ in range(2):
+            item = MagicMock()
+            item._state = action_mod.Qt.CheckState.Checked
+            item.checkState.side_effect = lambda it=item: it._state
+            item.setCheckState.side_effect = lambda s, it=item: setattr(it, "_state", s)
+            items.append(item)
+
+        dlg.rules_table.rowCount = MagicMock(return_value=2)
+        dlg.rules_table.isRowHidden = MagicMock(return_value=False)
+        dlg.rules_table.item = MagicMock(side_effect=lambda r, c: items[r] if c == 0 else MagicMock())
+
+        dlg._set_all_checked(dlg.rules_table, False)
+        self.assertEqual(items[0]._state, action_mod.Qt.CheckState.Unchecked)
+        self.assertEqual(items[1]._state, action_mod.Qt.CheckState.Unchecked)
+
+        dlg._set_all_checked(dlg.rules_table, True)
+        self.assertEqual(items[0]._state, action_mod.Qt.CheckState.Checked)
+        self.assertEqual(items[1]._state, action_mod.Qt.CheckState.Checked)
 
     def test_export_rule_set_writes_json_file(self):
         import json

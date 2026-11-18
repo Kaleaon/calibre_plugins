@@ -1,9 +1,17 @@
 import json
+import re
 
 from calibre.gui2 import error_dialog, info_dialog
+from calibre_plugins.story_collection_tagger import presets as presets_mod
+from calibre_plugins.story_collection_tagger import rules as rules_mod
+from calibre_plugins.story_collection_tagger.config import prefs
+from calibre_plugins.story_collection_tagger.error_handler import show_friendly_error_dialog
+from calibre_plugins.story_collection_tagger.guikit import DialogAction
 from qt.core import (
     QApplication,
+    QBrush,
     QCheckBox,
+    QColor,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -28,53 +36,6 @@ from qt.core import (
     QWidget,
 )
 
-try:
-    from calibre_plugins.story_collection_tagger.error_handler import show_friendly_error_dialog
-except (ImportError, AttributeError):
-    try:
-        from .error_handler import show_friendly_error_dialog
-    except ImportError:
-        try:
-            from error_handler import show_friendly_error_dialog
-        except ImportError:
-            from common.error_handler import show_friendly_error_dialog
-
-try:
-    from calibre_plugins.story_collection_tagger.ui import TaggerPreviewDialog
-except ImportError:
-    try:
-        from .ui import TaggerPreviewDialog
-    except ImportError:
-        try:
-            from ui import TaggerPreviewDialog
-        except ImportError:
-            TaggerPreviewDialog = None
-
-try:
-    from calibre_plugins.story_collection_tagger import presets as presets_mod
-    from calibre_plugins.story_collection_tagger import rules as rules_mod
-    from calibre_plugins.story_collection_tagger.config import prefs
-    from calibre_plugins.story_collection_tagger.guikit import DialogAction
-except ImportError:
-    try:
-        from . import presets as presets_mod
-        from . import rules as rules_mod
-        from .config import prefs
-        from .guikit import DialogAction
-    except ImportError:
-        import rules as rules_mod
-
-        try:
-            import presets as presets_mod
-        except ImportError:
-            presets_mod = None
-        from config import prefs
-
-        try:
-            from guikit import DialogAction
-        except ImportError:
-            from common.guikit import DialogAction
-
 RULES_HELP = (
     "One rule per line:  [field:]pattern => Tag, Tag\n"
     "Fields: tags, title, author, series, comments, publisher, source, any (default: title, tags and series).\n"
@@ -85,12 +46,14 @@ SITES_HELP = "Extra sites, one per line:  host, host2 => Name     (for example: 
 
 
 class RuleSetManagerDialog(QDialog):
-    def __init__(self, parent=None, current_rules="", current_sites=""):
+    def __init__(self, parent=None, current_rules="", current_sites="", mode="merge"):
         super().__init__(parent)
         self.setWindowTitle("Manage Rule Sets")
         self.resize(800, 580)
         self.committed_rules = current_rules
         self.committed_sites = current_sites
+        self._commit_mode = mode if mode in ("merge", "replace") else "merge"
+        self.committed_mode = self._commit_mode
 
         self.local_rules, _ = rules_mod.parse_rules(current_rules)
         self.local_sites, _ = rules_mod.parse_sites(current_sites)
@@ -104,11 +67,11 @@ class RuleSetManagerDialog(QDialog):
         top_row.addWidget(self.search_edit)
 
         load_btn = QPushButton("Load Rules (Import JSON)...")
-        load_btn.clicked.connect(self._load_json)
+        load_btn.clicked.connect(lambda: self._load_json())
         top_row.addWidget(load_btn)
 
         save_btn = QPushButton("Save Rules (Export JSON)...")
-        save_btn.clicked.connect(self._save_json)
+        save_btn.clicked.connect(lambda: self._save_json())
         top_row.addWidget(save_btn)
 
         layout.addLayout(top_row)
@@ -185,15 +148,104 @@ class RuleSetManagerDialog(QDialog):
 
         self.tabs.addTab(sites_widget, "Source Sites")
 
+        # Commit Mode selector
+        mode_box = QHBoxLayout()
+        mode_label = QLabel("Commit Mode:")
+        self.merge_mode_radio = QRadioButton("Merge (preserve existing rules, apply checked additions)")
+        self.replace_mode_radio = QRadioButton("Replace (overwrite existing rules with checked imported rules)")
+        self.merge_radio = self.merge_mode_radio
+        self.replace_radio = self.replace_mode_radio
+        mode_box.addWidget(mode_label)
+        mode_box.addWidget(self.merge_mode_radio)
+        mode_box.addWidget(self.replace_mode_radio)
+        mode_box.addStretch()
+        layout.addLayout(mode_box)
+
+        if self._commit_mode == "replace":
+            self.replace_mode_radio.setChecked(True)
+        else:
+            self.merge_mode_radio.setChecked(True)
+
+        self.merge_mode_radio.toggled.connect(self._on_commit_mode_toggled)
+
         self.status_label = QLabel("")
         layout.addWidget(self.status_label)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.buttons = self.button_box
+        self.button_box.accepted.connect(self._on_accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
 
         self._populate_initial()
+
+    def get_commit_mode(self):
+        if (
+            hasattr(self, "replace_mode_radio")
+            and getattr(self.replace_mode_radio, "isChecked", lambda: False)() is True
+        ):
+            return "replace"
+        if hasattr(self, "merge_mode_radio") and getattr(self.merge_mode_radio, "isChecked", lambda: False)() is True:
+            return "merge"
+        return getattr(self, "_commit_mode", "merge")
+
+    def set_commit_mode(self, mode):
+        norm = str(mode or "merge").strip().lower()
+        if norm == "replace":
+            self._commit_mode = "replace"
+            if hasattr(self, "replace_mode_radio"):
+                self.replace_mode_radio.setChecked(True)
+            if hasattr(self, "merge_mode_radio"):
+                self.merge_mode_radio.setChecked(False)
+        else:
+            self._commit_mode = "merge"
+            if hasattr(self, "merge_mode_radio"):
+                self.merge_mode_radio.setChecked(True)
+            if hasattr(self, "replace_mode_radio"):
+                self.replace_mode_radio.setChecked(False)
+        self._apply_commit_mode_checks()
+
+    @property
+    def commit_mode(self):
+        return self.get_commit_mode()
+
+    @commit_mode.setter
+    def commit_mode(self, mode):
+        self.set_commit_mode(mode)
+
+    def _on_commit_mode_toggled(self, checked=None):
+        if (
+            hasattr(self, "replace_mode_radio")
+            and getattr(self.replace_mode_radio, "isChecked", lambda: False)() is True
+        ):
+            self._commit_mode = "replace"
+        elif hasattr(self, "merge_mode_radio") and getattr(self.merge_mode_radio, "isChecked", lambda: False)() is True:
+            self._commit_mode = "merge"
+        self._apply_commit_mode_checks()
+
+    def _apply_commit_mode_checks(self):
+        is_replace = self.get_commit_mode() == "replace"
+        for tbl in (self.rules_table, self.sites_table):
+            tbl.blockSignals(True)
+            st_col = 4 if tbl is self.rules_table else 3
+            for r in range(tbl.rowCount()):
+                st_item = tbl.item(r, st_col)
+                status = st_item.text().strip() if st_item and hasattr(st_item, "text") else ""
+                chk = tbl.item(r, 0)
+                if not chk:
+                    continue
+                if is_replace:
+                    if status == "Existing":
+                        chk.setCheckState(Qt.CheckState.Unchecked)
+                    elif status == "Duplicate":
+                        chk.setCheckState(Qt.CheckState.Checked)
+                else:
+                    if status == "Existing":
+                        chk.setCheckState(Qt.CheckState.Checked)
+                    elif status == "Duplicate":
+                        chk.setCheckState(Qt.CheckState.Unchecked)
+            tbl.blockSignals(False)
+        self._update_counts()
 
     def _populate_initial(self):
         self.rules_table.blockSignals(True)
@@ -209,7 +261,10 @@ class RuleSetManagerDialog(QDialog):
 
         self.rules_table.blockSignals(False)
         self.sites_table.blockSignals(False)
-        self._update_counts()
+        if self.get_commit_mode() == "replace":
+            self._apply_commit_mode_checks()
+        else:
+            self._update_counts()
 
     def _insert_rule_row(self, field, pattern, tags, checked=True, status="Existing"):
         row = self.rules_table.rowCount()
@@ -224,7 +279,7 @@ class RuleSetManagerDialog(QDialog):
         self.rules_table.setItem(row, 1, QTableWidgetItem(fld_str))
         self.rules_table.setItem(row, 2, QTableWidgetItem(pattern or ""))
 
-        tags_str = ", ".join(tags) if isinstance(tags, (list, tuple)) else str(tags or "")
+        tags_str = ", ".join(tags) if isinstance(tags, list | tuple) else str(tags or "")
         self.rules_table.setItem(row, 3, QTableWidgetItem(tags_str))
         self.rules_table.setItem(row, 4, QTableWidgetItem(status))
 
@@ -237,7 +292,7 @@ class RuleSetManagerDialog(QDialog):
         chk.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
         self.sites_table.setItem(row, 0, chk)
 
-        hosts_str = ", ".join(hosts) if isinstance(hosts, (list, tuple)) else str(hosts or "")
+        hosts_str = ", ".join(hosts) if isinstance(hosts, list | tuple) else str(hosts or "")
         self.sites_table.setItem(row, 1, QTableWidgetItem(hosts_str))
         self.sites_table.setItem(row, 2, QTableWidgetItem(name or ""))
         self.sites_table.setItem(row, 3, QTableWidgetItem(status))
@@ -256,7 +311,7 @@ class RuleSetManagerDialog(QDialog):
         for row in selected_rows:
             table.removeRow(row)
         table.blockSignals(False)
-        self._update_counts()
+        self._validate_table_cells()
 
     def _set_all_checked(self, table, checked):
         table.blockSignals(True)
@@ -269,8 +324,65 @@ class RuleSetManagerDialog(QDialog):
         self._update_counts()
 
     def _on_item_changed(self, item):
-        if item and item.column() == 0:
+        if not item:
+            return
+        if item.column() == 0:
             self._update_counts()
+        elif item.column() == 2:
+            self._validate_table_cells()
+
+    def _validate_table_cells(self):
+        first_error = None
+        has_invalid = False
+        try:
+            row_count = self.rules_table.rowCount()
+            if not isinstance(row_count, int):
+                return True
+        except Exception:
+            return True
+
+        for row in range(row_count):
+            item = self.rules_table.item(row, 2)
+            if not item:
+                continue
+            raw_text = item.text() if hasattr(item, "text") else None
+            if not isinstance(raw_text, str):
+                continue
+            text = raw_text.strip()
+            if text.startswith("re:"):
+                pat = text[3:].strip()
+                if not pat:
+                    item.setBackground(QColor("red"))
+                    has_invalid = True
+                    if not first_error:
+                        first_error = f"Row {row + 1}: Regex pattern cannot be empty"
+                else:
+                    try:
+                        re.compile(pat, re.I)
+                        item.setBackground(QBrush())
+                    except re.error as exc:
+                        item.setBackground(QColor("red"))
+                        has_invalid = True
+                        if not first_error:
+                            first_error = f"Row {row + 1}: Invalid regex ({exc})"
+            else:
+                item.setBackground(QBrush())
+
+        ok_btn = (
+            self.button_box.button(QDialogButtonBox.StandardButton.Ok)
+            if hasattr(self, "button_box") and self.button_box
+            else None
+        )
+        if has_invalid:
+            if ok_btn:
+                ok_btn.setEnabled(False)
+            self.status_label.setText(f"⚠ {first_error}")
+            return False
+        else:
+            if ok_btn:
+                ok_btn.setEnabled(True)
+            self._update_counts()
+            return True
 
     def _update_counts(self):
         rule_total = self.rules_table.rowCount()
@@ -289,7 +401,10 @@ class RuleSetManagerDialog(QDialog):
 
         self.tabs.setTabText(0, f"Keyword Rules ({rule_checked}/{rule_total})")
         self.tabs.setTabText(1, f"Source Sites ({site_checked}/{site_total})")
-        self.status_label.setText(f"Selected for configuration: {rule_checked} rule(s), {site_checked} site(s).")
+        mode_str = "Merge" if self.get_commit_mode() == "merge" else "Replace"
+        self.status_label.setText(
+            f"Commit Mode: {mode_str} | Selected for configuration: {rule_checked} rule(s), {site_checked} site(s)."
+        )
 
     def _filter_tables(self, text):
         text = text.casefold()
@@ -306,24 +421,33 @@ class RuleSetManagerDialog(QDialog):
                             break
                 table.setRowHidden(r, not match)
 
-    def _load_json(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Load Rule Set JSON", "", "JSON Files (*.json);;All Files (*)")
+    def _load_json(self, path=None):
         if not path:
-            return
+            path, _ = QFileDialog.getOpenFileName(self, "Load Rule Set JSON", "", "JSON Files (*.json);;All Files (*)")
+            if not path:
+                return
 
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
         except Exception as exc:
-            QMessageBox.critical(self, "Load Error", f"Failed to read or parse JSON file:\n{exc}")
+            show_friendly_error_dialog(
+                self,
+                "Load Error",
+                exc,
+                det_msg=f"Failed to read or parse JSON file:\n{path}",
+                show=True,
+            )
             return
 
         parsed_rules, parsed_sites, errors = rules_mod.import_rule_set_data(data)
         if errors:
-            QMessageBox.warning(
+            show_friendly_error_dialog(
                 self,
                 "Rule Validation Error",
-                "The rule set file contains invalid or malformed rules and cannot be imported:\n\n" + "\n".join(errors),
+                "The rule set file contains invalid or malformed rules and cannot be imported.",
+                det_msg="\n".join(errors),
+                show=True,
             )
             return
 
@@ -331,6 +455,17 @@ class RuleSetManagerDialog(QDialog):
         self.sites_table.blockSignals(True)
         self.rules_table.setUpdatesEnabled(False)
         self.sites_table.setUpdatesEnabled(False)
+
+        is_replace = self.get_commit_mode() == "replace"
+        if is_replace:
+            for tbl in (self.rules_table, self.sites_table):
+                st_col = 4 if tbl is self.rules_table else 3
+                for r in range(tbl.rowCount()):
+                    st = tbl.item(r, st_col).text() if tbl.item(r, st_col) else ""
+                    if st == "Existing":
+                        chk = tbl.item(r, 0)
+                        if chk:
+                            chk.setCheckState(Qt.CheckState.Unchecked)
 
         new_rules = 0
         conflict_rules = 0
@@ -343,7 +478,7 @@ class RuleSetManagerDialog(QDialog):
                 self._insert_rule_row(r.field, r.pattern, r.tags, checked=False, status="Conflict (differs)")
                 conflict_rules += 1
             elif status == "Duplicate":
-                self._insert_rule_row(r.field, r.pattern, r.tags, checked=False, status="Duplicate")
+                self._insert_rule_row(r.field, r.pattern, r.tags, checked=is_replace, status="Duplicate")
 
         for s in parsed_sites:
             name, hosts, _ = s
@@ -353,7 +488,7 @@ class RuleSetManagerDialog(QDialog):
             elif status == "Conflict":
                 self._insert_site_row(hosts, name, checked=False, status="Conflict (differs)")
             elif status == "Duplicate":
-                self._insert_site_row(hosts, name, checked=False, status="Duplicate")
+                self._insert_site_row(hosts, name, checked=is_replace, status="Duplicate")
 
         self.rules_table.setUpdatesEnabled(True)
         self.sites_table.setUpdatesEnabled(True)
@@ -361,19 +496,25 @@ class RuleSetManagerDialog(QDialog):
         self.sites_table.blockSignals(False)
 
         self._update_counts()
-        QMessageBox.information(
-            self,
-            "Rule Set Loaded",
+        msg_text = (
             f"Loaded {len(parsed_rules)} rule(s) and {len(parsed_sites)} site(s).\n\n"
-            f"New rules added: {new_rules}\nConflicts flagged: {conflict_rules}",
+            f"New rules added: {new_rules}\nConflicts flagged: {conflict_rules}"
         )
+        try:
+            info_dialog(self, "Rule Set Loaded", msg_text, show=True)
+        except Exception:
+            QMessageBox.information(self, "Rule Set Loaded", msg_text)
 
-    def _save_json(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save Rule Set JSON", "rule_set.json", "JSON Files (*.json);;All Files (*)"
-        )
+    def _save_json(self, path=None):
         if not path:
-            return
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Rule Set JSON",
+                "rule_set.json",
+                "JSON Files (*.json);;All Files (*)",
+            )
+            if not path:
+                return
 
         rules_text, sites_text = self._get_checked_rules_and_sites_text()
         data = rules_mod.export_rule_set_data(rules_text, sites_text)
@@ -381,12 +522,31 @@ class RuleSetManagerDialog(QDialog):
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-            QMessageBox.information(self, "Export Successful", f"Rule set exported successfully to:\n{path}")
+            try:
+                info_dialog(
+                    self,
+                    "Export Successful",
+                    f"Rule set exported successfully to:\n{path}",
+                    show=True,
+                )
+            except Exception:
+                QMessageBox.information(
+                    self,
+                    "Export Successful",
+                    f"Rule set exported successfully to:\n{path}",
+                )
         except Exception as exc:
-            QMessageBox.critical(self, "Export Error", f"Failed to save JSON file:\n{exc}")
+            show_friendly_error_dialog(
+                self,
+                "Export Error",
+                exc,
+                det_msg=f"Failed to save JSON file:\n{path}",
+                show=True,
+            )
 
     def _get_checked_rules_and_sites_text(self):
         rule_lines = []
+        seen_rules = set()
         for r in range(self.rules_table.rowCount()):
             chk = self.rules_table.item(r, 0)
             if chk and chk.checkState() == Qt.CheckState.Checked:
@@ -402,9 +562,13 @@ class RuleSetManagerDialog(QDialog):
                     continue
 
                 field_prefix = f"{fld}:" if fld and fld != "(default)" else ""
-                rule_lines.append(f"{field_prefix}{pat} => {tags}")
+                line = f"{field_prefix}{pat} => {tags}"
+                if line not in seen_rules:
+                    seen_rules.add(line)
+                    rule_lines.append(line)
 
         site_lines = []
+        seen_sites = set()
         for r in range(self.sites_table.rowCount()):
             chk = self.sites_table.item(r, 0)
             if chk and chk.checkState() == Qt.CheckState.Checked:
@@ -417,26 +581,34 @@ class RuleSetManagerDialog(QDialog):
                 if not hosts or not name:
                     continue
 
-                site_lines.append(f"{hosts} => {name}")
+                line = f"{hosts} => {name}"
+                if line not in seen_sites:
+                    seen_sites.add(line)
+                    site_lines.append(line)
 
         return "\n".join(rule_lines), "\n".join(site_lines)
 
     def _on_accept(self):
+        if not self._validate_table_cells():
+            return
         rules_text, sites_text = self._get_checked_rules_and_sites_text()
         _, rule_errors = rules_mod.parse_rules(rules_text)
         _, site_errors = rules_mod.parse_sites(sites_text)
         all_errors = rule_errors + site_errors
 
         if all_errors:
-            QMessageBox.warning(
+            show_friendly_error_dialog(
                 self,
                 "Invalid Rules",
-                "Cannot commit configuration due to rule syntax errors:\n\n" + "\n".join(all_errors),
+                "Cannot commit configuration due to rule syntax errors:",
+                det_msg="\n".join(all_errors),
+                show=True,
             )
             return
 
         self.committed_rules = rules_text
         self.committed_sites = sites_text
+        self.committed_mode = self.get_commit_mode()
         self.accept()
 
     def get_committed_rules_and_sites(self):
@@ -554,6 +726,8 @@ class TaggerAction(DialogAction):
         rules_edit = QPlainTextEdit(prefs["rules"])
         rules_edit.setPlaceholderText(RULES_HELP)
         raw_layout.addWidget(rules_edit)
+        raw_val_label = QLabel("")
+        raw_layout.addWidget(raw_val_label)
         tab_builder_layout.addWidget(raw_box, 2)
 
         tabs.addTab(tab_builder, "Structured Rule Builder")
@@ -721,7 +895,7 @@ class TaggerAction(DialogAction):
         }
 
         # --- Helper functions ---
-        def populate_table_from_rules(cursor_pos=None):
+        def populate_table_from_rules(cursor_pos=None, sync_raw=True):
             if state["syncing"]:
                 return
             state["syncing"] = True
@@ -734,7 +908,9 @@ class TaggerAction(DialogAction):
                     mode_item = QTableWidgetItem((r_dict.get("match_mode") or "substring").title())
                     pat_item = QTableWidgetItem(r_dict.get("pattern", ""))
                     tags_list = r_dict.get("tags") or []
-                    tags_item = QTableWidgetItem(", ".join(tags_list) if isinstance(tags_list, list) else str(tags_list))
+                    tags_item = QTableWidgetItem(
+                        ", ".join(tags_list) if isinstance(tags_list, list) else str(tags_list)
+                    )
 
                     rules_table.setItem(idx, 0, field_item)
                     rules_table.setItem(idx, 1, mode_item)
@@ -761,26 +937,27 @@ class TaggerAction(DialogAction):
                     btn_layout.addWidget(del_btn)
                     rules_table.setCellWidget(idx, 4, btn_widget)
 
-                if cursor_pos is None:
-                    cursor_pos = state.pop("cursor_position", None)
+                if sync_raw:
+                    if cursor_pos is None:
+                        cursor_pos = state.pop("cursor_position", None)
 
-                raw_text = presets_mod.rules_to_text(state["active_rules"])
-                was_blocked = rules_edit.blockSignals(True) if hasattr(rules_edit, "blockSignals") else False
-                try:
-                    rules_edit.setPlainText(raw_text)
-                    if cursor_pos is not None:
-                        cursor = rules_edit.textCursor() if hasattr(rules_edit, "textCursor") else None
-                        if cursor is not None and hasattr(cursor, "setPosition"):
-                            if isinstance(cursor_pos, int):
-                                new_pos = max(0, min(cursor_pos, len(raw_text)))
-                            else:
-                                new_pos = cursor_pos
-                            cursor.setPosition(new_pos)
-                            if hasattr(rules_edit, "setTextCursor"):
-                                rules_edit.setTextCursor(cursor)
-                finally:
-                    if hasattr(rules_edit, "blockSignals"):
-                        rules_edit.blockSignals(was_blocked)
+                    raw_text = presets_mod.rules_to_text(state["active_rules"])
+                    was_blocked = rules_edit.blockSignals(True) if hasattr(rules_edit, "blockSignals") else False
+                    try:
+                        rules_edit.setPlainText(raw_text)
+                        if cursor_pos is not None:
+                            cursor = rules_edit.textCursor() if hasattr(rules_edit, "textCursor") else None
+                            if cursor is not None and hasattr(cursor, "setPosition"):
+                                if isinstance(cursor_pos, int):
+                                    new_pos = max(0, min(cursor_pos, len(raw_text)))
+                                else:
+                                    new_pos = cursor_pos
+                                cursor.setPosition(new_pos)
+                                if hasattr(rules_edit, "setTextCursor"):
+                                    rules_edit.setTextCursor(cursor)
+                    finally:
+                        if hasattr(rules_edit, "blockSignals"):
+                            rules_edit.blockSignals(was_blocked)
             finally:
                 state["syncing"] = False
 
@@ -790,6 +967,23 @@ class TaggerAction(DialogAction):
             pattern = pat_edit.text().strip()
             raw_tags = tags_edit.text().strip()
             tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+
+            if mode == "regex":
+                if not pattern:
+                    pat_edit.setStyleSheet("")
+                    val_label.setText("<font color='red'>⚠ Pattern cannot be empty</font>")
+                    add_rule_btn.setEnabled(False)
+                    return
+                try:
+                    re.compile(pattern, re.I)
+                    pat_edit.setStyleSheet("")
+                except re.error as exc:
+                    pat_edit.setStyleSheet("border: 1px solid red;")
+                    val_label.setText(f"<font color='red'>⚠ Invalid regular expression: {exc}</font>")
+                    add_rule_btn.setEnabled(False)
+                    return
+            else:
+                pat_edit.setStyleSheet("")
 
             r_dict = {"field": field, "match_mode": mode, "pattern": pattern, "tags": tags}
             ok, err = presets_mod.validate_rule_dict(r_dict)
@@ -865,15 +1059,49 @@ class TaggerAction(DialogAction):
         def on_raw_text_changed():
             if state["syncing"]:
                 return
+            cursor_pos = None
+            if hasattr(rules_edit, "textCursor"):
+                cursor = rules_edit.textCursor()
+                if hasattr(cursor, "position"):
+                    cursor_pos = cursor.position()
+            state["cursor_position"] = cursor_pos
+            raw_text = rules_edit.toPlainText()
+
+            regex_errors = []
+            for n, line in enumerate(raw_text.splitlines(), 1):
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                target = stripped
+                if "=>" in stripped:
+                    left, _ = stripped.split("=>", 1)
+                    target = left.strip()
+                m = re.match(r"^([A-Za-z]+):(.*)$", target)
+                if m and m.group(1).lower() in rules_mod.FIELDS:
+                    target = m.group(2).strip()
+
+                if target.startswith("re:"):
+                    pat = target[3:].strip()
+                    if not pat:
+                        regex_errors.append(f"Line {n}: Regex pattern cannot be empty")
+                    else:
+                        try:
+                            re.compile(pat, re.I)
+                        except re.error as exc:
+                            regex_errors.append(f"Line {n}: Invalid regular expression ({exc})")
+
+            if regex_errors:
+                rules_edit.setStyleSheet("border: 1px solid red;")
+                raw_val_label.setText(f"<font color='red'>⚠ {regex_errors[0]}</font>")
+                preview_btn.setEnabled(False)
+                apply_btn.setEnabled(False)
+            else:
+                rules_edit.setStyleSheet("")
+                raw_val_label.setText("")
+                preview_btn.setEnabled(True)
+
             state["syncing"] = True
             try:
-                cursor_pos = None
-                if hasattr(rules_edit, "textCursor"):
-                    cursor = rules_edit.textCursor()
-                    if hasattr(cursor, "position"):
-                        cursor_pos = cursor.position()
-                state["cursor_position"] = cursor_pos
-                raw_text = rules_edit.toPlainText()
                 state["active_rules"] = presets_mod.text_to_rule_dicts(raw_text)
             finally:
                 state["syncing"] = False
@@ -953,7 +1181,12 @@ class TaggerAction(DialogAction):
                 preset_pack = presets_mod.parse_preset_json(content)
                 do_merge_preset(preset_pack)
             except Exception as exc:
-                error_dialog(self.gui, "Import Failed", f"Could not parse preset JSON file: {exc}", show=True)
+                error_dialog(
+                    self.gui,
+                    "Import Failed",
+                    f"Could not parse preset JSON file: {exc}",
+                    show=True,
+                )
 
         def do_export_preset():
             filepath, _ = QFileDialog.getSaveFileName(
@@ -980,7 +1213,12 @@ class TaggerAction(DialogAction):
                     show=True,
                 )
             except Exception as exc:
-                error_dialog(self.gui, "Export Failed", f"Could not export preset file: {exc}", show=True)
+                error_dialog(
+                    self.gui,
+                    "Export Failed",
+                    f"Could not export preset file: {exc}",
+                    show=True,
+                )
 
         def save_prefs():
             prefs["add_source"] = add_source.isChecked()
