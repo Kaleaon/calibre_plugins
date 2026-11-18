@@ -1653,7 +1653,6 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         # Prefs should remain unchanged
         self.assertEqual(prefs["rules"], original_rules)
 
-
     def test_import_rule_set_unknown_button_aborts(self):
         import json
         import tempfile
