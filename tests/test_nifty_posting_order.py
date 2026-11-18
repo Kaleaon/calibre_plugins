@@ -23,7 +23,7 @@ class PostingOrderSortingTests(unittest.TestCase):
         s1 = {'title': 'Chapter 1', 'pubdate': '1999-10-02', 'id': 'gay/college/saga-1'}
         s2 = {'title': 'Chapter 2', 'pubdate': '1999-10-03', 'id': 'gay/college/saga-2'}
         s3 = {'title': 'Chapter 3', 'pubdate': '2026-10-01', 'id': 'gay/college/saga-3'}
-        
+
         unordered = [s3, s1, s2]
         sorted_stories = sort_by_posting_order(unordered)
         self.assertEqual([s['title'] for s in sorted_stories], ['Chapter 1', 'Chapter 2', 'Chapter 3'])
