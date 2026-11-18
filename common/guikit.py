@@ -92,6 +92,85 @@ except ImportError:
 
 
 try:
+    from .log_utils import append_log as append_log
+    from .log_utils import clean_lines as clean_lines
+    from .log_utils import parse_lines as parse_lines
+except (ImportError, ValueError):
+    try:
+        from log_utils import append_log as append_log
+        from log_utils import clean_lines as clean_lines
+        from log_utils import parse_lines as parse_lines
+    except ImportError:
+        try:
+            from common.log_utils import append_log as append_log
+            from common.log_utils import clean_lines as clean_lines
+            from common.log_utils import parse_lines as parse_lines
+        except ImportError:
+            pass
+
+try:
+    from .tree_utils import (
+        chosen_fields as chosen_fields,
+    )
+    from .tree_utils import (
+        collect_checked_fields as collect_checked_fields,
+    )
+    from .tree_utils import (
+        collect_tree_changes as collect_tree_changes,
+    )
+    from .tree_utils import (
+        is_item_checked as is_item_checked,
+    )
+    from .tree_utils import (
+        set_children_check_state as set_children_check_state,
+    )
+    from .tree_utils import (
+        update_parent_check_state as update_parent_check_state,
+    )
+except (ImportError, ValueError):
+    try:
+        from tree_utils import (
+            chosen_fields as chosen_fields,
+        )
+        from tree_utils import (
+            collect_checked_fields as collect_checked_fields,
+        )
+        from tree_utils import (
+            collect_tree_changes as collect_tree_changes,
+        )
+        from tree_utils import (
+            is_item_checked as is_item_checked,
+        )
+        from tree_utils import (
+            set_children_check_state as set_children_check_state,
+        )
+        from tree_utils import (
+            update_parent_check_state as update_parent_check_state,
+        )
+    except ImportError:
+        try:
+            from common.tree_utils import (
+                chosen_fields as chosen_fields,
+            )
+            from common.tree_utils import (
+                collect_checked_fields as collect_checked_fields,
+            )
+            from common.tree_utils import (
+                collect_tree_changes as collect_tree_changes,
+            )
+            from common.tree_utils import (
+                is_item_checked as is_item_checked,
+            )
+            from common.tree_utils import (
+                set_children_check_state as set_children_check_state,
+            )
+            from common.tree_utils import (
+                update_parent_check_state as update_parent_check_state,
+            )
+        except ImportError:
+            pass
+
+try:
     from calibre.gui2.actions import InterfaceAction
 except ImportError:
 
@@ -1021,97 +1100,6 @@ class MergePreviewDialog(TreeCheckStateMixin, _MergeDialogBase):
             ok_btn.setEnabled(len(active_stories) > 0)
 
 
-def clean_lines(text_or_widget):
-    """Extract non-empty, whitespace-trimmed text lines from strings or text edit widgets."""
-    if hasattr(text_or_widget, "toPlainText"):
-        text = text_or_widget.toPlainText()
-    elif isinstance(text_or_widget, str):
-        text = text_or_widget
-    elif text_or_widget is None:
-        text = ""
-    else:
-        text = str(text_or_widget)
-    return [line.strip() for line in text.splitlines() if line.strip()]
-
-
-def chosen_fields(boxes, field_labels=None):
-    """Query active metadata selection checkboxes.
-    `boxes`: dict mapping field names to QCheckBox widgets or boolean values.
-    `field_labels`: list of (field_key, label) tuples, list of field keys, or None.
-    Returns a tuple of checked field keys.
-    """
-    if field_labels is None:
-        if isinstance(boxes, dict):
-            keys = list(boxes.keys())
-        else:
-            keys = []
-    else:
-        keys = [item[0] if isinstance(item, (tuple, list)) else item for item in field_labels]
-
-    result = []
-    for key in keys:
-        box = boxes.get(key) if isinstance(boxes, dict) else getattr(boxes, key, None)
-        if box is not None:
-            if callable(getattr(box, "isChecked", None)):
-                checked = box.isChecked()
-            else:
-                checked = bool(box)
-            if checked:
-                result.append(key)
-    return tuple(result)
-
-
-def append_log(widget, text):
-    """Format timestamped status message into a log widget."""
-    formatted = f"{time.strftime('%H:%M:%S')}  {text}"
-    if hasattr(widget, "appendPlainText"):
-        widget.appendPlainText(formatted)
-    elif hasattr(widget, "append"):
-        widget.append(formatted)
-    elif hasattr(widget, "write"):
-        widget.write(formatted + "\n")
-    return formatted
-
-
-def collect_tree_changes(tree):
-    """Extract checked field items and metadata payloads from a tree widget.
-    Returns list of (top_item_user_data, {child_user_data: child_user_data_plus_1}).
-    """
-    items = []
-    user_role = getattr(getattr(Qt, "ItemDataRole", None), "UserRole", 32)
-    try:
-        user_role_int = int(user_role)
-    except (ValueError, TypeError):
-        user_role_int = 32
-
-    for i in range(tree.topLevelItemCount()):
-        top = tree.topLevelItem(i)
-        changes = {}
-        for j in range(top.childCount()):
-            child = top.child(j)
-            checked_state = child.checkState(0)
-            is_checked = (checked_state == Qt.CheckState.Checked) or (getattr(checked_state, "value", None) == 2)
-            if not is_checked:
-                try:
-                    is_checked = int(checked_state) == 2
-                except (ValueError, TypeError):
-                    is_checked = False
-            if is_checked:
-                key = child.data(0, user_role)
-                if key is None:
-                    key = child.data(0, user_role_int)
-                val = child.data(0, user_role + 1) if not isinstance(user_role, int) else None
-                if val is None:
-                    val = child.data(0, user_role_int + 1)
-                changes[key] = val
-        if changes:
-            top_key = top.data(0, user_role)
-            if top_key is None:
-                top_key = top.data(0, user_role_int)
-            items.append((top_key, changes))
-    return items
-
-
 class MergeSelectedActionMixin:
     """Action mixin providing a merge_selected handler for merging selected library books into an EPUB."""
 
@@ -1327,27 +1315,6 @@ class EmptyStateOverlay(QWidget):
             self.show_empty()
         else:
             self.hide_empty()
-
-
-def parse_lines(text_or_widget):
-    """Parse text or a widget with .toPlainText()/.text() into a list of non-empty stripped lines."""
-    if text_or_widget is None:
-        return []
-    if hasattr(text_or_widget, "toPlainText"):
-        raw = text_or_widget.toPlainText()
-    elif hasattr(text_or_widget, "text") and callable(text_or_widget.text):
-        raw = text_or_widget.text()
-    else:
-        raw = str(text_or_widget)
-    return [line.strip() for line in raw.splitlines() if line.strip()]
-
-
-def collect_checked_fields(boxes, labels=None):
-    """Return tuple of field keys whose checkboxes in `boxes` dict are checked.
-    If `labels` sequence of (field_key, label) is provided, preserves that order."""
-    if labels:
-        return tuple(f for f, _ in labels if f in boxes and boxes[f].isChecked())
-    return tuple(f for f, cb in boxes.items() if cb.isChecked())
 
 
 def format_field_value(field, value):
