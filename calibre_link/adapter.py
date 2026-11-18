@@ -196,7 +196,18 @@ class CalibreAdapter:
                 formats = [f.strip() for f in fmts.split(",") if f.strip()]
         except Exception:
             pass
+        format_sizes = {}
+        _na = getattr(db, "new_api", None)
+        if _na is not None:
+            for _f in formats:
+                try:
+                    _fm = _na.format_metadata(book_id, _f)
+                    if _fm and _fm.get("size") is not None:
+                        format_sizes[_f] = _fm["size"]
+                except Exception:
+                    pass
         row.update({
+            "format_sizes": format_sizes,
             "tags": list(mi.tags or []),
             "series": getattr(mi, "series", None),
             "series_index": getattr(mi, "series_index", None),
@@ -453,6 +464,951 @@ class CalibreAdapter:
                 "book": self._row(db, book_id, self._metadata(db, book_id))}
 
     # -- first-pages text (content-vs-metadata checks, stamp hunt) --------
+    def merge_books(self, keep_id, remove_ids):
+        """Merge certain-duplicate entries into the keeper: copy any
+        formats the keeper lacks from the losers, union their tags,
+        fill missing identifiers, then remove the losers into
+        calibre's recycle bin (permanent=False). Backup first.
+        The CALLER must have verified the group is a certain
+        duplicate (same identifier, byte-exact format sizes)."""
+        keep_id = int(keep_id)
+        remove_ids = [int(x) for x in (remove_ids or [])
+                      if int(x) != keep_id]
+        if not remove_ids:
+            return {"ok": False, "error": "nothing to remove"}
+        if not _WRITELOCK.acquire(timeout=180):
+            return {"ok": False, "error": "another write is in progress"}
+        try:
+            return self._merge_locked(keep_id, remove_ids)
+        finally:
+            _WRITELOCK.release()
+
+    def _merge_locked(self, keep_id, remove_ids):
+        import io
+        oplog("merge: keep=%d remove=%s" % (keep_id, remove_ids))
+        backup = self.backup()
+        db = self._db()
+        new_api = getattr(db, "new_api", None)
+        if new_api is None:
+            return {"ok": False, "error": "cache API unavailable",
+                    "backup": backup}
+        keep_mi = self._metadata(db, keep_id)
+        if keep_mi is None:
+            return {"ok": False, "error": "keeper not found",
+                    "backup": backup}
+        copied, tags_added = [], []
+        keep_formats = {f.upper() for f in (new_api.formats(keep_id)
+                                            or [])}
+        keep_tags = list(keep_mi.tags or [])
+        try:
+            keep_ids = dict(keep_mi.get_identifiers())
+        except Exception:
+            keep_ids = {}
+        for loser in remove_ids:
+            lmi = self._metadata(db, loser)
+            if lmi is None:
+                return {"ok": False,
+                        "error": "loser %d not found" % loser,
+                        "backup": backup}
+            for f in (new_api.formats(loser) or []):
+                if f.upper() not in keep_formats:
+                    data = new_api.format(loser, f)
+                    if data is None:
+                        return {"ok": False,
+                                "error": "cannot read %s of %d"
+                                         % (f, loser),
+                                "backup": backup}
+                    new_api.add_format(keep_id, f, io.BytesIO(data),
+                                       replace=False, run_hooks=False)
+                    keep_formats.add(f.upper())
+                    copied.append("%d:%s" % (loser, f))
+            for t in (lmi.tags or []):
+                if t not in keep_tags:
+                    keep_tags.append(t)
+                    tags_added.append(t)
+            try:
+                for k, v in dict(lmi.get_identifiers()).items():
+                    keep_ids.setdefault(k, v)
+            except Exception:
+                pass
+        if tags_added:
+            try:
+                new_api.set_field("tags", {keep_id: keep_tags})
+            except Exception as e:
+                oplog("merge: tag union failed: %s" % e)
+        try:
+            cur_ids = dict(keep_mi.get_identifiers())
+        except Exception:
+            cur_ids = {}
+        if keep_ids != cur_ids:
+            try:
+                new_api.set_field("identifiers", {keep_id: keep_ids})
+            except Exception as e:
+                oplog("merge: identifier fill failed: %s" % e)
+        try:
+            new_api.remove_books(remove_ids, permanent=False)
+        except TypeError:
+            new_api.remove_books(remove_ids)
+        oplog("merge: removed %s (copied %s)" % (remove_ids, copied))
+        return {"ok": True, "backup": backup, "keep": keep_id,
+                "removed": remove_ids, "formats_copied": copied,
+                "tags_added": tags_added}
+
+    # -- recycle-bin (deleted books) ------------------------------------
+    def _trash_dir(self):
+        return os.path.join(self.library_path(), ".caltrash")
+
+    def deleted_books(self):
+        """List calibre's deleted (recycle-bin) books: ids the Cache
+        reports, plus the on-disk trash entries as ground truth."""
+        db = self._db()
+        new_api = getattr(db, "new_api", None)
+        ids, via = [], None
+        if new_api is not None:
+            for name in ("list_deleted_books", "deleted_books",
+                         "get_deleted_books"):
+                fn = getattr(new_api, name, None)
+                if callable(fn):
+                    try:
+                        ids = [int(x) for x in (fn() or [])]
+                        via = name
+                        break
+                    except Exception:
+                        ids = []
+        trash = self._trash_dir()
+        entries = []
+        if os.path.isdir(trash):
+            for root, dirs, files in os.walk(trash):
+                depth = root[len(trash):].count(os.sep)
+                if depth > 3:
+                    dirs[:] = []
+                    continue
+                for n in dirs + files:
+                    entries.append(os.path.relpath(
+                        os.path.join(root, n), trash))
+            entries.sort()
+        # attribute survey: where does this calibre keep its
+        # delete service / restore entry points?
+        survey = {}
+        for label, obj in (("cache", new_api), ("db", db),
+                           ("backend", getattr(db, "backend", None)),
+                           ("cache.backend",
+                            getattr(new_api, "backend", None))):
+            if obj is None:
+                continue
+            try:
+                survey[label] = [a for a in dir(obj)
+                                 if any(k in a.lower() for k in
+                                        ("delet", "restor", "trash"))]
+            except Exception:
+                pass
+        return {"ids": ids, "via": via, "trash_dir": trash,
+                "trash_entries": entries[:400], "survey": survey}
+
+    def restore_deleted(self, ids):
+        """Restore deleted books from calibre's recycle bin, trying
+        the Cache/delete-service entry points this calibre exposes.
+        Backup first; serialized with other writes."""
+        ids = [int(x) for x in (ids or [])]
+        if not ids:
+            return {"ok": False, "error": "no ids"}
+        if not _WRITELOCK.acquire(timeout=180):
+            return {"ok": False, "error": "another write is in progress"}
+        try:
+            backup = self.backup()
+            db = self._db()
+            new_api = getattr(db, "new_api", None)
+            results = {}
+            holders = [("cache", new_api), ("db", db),
+                       ("backend", getattr(db, "backend", None)),
+                       ("cache.backend",
+                        getattr(new_api, "backend", None))]
+            services = []
+            for hlabel, h in holders:
+                if h is None:
+                    continue
+                for aname in ("delete_service", "_delete_service",
+                              "trash", "deleted_books_service"):
+                    svc = getattr(h, aname, None)
+                    if svc is not None and not callable(svc):
+                        services.append((hlabel + "." + aname, svc))
+            for bid in ids:
+                done, how, errs = False, None, []
+                cands = []
+                for hlabel, h in holders:
+                    if h is None:
+                        continue
+                    for name in ("restore_deleted_book",
+                                 "restore_deleted_books",
+                                 "restore_books"):
+                        fn = getattr(h, name, None)
+                        if callable(fn):
+                            cands.append((hlabel + "." + name, fn))
+                for slabel, svc in services:
+                    for name in ("restore_books", "restore_deleted",
+                                 "restore_book", "restore"):
+                        fn = getattr(svc, name, None)
+                        if callable(fn):
+                            cands.append((slabel + "." + name, fn))
+                for name, fn in cands:
+                    try:
+                        try:
+                            fn(bid)
+                        except TypeError:
+                            fn([bid])
+                        done, how = True, name
+                        break
+                    except Exception as e:
+                        errs.append("%s: %s" % (name, e))
+                        oplog("restore %d via %s failed: %s"
+                              % (bid, name, e))
+                results[str(bid)] = {"restored": done, "via": how,
+                                     "errors": errs[:6]}
+                oplog("restore %d -> %s (%s)" % (bid, done, how))
+            return {"ok": True, "backup": backup, "results": results}
+        finally:
+            _WRITELOCK.release()
+
+    def trash_file(self, book_id):
+        """Fallback if restore is unavailable: find a deleted book's
+        format file in the trash dir and return its bytes."""
+        import base64
+        trash = self._trash_dir()
+        if not os.path.isdir(trash):
+            return {"ok": False, "error": "no trash dir"}
+        needle = str(int(book_id))
+        found = []
+        for root, _dirs, files in os.walk(trash):
+            if needle in os.path.basename(root):
+                for f in files:
+                    if f.rsplit(".", 1)[-1].lower() in (
+                            "epub", "azw3", "mobi", "pdf"):
+                        found.append(os.path.join(root, f))
+        if not found:
+            return {"ok": False,
+                    "error": "no trashed file for %d" % book_id}
+        found.sort(key=lambda p: -os.path.getsize(p))
+        path = found[0]
+        with open(path, "rb") as fh:
+            data = fh.read()
+        return {"ok": True, "filename": os.path.basename(path),
+                "size": len(data),
+                "data_base64": base64.b64encode(data).decode()}
+
+    # -- filesystem: list / move inside the library folder --------------
+    #
+    # The library folder holds more than live book folders: the
+    # recycle bin (.caltrash), backups/, and — after a database
+    # restore — orphaned folders calibre no longer tracks. Cleanup
+    # needs to MOVE those (quarantine, re-homing), and until now that
+    # meant hands on the PC. These two methods expose list + move
+    # over the bridge under strict confinement:
+    #
+    # - Paths are relative to the library root ("" = the root);
+    #   absolute paths and ".." escapes are refused.
+    # - metadata.db (and its journal/wal sidecars) and the
+    #   connection file are never movable.
+    # - A LIVE book folder is refused as source, as an ancestor of
+    #   the source, and as a container of the destination: calibre
+    #   owns those paths, and moving one behind its back desyncs
+    #   the database. (To rename a book's folder, edit the book's
+    #   metadata — calibre renames the folder itself.)
+    # - The destination must not already exist (no silent
+    #   overwrite); missing parent folders are created.
+    # - Everything stays inside the one library folder, so a move
+    #   is a same-filesystem rename, never a cross-drive copy.
+
+    _FS_PROTECTED = ("metadata.db", "metadata.db-journal",
+                     "metadata.db-wal", "metadata.db-shm",
+                     "calibrelink-connection.txt")
+
+    def _fs_resolve(self, rel):
+        """(normalised relative path with '/' separators, abs path)
+        for a library-relative path, or raise ValueError."""
+        lib = self.library_path()
+        rel = (rel or "").strip().replace("\\", "/")
+        if rel.startswith("/") or (len(rel) > 1 and rel[1] == ":"):
+            raise ValueError("path must be relative to the library "
+                             "folder: %r" % rel)
+        parts = [p for p in rel.split("/") if p not in ("", ".")]
+        if any(p == ".." for p in parts):
+            raise ValueError("path escapes the library folder: %r" % rel)
+        norm = "/".join(parts)
+        abspath = os.path.join(lib, *parts) if parts else lib
+        # belt and braces: resolve symlinks/junctions, then re-check
+        # containment against the resolved library root.
+        real_lib = os.path.realpath(lib)
+        real_abs = os.path.realpath(abspath)
+        if real_abs != real_lib and \
+                os.path.commonpath([real_abs, real_lib]) != real_lib:
+            raise ValueError("path escapes the library folder: %r" % rel)
+        return norm, abspath
+
+    def _fs_book_paths(self, db):
+        """Set of live book folder paths ('Author/Title (id)')."""
+        out = set()
+        for book_id in self._all_ids(db):
+            try:
+                p = db.path(book_id, index_is_id=True)
+            except Exception:
+                p = None
+            if p:
+                out.add(str(p).replace("\\", "/").strip("/"))
+        return out
+
+    def _fs_check_book_guard(self, db, norm, role):
+        for bp in self._fs_book_paths(db):
+            if norm == bp or bp.startswith(norm + "/") or \
+                    norm.startswith(bp + "/"):
+                raise ValueError(
+                    "%s %r overlaps live book folder %r — calibre "
+                    "owns book folders; change the book's metadata "
+                    "instead and calibre renames it" % (role, norm, bp))
+
+    def fs_list(self, rel="", offset=0, limit=1000):
+        norm, abspath = self._fs_resolve(rel)
+        if not os.path.isdir(abspath):
+            raise ValueError("not a folder in the library: %r"
+                             % (rel or "/"))
+        try:
+            offset = max(0, int(offset))
+        except (TypeError, ValueError):
+            offset = 0
+        try:
+            limit = max(1, min(1000, int(limit)))
+        except (TypeError, ValueError):
+            limit = 1000
+        books = self._fs_book_paths(self._db())
+        names = sorted(os.listdir(abspath),
+                       key=lambda n: (not os.path.isdir(
+                           os.path.join(abspath, n)), n.lower()))
+        total = len(names)
+        entries = []
+        for name in names[offset:offset + limit]:
+            full = os.path.join(abspath, name)
+            is_dir = os.path.isdir(full)
+            entry = {"name": name, "type": "dir" if is_dir else "file"}
+            if is_dir:
+                child = (norm + "/" + name) if norm else name
+                entry["is_book_folder"] = child in books
+            else:
+                try:
+                    entry["size"] = os.path.getsize(full)
+                except OSError:
+                    entry["size"] = None
+            entries.append(entry)
+        return {"ok": True, "root": self.library_path(), "path": norm,
+                "entries": entries, "total": total, "offset": offset,
+                "truncated": offset + len(entries) < total}
+
+    def fs_move(self, src, dst):
+        src_norm, src_abs = self._fs_resolve(src)
+        dst_norm, dst_abs = self._fs_resolve(dst)
+        if not src_norm:
+            raise ValueError("cannot move the library root")
+        if not dst_norm:
+            raise ValueError("destination must name a file or folder")
+        if src_norm.lower() in self._FS_PROTECTED:
+            raise ValueError("%s is protected and cannot be moved"
+                             % src_norm)
+        if dst_norm == src_norm or dst_norm.startswith(src_norm + "/"):
+            raise ValueError("cannot move a folder into itself")
+        if not os.path.lexists(src_abs):
+            raise ValueError("no such file or folder: %r" % src)
+        if os.path.lexists(dst_abs):
+            raise ValueError("destination already exists: %r" % dst)
+        if not _WRITELOCK.acquire(timeout=120):
+            return {"ok": False, "error": "another write is in progress"}
+        try:
+            db = self._db()
+            self._fs_check_book_guard(db, src_norm, "source")
+            self._fs_check_book_guard(db, dst_norm, "destination")
+            parent = os.path.dirname(dst_abs)
+            if parent and not os.path.isdir(parent):
+                os.makedirs(parent, exist_ok=True)
+            kind = "dir" if os.path.isdir(src_abs) else "file"
+            oplog("fs_move: %s -> %s" % (src_norm, dst_norm))
+            shutil.move(src_abs, dst_abs)
+            return {"ok": True, "src": src_norm, "dst": dst_norm,
+                    "kind": kind}
+        finally:
+            _WRITELOCK.release()
+
+    def fs_upload(self, rel_dir, filename, data, overwrite=False):
+        """Write an uploaded file into a folder inside the library.
+
+        The receiving end of a download pipeline: Tinker pulls a
+        book file from wherever it lives (e.g. Google Drive) and
+        lands it in a staging folder here, from which it can be
+        added properly (/add-book) or moved with fs_move. Same
+        confinement as fs_move: library-relative paths only, no
+        writing into a live book folder, protected names refused,
+        and no overwrite unless explicitly requested.
+        """
+        filename = (filename or "").strip()
+        if not filename or filename in (".", "..") or \
+                "/" in filename or "\\" in filename:
+            raise ValueError("filename must be a bare file name: %r"
+                             % filename)
+        dir_norm, dir_abs = self._fs_resolve(rel_dir)
+        target_norm = (dir_norm + "/" + filename) if dir_norm else filename
+        if target_norm.lower() in self._FS_PROTECTED:
+            raise ValueError("%s is protected and cannot be written"
+                             % target_norm)
+        target_abs = os.path.join(dir_abs, filename)
+        if os.path.lexists(target_abs) and not overwrite:
+            raise ValueError("destination already exists: %r"
+                             % target_norm)
+        if not _WRITELOCK.acquire(timeout=120):
+            return {"ok": False, "error": "another write is in progress"}
+        try:
+            self._fs_check_book_guard(self._db(), target_norm,
+                                      "destination")
+            if not os.path.isdir(dir_abs):
+                os.makedirs(dir_abs, exist_ok=True)
+            with open(target_abs, "wb") as f:
+                f.write(data)
+            oplog("fs_upload: %s (%d bytes)" % (target_norm, len(data)))
+            return {"ok": True, "path": target_norm, "size": len(data)}
+        finally:
+            _WRITELOCK.release()
+
+    # -- chunked, resumable uploads ---------------------------------------
+    #
+    # For files too big for one request (the single-shot cap is
+    # 64 MB) and for transfers that must survive a dropped
+    # connection — or a calibre restart. State lives ON DISK, not
+    # in memory: each transfer gets a part file plus a JSON sidecar
+    # in <library>/.calibrelink-parts/, so begin/status/complete
+    # work across bridge restarts. Pausing is simply not sending
+    # more chunks; resuming is calling begin again with the same
+    # transfer id and continuing from the reported offset. Chunks
+    # must arrive in order; resending the tail (offset < received)
+    # truncates and rewrites it, which makes a lost response safe
+    # to retry. Complete verifies size (and sha256 when given),
+    # re-runs every confinement check, then renames the part file
+    # onto the target.
+
+    _TRANSFER_ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+    _CHUNK_CAP = 16 * 1024 * 1024
+
+    def _parts_dir(self):
+        d = os.path.join(self.library_path(), ".calibrelink-parts")
+        if not os.path.isdir(d):
+            os.makedirs(d, exist_ok=True)
+        return d
+
+    def _transfer_paths(self, transfer_id):
+        if not self._TRANSFER_ID.match(transfer_id or ""):
+            raise ValueError("bad transfer id: %r" % transfer_id)
+        d = self._parts_dir()
+        return (os.path.join(d, transfer_id + ".part"),
+                os.path.join(d, transfer_id + ".json"))
+
+    def _transfer_meta(self, transfer_id):
+        import json
+        _part, sidecar = self._transfer_paths(transfer_id)
+        if not os.path.exists(sidecar):
+            return None
+        with open(sidecar, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    def _check_upload_target(self, dir_norm, filename, overwrite):
+        target_norm = (dir_norm + "/" + filename) if dir_norm else filename
+        if target_norm.lower() in self._FS_PROTECTED:
+            raise ValueError("%s is protected and cannot be written"
+                             % target_norm)
+        _n, dir_abs = self._fs_resolve(dir_norm)
+        if os.path.lexists(os.path.join(dir_abs, filename)) \
+                and not overwrite:
+            raise ValueError("destination already exists: %r"
+                             % target_norm)
+        self._fs_check_book_guard(self._db(), target_norm, "destination")
+        return target_norm
+
+    def upload_begin(self, rel_dir, filename, size, transfer_id,
+                     sha256=None, overwrite=False):
+        import json
+        filename = (filename or "").strip()
+        if not filename or filename in (".", "..") or \
+                "/" in filename or "\\" in filename:
+            raise ValueError("filename must be a bare file name: %r"
+                             % filename)
+        size = int(size)
+        if size < 0:
+            raise ValueError("bad size: %r" % size)
+        dir_norm, _abs = self._fs_resolve(rel_dir)
+        part, sidecar = self._transfer_paths(transfer_id)
+        meta = self._transfer_meta(transfer_id)
+        if meta is not None:
+            if meta.get("dir") != dir_norm or \
+                    meta.get("filename") != filename or \
+                    int(meta.get("size", -1)) != size:
+                raise ValueError(
+                    "transfer %s already exists with different "
+                    "parameters" % transfer_id)
+            received = os.path.getsize(part) if os.path.exists(part) else 0
+            return {"ok": True, "transfer_id": transfer_id,
+                    "received": received, "size": size, "resumed": True}
+        self._check_upload_target(dir_norm, filename, overwrite)
+        with open(part, "wb"):
+            pass
+        meta = {"dir": dir_norm, "filename": filename, "size": size,
+                "sha256": sha256 or None, "overwrite": bool(overwrite)}
+        with open(sidecar, "w", encoding="utf-8") as f:
+            json.dump(meta, f)
+        oplog("upload_begin: %s -> %s (%d bytes)"
+              % (transfer_id, filename, size))
+        return {"ok": True, "transfer_id": transfer_id, "received": 0,
+                "size": size, "resumed": False}
+
+    def upload_chunk(self, transfer_id, offset, data):
+        meta = self._transfer_meta(transfer_id)
+        if meta is None:
+            return {"ok": False,
+                    "error": "unknown transfer: %s" % transfer_id}
+        if self._is_paused(transfer_id):
+            return {"ok": False, "paused": True,
+                    "error": "transfer paused: %s" % transfer_id}
+        if len(data) > self._CHUNK_CAP:
+            raise ValueError("chunk too large (%d bytes, cap %d)"
+                             % (len(data), self._CHUNK_CAP))
+        offset = int(offset)
+        part, _sidecar = self._transfer_paths(transfer_id)
+        if not _WRITELOCK.acquire(timeout=120):
+            return {"ok": False, "error": "another write is in progress"}
+        try:
+            current = os.path.getsize(part) if os.path.exists(part) else 0
+            if offset > current:
+                raise ValueError("chunk gap: offset %d beyond received "
+                                 "%d" % (offset, current))
+            with open(part, "r+b") as f:
+                if offset < current:
+                    f.truncate(offset)
+                f.seek(offset)
+                f.write(data)
+            received = os.path.getsize(part)
+            return {"ok": True, "transfer_id": transfer_id,
+                    "received": received, "size": meta["size"]}
+        finally:
+            _WRITELOCK.release()
+
+    def upload_status(self, transfer_id):
+        meta = self._transfer_meta(transfer_id)
+        if meta is None:
+            return {"ok": False,
+                    "error": "unknown transfer: %s" % transfer_id}
+        part, _sidecar = self._transfer_paths(transfer_id)
+        received = os.path.getsize(part) if os.path.exists(part) else 0
+        return {"ok": True, "transfer_id": transfer_id,
+                "received": received, "size": meta["size"],
+                "target": (meta["dir"] + "/" + meta["filename"])
+                if meta["dir"] else meta["filename"]}
+
+    def upload_complete(self, transfer_id):
+        import hashlib
+        meta = self._transfer_meta(transfer_id)
+        if meta is None:
+            return {"ok": False,
+                    "error": "unknown transfer: %s" % transfer_id}
+        part, sidecar = self._transfer_paths(transfer_id)
+        received = os.path.getsize(part) if os.path.exists(part) else 0
+        if received != int(meta["size"]):
+            return {"ok": False,
+                    "error": "incomplete transfer: %d of %d bytes "
+                             "received" % (received, meta["size"])}
+        if meta.get("sha256"):
+            h = hashlib.sha256()
+            with open(part, "rb") as f:
+                for block in iter(lambda: f.read(1024 * 1024), b""):
+                    h.update(block)
+            if h.hexdigest().lower() != str(meta["sha256"]).lower():
+                return {"ok": False,
+                        "error": "sha256 mismatch — transfer is "
+                                 "corrupt; abort and restart it"}
+        if not _WRITELOCK.acquire(timeout=120):
+            return {"ok": False, "error": "another write is in progress"}
+        try:
+            target_norm = self._check_upload_target(
+                meta["dir"], meta["filename"], meta["overwrite"])
+            _n, dir_abs = self._fs_resolve(meta["dir"])
+            if not os.path.isdir(dir_abs):
+                os.makedirs(dir_abs, exist_ok=True)
+            target_abs = os.path.join(dir_abs, meta["filename"])
+            shutil.move(part, target_abs)
+            try:
+                os.remove(sidecar)
+            except OSError:
+                pass
+            oplog("upload_complete: %s (%d bytes)"
+                  % (target_norm, received))
+            return {"ok": True, "path": target_norm, "size": received}
+        finally:
+            _WRITELOCK.release()
+
+    def upload_abort(self, transfer_id):
+        part, sidecar = self._transfer_paths(transfer_id)
+        for p in (part, sidecar):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        oplog("upload_abort: %s" % transfer_id)
+        return {"ok": True, "transfer_id": transfer_id}
+
+    # -- transfer progress: one registry for both directions -------------
+    #
+    # The status dialog's progress bars and the /transfers endpoint
+    # both read from here. Uploads are disk-backed already (a sidecar
+    # per transfer in .calibrelink-parts). Downloads are served
+    # range-by-range to a remote client, so the bridge tracks them
+    # in memory: per file, its size and the furthest byte served —
+    # which is exactly the client's resume point. Pause flags live
+    # on disk (paused.json in the parts dir) so a pause set in the
+    # dialog is seen by the HTTP API and survives a calibre restart;
+    # a paused upload refuses chunks and a paused download refuses
+    # ranges until resumed. Keys: an upload's transfer_id, a
+    # download's library-relative path, or "*" for everything.
+
+    def _paused_file(self):
+        return os.path.join(self._parts_dir(), "paused.json")
+
+    def _paused_set(self):
+        import json
+        try:
+            with open(self._paused_file(), "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return set(data) if isinstance(data, list) else set()
+        except Exception:
+            return set()
+
+    def _save_paused(self, keys):
+        import json
+        with open(self._paused_file(), "w", encoding="utf-8") as f:
+            json.dump(sorted(keys), f)
+
+    def _is_paused(self, key):
+        paused = self._paused_set()
+        return "*" in paused or key in paused
+
+    def transfer_pause(self, key):
+        key = (key or "*").strip() or "*"
+        keys = self._paused_set()
+        keys.add(key)
+        self._save_paused(keys)
+        oplog("transfer_pause: %s" % key)
+        return {"ok": True, "paused": sorted(keys)}
+
+    def transfer_resume(self, key):
+        key = (key or "*").strip() or "*"
+        keys = self._paused_set()
+        if key == "*":
+            keys.clear()
+        else:
+            keys.discard(key)
+            keys.discard("*")
+        self._save_paused(keys)
+        oplog("transfer_resume: %s" % key)
+        return {"ok": True, "paused": sorted(keys)}
+
+    def _note_download(self, key, name, total, end):
+        import time
+        track = getattr(self, "_dl_track", None)
+        if track is None:
+            track = self._dl_track = {}
+        rec = track.get(key)
+        if rec is None or rec.get("size") != total:
+            rec = {"name": name, "size": total, "served": 0,
+                   "updated": 0.0}
+            track[key] = rec
+        rec["served"] = max(rec["served"], end)
+        rec["updated"] = time.time()
+
+    def transfers_list(self):
+        import time
+        paused = self._paused_set()
+        pause_all = "*" in paused
+        out = []
+        parts = self._parts_dir()
+        for name in sorted(os.listdir(parts)):
+            if not name.endswith(".json") or name == "paused.json":
+                continue
+            tid = name[:-len(".json")]
+            if not self._TRANSFER_ID.match(tid):
+                continue
+            meta = self._transfer_meta(tid)
+            if meta is None:
+                continue
+            part, _s = self._transfer_paths(tid)
+            received = os.path.getsize(part) \
+                if os.path.exists(part) else 0
+            size = int(meta.get("size", 0))
+            is_paused = pause_all or tid in paused
+            out.append({
+                "kind": "upload", "key": tid,
+                "name": meta.get("filename"),
+                "target": (meta["dir"] + "/" + meta["filename"])
+                if meta.get("dir") else meta.get("filename"),
+                "size": size, "done": received,
+                "percent": (100 * received // size) if size else 100,
+                "paused": is_paused,
+                "state": "paused" if is_paused else
+                         ("ready" if received >= size else "active")})
+        for key, rec in sorted(
+                getattr(self, "_dl_track", {}).items()):
+            size = int(rec["size"])
+            done = int(rec["served"])
+            is_paused = pause_all or key in paused
+            out.append({
+                "kind": "download", "key": key, "name": rec["name"],
+                "size": size, "done": done,
+                "percent": (100 * done // size) if size else 100,
+                "paused": is_paused,
+                "state": "paused" if is_paused else
+                         ("done" if done >= size else "active"),
+                "idle_seconds": int(time.time() - rec["updated"])})
+        return {"ok": True, "transfers": out, "paused": sorted(paused)}
+
+    # -- chat / command channel -------------------------------------------
+    #
+    # A message log stored in the library folder
+    # (.calibrelink-chat.json), shared by three writers/readers: the
+    # plugin's own console window (in-process, no token), the HTTP
+    # API (Tinker, token-gated), and the MCP layer on top of it.
+    # Senders: "joe" (typed in calibre), "tinker" (replies posted
+    # through the API), "system" (the console's local command
+    # results are shown in the window but NOT stored — only joe and
+    # tinker messages persist, so the log stays a conversation, not
+    # a console dump). Capped at the newest 500 messages.
+
+    _CHAT_SENDERS = ("joe", "tinker")
+
+    def _chat_file(self):
+        return os.path.join(self.library_path(),
+                            ".calibrelink-chat.json")
+
+    def _chat_read(self):
+        import json
+        try:
+            with open(self._chat_file(), "r", encoding="utf-8") as f:
+                data = json.load(f)
+            msgs = data.get("messages", [])
+            return msgs if isinstance(msgs, list) else []
+        except Exception:
+            return []
+
+    def chat_list(self, since=0):
+        msgs = self._chat_read()
+        since = max(0, int(since or 0))
+        return {"ok": True, "messages": msgs[since:],
+                "count": len(msgs)}
+
+    def chat_post(self, sender, text):
+        import json
+        import time
+        sender = (sender or "").strip().lower()
+        if sender not in self._CHAT_SENDERS:
+            return {"ok": False,
+                    "error": "sender must be one of: %s"
+                             % ", ".join(self._CHAT_SENDERS)}
+        text = (text or "").strip()
+        if not text:
+            return {"ok": False, "error": "empty message"}
+        if len(text) > 4000:
+            text = text[:4000]
+        if not _WRITELOCK.acquire(timeout=120):
+            return {"ok": False, "error": "another write is in progress"}
+        try:
+            msgs = self._chat_read()
+            msg = {"ts": time.time(), "from": sender, "text": text}
+            msgs.append(msg)
+            msgs = msgs[-500:]
+            tmp = self._chat_file() + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"messages": msgs}, f)
+            os.replace(tmp, self._chat_file())
+            oplog("chat_post: %s (%d chars)" % (sender, len(text)))
+            return {"ok": True, "message": msg, "count": len(msgs)}
+        finally:
+            _WRITELOCK.release()
+
+    # -- downloads: library -> out (the Google Drive upload leg) ---------
+    #
+    # The other direction of the Drive pipeline: Tinker pulls a
+    # book's format file (or any file staged in the library folder)
+    # through the bridge, then uploads it to Google Drive with the
+    # Drive connector. Reads only — no lock, no book-folder guard
+    # (reading a book's file cannot desync anything). metadata.db
+    # itself stays refused here: /backup is the consistent way to
+    # copy the database. Whole-file responses cap at 64 MB; larger
+    # files (and resumable transfers) use offset/length ranges —
+    # a download pauses by simply stopping, and resumes by
+    # re-requesting from the byte offset already saved.
+
+    def _range(self, total, offset, length):
+        """Validate/normalise a byte-range request. With no length,
+        the whole remainder is served when it fits the 64 MB
+        single-response cap; ranged requests are capped per chunk.
+        Returns (offset, length)."""
+        offset = max(0, int(offset or 0))
+        if offset > total:
+            raise ValueError("offset %d beyond end of file (%d bytes)"
+                             % (offset, total))
+        if length is None:
+            if total - offset > 64 * 1024 * 1024:
+                raise ValueError(
+                    "too large for a single response (%d bytes) — "
+                    "request it in offset/length chunks" % total)
+            length = total - offset
+        length = max(0, min(int(length), self._CHUNK_CAP,
+                            total - offset))
+        return offset, length
+
+    def book_file(self, book_id, fmt=None, offset=0, length=None):
+        import base64
+        db = self._db()
+        api = db.new_api
+        formats = []
+        try:
+            formats = [str(f) for f in (api.formats(book_id) or [])]
+        except Exception:
+            formats = []
+        if not formats:
+            try:
+                raw = db.formats(book_id, index_is_id=True) or ""
+                formats = [f.strip() for f in str(raw).split(",")
+                           if f.strip()]
+            except Exception:
+                formats = []
+        if not formats:
+            return {"ok": False, "error": "book has no format files"}
+        want = (fmt or formats[0]).upper()
+        match = [f for f in formats if f.upper() == want]
+        if not match:
+            return {"ok": False,
+                    "error": "format %s not available (have: %s)"
+                             % (want, ", ".join(formats))}
+        fmt = match[0]
+        data, name, total = None, None, None
+        path = None
+        try:
+            path = api.format_abspath(book_id, fmt)
+        except Exception:
+            path = None
+        if path and os.path.isfile(path):
+            total = os.path.getsize(path)
+            name = os.path.basename(path)
+            dl_key = os.path.relpath(path, self.library_path()) \
+                .replace(os.sep, "/")
+            if self._is_paused(dl_key):
+                return {"ok": False, "paused": True,
+                        "error": "transfer paused: %s" % dl_key}
+            offset, length = self._range(total, offset, length)
+            with open(path, "rb") as f:
+                f.seek(offset)
+                data = f.read(length)
+            self._note_download(dl_key, name, total,
+                                offset + len(data))
+        else:
+            try:
+                data = api.format(book_id, fmt)
+            except Exception as e:
+                return {"ok": False,
+                        "error": "cannot read format file: %s" % e}
+            if not data:
+                return {"ok": False, "error": "format file is empty"}
+            total = len(data)
+            offset, length = self._range(total, offset, length)
+            data = data[offset:offset + length]
+        if not name:
+            mi = self._metadata(db, book_id)
+            title = ((mi.title if mi else "") or str(book_id)).strip()
+            authors = ""
+            if mi and mi.authors:
+                authors = " & ".join(str(a) for a in mi.authors)
+            base = ("%s - %s" % (title, authors)) if authors else title
+            base = base.replace("/", "_").replace("\\", "_")
+            name = "%s.%s" % (base, fmt.lower())
+        return {"ok": True, "book_id": book_id, "format": fmt,
+                "filename": name, "size": total, "offset": offset,
+                "chunk_size": len(data),
+                "eof": offset + len(data) >= total,
+                "data_base64": base64.b64encode(data).decode()}
+
+    def fs_download(self, rel, offset=0, length=None):
+        import base64
+        norm, abspath = self._fs_resolve(rel)
+        if not norm:
+            raise ValueError("path must name a file in the library")
+        if norm.lower() in self._FS_PROTECTED:
+            raise ValueError("%s is protected — use /backup for a "
+                             "consistent copy of the database" % norm)
+        if self._is_paused(norm):
+            raise ValueError("transfer paused: %s" % norm)
+        if not os.path.isfile(abspath):
+            raise ValueError("not a file in the library: %r" % rel)
+        total = os.path.getsize(abspath)
+        offset, length = self._range(total, offset, length)
+        with open(abspath, "rb") as f:
+            f.seek(offset)
+            data = f.read(length)
+        self._note_download(norm, os.path.basename(abspath), total,
+                            offset + len(data))
+        return {"ok": True, "path": norm,
+                "filename": os.path.basename(abspath), "size": total,
+                "offset": offset, "chunk_size": len(data),
+                "eof": offset + len(data) >= total,
+                "data_base64": base64.b64encode(data).decode()}
+
+    # -- metadata repair: swapped title / authors -------------------------
+    def swap_title_authors(self, book_id):
+        """Swap a book's title and author(s) — the classic mangled
+        record where each field holds the other's value.
+
+        The old title usually IS an author name, often in sort form
+        ("Smith, John"): a single "Last, First" title is inverted
+        back to display form for the authors field and kept as the
+        author_sort. Backup first; serialized with other writes.
+        Returns the repaired book row.
+        """
+        if not _WRITELOCK.acquire(timeout=120):
+            return {"ok": False, "error": "another write is in progress"}
+        try:
+            db = self._db()
+            mi = self._metadata(db, book_id)
+            if mi is None:
+                return {"ok": False, "error": "no such book"}
+            old_title = (mi.title or "").strip()
+            old_authors = [str(a).strip() for a in (mi.authors or [])
+                           if str(a).strip()]
+            if not old_title or not old_authors:
+                return {"ok": False,
+                        "error": "cannot swap: title and authors "
+                                 "must both be non-empty"}
+            backup = self.backup()
+            new_title = " & ".join(old_authors)
+            new_authors, new_sort = [], []
+            raw = old_title
+            if raw.count(",") == 1 and len(old_authors) == 1:
+                last, first = [p.strip() for p in raw.split(",", 1)]
+                if last and first:
+                    new_authors = ["%s %s" % (first, last)]
+                    new_sort = [raw]
+            if not new_authors:
+                new_authors = [raw]
+                new_sort = [_author_sort(a) for a in new_authors]
+            book = self.set_metadata(book_id, {
+                "title": new_title,
+                "authors": new_authors,
+                "author_sort": " & ".join(new_sort)})
+            oplog("swap_title_authors: #%d %r <-> %r"
+                  % (book_id, old_title, old_authors))
+            return {"ok": True, "backup": backup, "book": book,
+                    "swapped": {"from_title": old_title,
+                                "from_authors": old_authors}}
+        finally:
+            _WRITELOCK.release()
+
     def book_text(self, book_id, max_chars=8000):
         """Extract head/tail text from the book's own file.
 
@@ -711,6 +1667,21 @@ def extract_text_from_epub(path, max_chars=8000):
         return {"supported": False, "error": "missing member: %s" % e}
     except Exception as e:
         return {"supported": False, "error": str(e)}
+
+
+def _author_sort(name):
+    """'First Last' -> 'Last, First' — calibre's own helper when
+    running inside calibre, a plain inversion fallback headless."""
+    try:
+        from calibre.ebooks.metadata import author_to_author_sort
+        return author_to_author_sort(name)
+    except Exception:
+        pass
+    name = (name or "").strip()
+    if "," in name or " " not in name:
+        return name
+    first, _, last = name.rpartition(" ")
+    return "%s, %s" % (last, first)
 
 
 def _parse_date(value):

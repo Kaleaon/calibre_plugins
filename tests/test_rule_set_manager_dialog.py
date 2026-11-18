@@ -65,8 +65,12 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
         for submod in ("config", "rules", "presets", "error_handler", "guikit", "ui", "action"):
             sys.modules.pop(f"calibre_plugins.story_collection_tagger.{submod}", None)
 
-        spec = importlib.util.spec_from_file_location("tagger_action_real_qt", repo_root / "tagger" / "action.py")
+        spec = importlib.util.spec_from_file_location(
+            "calibre_plugins.story_collection_tagger.action",
+            repo_root / "tagger" / "action.py",
+        )
         cls.action = importlib.util.module_from_spec(spec)
+        sys.modules["calibre_plugins.story_collection_tagger.action"] = cls.action
         spec.loader.exec_module(cls.action)
 
     @classmethod

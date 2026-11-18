@@ -74,7 +74,7 @@ class HeadlessCalibreGui(QMainWindow):
         self.bars = {}
         self.db_path = r'E:\Calibre Portable\Calibre Library'
         self.is_paused = lambda: False
-        
+
         # Setup mock db
         db_mock = MagicMock()
         db_mock.all_book_ids.return_value = [1, 2]
@@ -88,7 +88,7 @@ class HeadlessCalibreGui(QMainWindow):
         db_mock.formats.return_value = ['EPUB']
         self.current_db.new_api = db_mock
         self.library_view.get_selected_ids.return_value = [1]
-        
+
     def addAction(self, action):
         pass
 
@@ -108,20 +108,20 @@ results = []
 for zip_name, formal_name, action_spec_str in plugins_to_test:
     print(f"\n---> Testing: {formal_name} ({zip_name})")
     status = {"plugin": formal_name, "zip": zip_name, "errors": [], "warnings": [], "passed": False}
-    
+
     try:
         # A. Load Plugin
         plugin_obj = ia_by_name.get(formal_name)
         if not plugin_obj:
             raise RuntimeError(f"Plugin '{formal_name}' not found in Calibre interface_actions(). Available: {list(ia_by_name.keys())[:5]}...")
-        
+
         print(f"     Version: {plugin_obj.version}")
         print(f"     Description: {plugin_obj.description[:60]}...")
-        
+
         # B. Instantiate Action class via Calibre
         action = plugin_obj.load_actual_plugin(gui)
         action.interface_action_base_plugin = plugin_obj
-        
+
         # C. Genesis (Build menus, sub-actions, shortcuts)
         print("     Running do_genesis()...")
         action.do_genesis()
@@ -131,7 +131,7 @@ for zip_name, formal_name, action_spec_str in plugins_to_test:
             print(f"     Menu actions registered ({len(actions_list)}): {actions_list}")
         else:
             print("     Direct action (no dropdown menu)")
-            
+
         # D. Test Settings / Options dialog if available
         if hasattr(action, 'settings'):
             print("     Testing settings()...")
@@ -148,13 +148,13 @@ for zip_name, formal_name, action_spec_str in plugins_to_test:
             from scrubber_plugin.image_classifier import classify_image_context, get_image_info
             from scrubber_plugin.scanner import LibraryScanner
             from scrubber_plugin.ui import LibraryScannerDialog, ScrubPreviewDialog, ScrubSettingsDialog
-            
+
             res_ad = classify_image_context(None, 'oceanofpdf_banner.png', {})
             res_logo = classify_image_context(None, 'publisher_logo.png', {'page_file': 'titlepage.xhtml', 'surrounding_text': 'Published by Random House'})
             assert res_ad['is_promo'] is True, "Ad banner failed promo detection!"
             assert res_logo['is_promo'] is False, "Publisher logo falsely flagged as promo!"
             print("     [OK] Image classifier ad vs logo differentiation verified")
-            
+
             scan_dlg = LibraryScannerDialog(gui, gui.current_db.new_api, {}, selected_book_ids=[1])
             scan_dlg.select_all()
             scan_dlg.select_only_ads()
@@ -167,18 +167,18 @@ for zip_name, formal_name, action_spec_str in plugins_to_test:
             from gemini.providers import detect_provider, get_provider_metadata, fetch_openlibrary_metadata
             from gemini.engine import load_scan_state, save_scan_state
             from gemini.action import TemplateManagerDialog, GeminiRecoveryDialog
-            
+
             prov = detect_provider("https://www.metabods.com/story/1234")
             assert prov == 'metabods', f"detect_provider failed: {prov}"
             print(f"     [OK] Provider detection verified: {prov}")
-            
+
             import tempfile
             with tempfile.TemporaryDirectory() as td:
                 save_scan_state(td, [1, 2, 3], {1}, scope='all', status='running')
                 st = load_scan_state(td)
                 assert st['remaining_ids'] == [2, 3], f"Scan state resume mismatch: {st}"
                 print("     [OK] Engine scan state crash resumption verified")
-            
+
             t_dlg = TemplateManagerDialog(gui, sample_vars_fn=lambda: {'title': 'Sample Book', 'authors': 'Author'})
             r_dlg = GeminiRecoveryDialog(gui, paused_error={'error': 'Operation paused by user'})
             print("     [OK] TemplateManagerDialog and GeminiRecoveryDialog initialized cleanly")

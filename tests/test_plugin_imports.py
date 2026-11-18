@@ -17,7 +17,8 @@ import build_plugins  # noqa: E402
 
 STUBS = ['calibre', 'calibre.customize', 'calibre.gui2', 'calibre.gui2.actions', 'calibre.utils', 'calibre.utils.config',
          'calibre.utils.date', 'calibre.ebooks', 'calibre.ebooks.metadata', 'calibre.ebooks.metadata.meta',
-         'calibre.ebooks.metadata.book', 'calibre.ebooks.metadata.book.base', 'qt', 'qt.core']
+         'calibre.ebooks.metadata.book', 'calibre.ebooks.metadata.book.base',
+         'calibre.ebooks.metadata.sources', 'calibre.ebooks.metadata.sources.base', 'qt', 'qt.core']
 
 
 class Meta:
@@ -41,6 +42,7 @@ class PluginImportTests(unittest.TestCase):
         sys.modules['calibre.ebooks.metadata.book.base'].Metadata = Meta
         sys.modules['calibre.gui2.actions'].InterfaceAction = object
         sys.modules['calibre.customize'].InterfaceActionBase = object
+        sys.modules['calibre.ebooks.metadata.sources.base'].Source = object
         sys.modules['calibre.utils.config'].JSONConfig = lambda name: type('Prefs', (dict,), {'defaults': {}})()
         sys.modules['calibre_plugins'] = types.ModuleType('calibre_plugins')
         sys.modules['calibre_plugins'].__path__ = []
@@ -76,12 +78,23 @@ class PluginImportTests(unittest.TestCase):
         self.load('metabods_downloader')  # builds everything that can be built in this environment
         for import_name in self.built:
             package = self.load(import_name)
-            modules = {'takeout_book_fixer': ['config', 'action', 'ui', 'core', 'importer', 'queue_db', 'daemon', 'watcher', 'guikit'],
-                       'epub_promo_scrubber': ['action', 'ui', 'core', 'guikit', 'scanner', 'profiles'],
-                       'story_collection_tagger': ['config', 'action', 'rules', 'presets', 'ui', 'guikit', 'error_handler'],
-                       'gemini_library_fixer': ['config', 'action', 'engine', 'guikit'],
-                       'media_matcher': ['config', 'action', 'tags', 'sources', 'matching', 'guikit', 'mutagen_writer'],
-                       'fanfic_downloader': ['config', 'action', 'ui', 'engine', 'flaresolverr', 'guikit']}.get(import_name, ['config', 'action', 'ui', 'core', 'guikit'])
+            modules = {'takeout_book_fixer': ['config', 'action', 'ui', 'core', 'importer', 'queue_db', 'daemon', 'watcher', 'guikit', 'metadata_source', 'metakit'],
+                       'epub_promo_scrubber': ['action', 'ui', 'core', 'guikit', 'scanner', 'profiles', 'metadata_source', 'metakit'],
+                       'story_collection_tagger': ['config', 'action', 'rules', 'presets', 'ui', 'guikit', 'error_handler', 'metadata_source', 'metakit'],
+                       'gemini_library_fixer': ['config', 'action', 'engine', 'guikit', 'metadata_source', 'metakit'],
+                       'media_matcher': ['config', 'action', 'tags', 'sources', 'matching', 'guikit', 'mutagen_writer', 'metadata_source', 'metakit'],
+                       'fanfic_downloader': ['config', 'action', 'ui', 'engine', 'flaresolverr', 'guikit', 'metadata_source', 'metakit'],
+                       'takeout_google_books_source': ['metadata_source', 'metakit', 'storykit'],
+                       'epub_promo_scrubber_source': ['metadata_source', 'metakit', 'core', 'profiles'],
+                       'metabods_metadata_source': ['metadata_source', 'metakit', 'core', 'storykit'],
+                       'nifty_metadata_source': ['metadata_source', 'metakit', 'core', 'storykit'],
+                       'story_collection_tagger_source': ['metadata_source', 'metakit', 'rules', 'config'],
+                       'fanfic_metadata_source': ['metadata_source', 'metakit', 'engine', 'config'],
+                       'reddit_metadata_source': ['metadata_source', 'metakit', 'core', 'config', 'storykit'],
+                       'gemini_metadata_source': ['metadata_source', 'metakit', 'engine', 'providers', 'config', 'storykit'],
+                       'media_matcher_source': ['metadata_source', 'metakit', 'sources', 'matching', 'config'],
+                       'inkbunny_sofurry_metadata_source': ['metadata_source', 'metakit', 'core', 'config', 'storykit'],
+                       'plugin_pack_manager': ['config', 'action', 'ui', 'core', 'manifest', 'guikit', 'error_handler']}.get(import_name, ['config', 'action', 'ui', 'core', 'guikit', 'metadata_source', 'metakit'])
             for module in modules:
                 with self.subTest(plugin=import_name, module=module):
                     importlib.import_module(f'{package}.{module}')
@@ -110,7 +123,7 @@ class PluginImportTests(unittest.TestCase):
             package = self.load(plugin)
             libkit = importlib.import_module(package + '.libkit')
             action_mod = importlib.import_module(package + '.action')
-            
+
             # Identify action class
             action_cls = action_mod.MetabodsAction if plugin == 'metabods_downloader' else action_mod.NiftyAction
             self.assertTrue(issubclass(action_cls, libkit.DownloaderAction))

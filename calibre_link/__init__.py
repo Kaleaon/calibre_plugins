@@ -19,6 +19,6 @@ class CalibreLinkPlugin(InterfaceActionBase):
     )
     supported_platforms = ["windows", "osx", "linux"]
     author = "Tinker, for Joe Graham"
-    version = (1, 5, 0)
+    version = (1, 14, 0)
     minimum_calibre_version = (6, 0, 0)
     actual_plugin = "calibre_plugins.calibre_link.ui:CalibreLinkAction"
