@@ -29,7 +29,9 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
             for name in dir(mod):
                 if not name.startswith("_"):
                     setattr(qtcore, name, getattr(mod, name))
-        sys.modules["qt"] = types.ModuleType("qt")
+        qt_mod = types.ModuleType("qt")
+        qt_mod.core = qtcore
+        sys.modules["qt"] = qt_mod
         sys.modules["qt.core"] = qtcore
 
         calibre_mod = types.ModuleType("calibre")
@@ -47,18 +49,21 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
         mock_cfg = MagicMock()
         mock_cfg.defaults = {}
         sys.modules["calibre.utils.config"].JSONConfig = lambda *a, **k: mock_cfg
+
         repo_root = Path(__file__).resolve().parents[1]
         sys.path.insert(0, str(repo_root))
         sys.path.insert(0, str(repo_root / "common"))
         sys.path.insert(0, str(repo_root / "tagger"))
 
-        cp_mod = types.ModuleType("calibre_plugins")
-        cp_mod.__path__ = []
+        cp_pkg = types.ModuleType("calibre_plugins")
+        cp_pkg.__path__ = []
         tagger_pkg = types.ModuleType("calibre_plugins.story_collection_tagger")
         tagger_pkg.__path__ = [str(repo_root / "tagger"), str(repo_root / "common")]
-        cp_mod.story_collection_tagger = tagger_pkg
-        sys.modules["calibre_plugins"] = cp_mod
+        cp_pkg.story_collection_tagger = tagger_pkg
+        sys.modules["calibre_plugins"] = cp_pkg
         sys.modules["calibre_plugins.story_collection_tagger"] = tagger_pkg
+        for submod in ("config", "rules", "presets", "error_handler", "guikit", "ui", "action"):
+            sys.modules.pop(f"calibre_plugins.story_collection_tagger.{submod}", None)
 
         spec = importlib.util.spec_from_file_location(
             "calibre_plugins.story_collection_tagger.action",
