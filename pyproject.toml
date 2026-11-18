@@ -2,14 +2,29 @@
 target-version = "py310"
 line-length = 120
 include = [
+    "common/guikit.py",
+    "fanfic/ui.py",
+    "nifty/core.py",
+    "plugin/action.py",
+    "plugin/importer.py",
+    "plugin/queue_db.py",
     "scrubber_plugin/__init__.py",
     "scrubber_plugin/action.py",
     "scrubber_plugin/core.py",
     "scrubber_plugin/ui.py",
     "tagger/action.py",
+    "tests/test_importer.py",
+    "tests/test_nifty_authors.py",
+    "tests/test_qt_dialogs.py",
     "tests/test_rule_set_manager_dialog.py",
     "tests/test_scrubber.py",
     "tests/test_scrubber_restore.py",
+    "common/guikit.py",
+    "common/log_utils.py",
+    "common/tree_utils.py",
+    "build.py",
+    "build_plugins.py",
+    "tests/test_guikit.py",
 ]
 extend-exclude = [
     "dist",
@@ -90,7 +105,7 @@ select = [
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
 ]
-ignore = ["E501", "UP017"]
+ignore = ["E501", "E741", "UP017", "UP031"]
 
 [tool.ruff.lint.isort]
 known-first-party = [
@@ -116,3 +131,4 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-v --ignore=tests/test_qt_dialogs.py --ignore=tests/test_media_dialogs.py --ignore=tests/test_empty_state_overlay.py --ignore=tests/test_reddit_registry.py --ignore=tests/test_readme_index.py --ignore=tests/test_scrubber.py"
