@@ -109,7 +109,6 @@ class FollowerAction(InterfaceAction):
                 except ImportError:
                     import os as _os
                     import sys as _sys
-
                     _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
                     if _pkg_dir not in _sys.path:
                         _sys.path.insert(0, _pkg_dir)
@@ -133,7 +132,6 @@ class FollowerAction(InterfaceAction):
                     try:
                         import os as _os
                         import sys as _sys
-
                         _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
                         if _pkg_dir not in _sys.path:
                             _sys.path.insert(0, _pkg_dir)
@@ -343,6 +341,13 @@ class FollowerAction(InterfaceAction):
                 changed_books += 1
             elif not r["error"] and not r["rate_limited"]:
                 lines.append(f"{name}: up to date")
+            if hasattr(self, "registry") and self.registry():
+                try:
+                    pending_cnt = self.registry().get_pending_manifest_count(r["follow"]["id"])
+                    if pending_cnt:
+                        lines.append(f"{name}: {pending_cnt} new chapter(s) need review in Chapter Manager")
+                except Exception:
+                    pass
         if interactive:
             info_dialog(
                 self.gui,
@@ -355,6 +360,10 @@ class FollowerAction(InterfaceAction):
                 "Reddit stories updated: " + "; ".join(line for line in lines if "up to date" not in line),
                 15000,
             )
+        else:
+            pending_notes = [line for line in lines if "need review in Chapter Manager" in line]
+            if pending_notes:
+                self.gui.status_bar.show_message("; ".join(pending_notes), 15000)
 
     def rebuild_book(self, follow):
         """Rebuild the EPUB book for this follow using current manifest sequence and exclusions."""
