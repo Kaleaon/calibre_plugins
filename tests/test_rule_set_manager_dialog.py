@@ -52,6 +52,11 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
         sys.path.insert(0, str(repo_root / "common"))
         sys.path.insert(0, str(repo_root / "tagger"))
 
+        for key in list(sys.modules):
+            if key == "calibre_plugins.story_collection_tagger" or key.startswith(
+                "calibre_plugins.story_collection_tagger."
+            ):
+                sys.modules.pop(key, None)
         cp_mod = types.ModuleType("calibre_plugins")
         cp_mod.__path__ = []
         tagger_pkg = types.ModuleType("calibre_plugins.story_collection_tagger")
