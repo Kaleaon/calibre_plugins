@@ -65,7 +65,11 @@ except (ImportError, ValueError):
         from storykit import Cancelled, extract_epub_story, sort_by_posting_order
     except ImportError:
         try:
-            from common.storykit import Cancelled, extract_epub_story, sort_by_posting_order
+            from common.storykit import (
+                Cancelled,
+                extract_epub_story,
+                sort_by_posting_order,
+            )
         except ImportError:
 
             class Cancelled(Exception):
@@ -85,6 +89,85 @@ except ImportError:
             def format_exception(e):
                 return str(e)
 
+
+try:
+    from .log_utils import append_log as append_log
+    from .log_utils import clean_lines as clean_lines
+    from .log_utils import parse_lines as parse_lines
+except (ImportError, ValueError):
+    try:
+        from log_utils import append_log as append_log
+        from log_utils import clean_lines as clean_lines
+        from log_utils import parse_lines as parse_lines
+    except ImportError:
+        try:
+            from common.log_utils import append_log as append_log
+            from common.log_utils import clean_lines as clean_lines
+            from common.log_utils import parse_lines as parse_lines
+        except ImportError:
+            pass
+
+try:
+    from .tree_utils import (
+        chosen_fields as chosen_fields,
+    )
+    from .tree_utils import (
+        collect_checked_fields as collect_checked_fields,
+    )
+    from .tree_utils import (
+        collect_tree_changes as collect_tree_changes,
+    )
+    from .tree_utils import (
+        is_item_checked as is_item_checked,
+    )
+    from .tree_utils import (
+        set_children_check_state as set_children_check_state,
+    )
+    from .tree_utils import (
+        update_parent_check_state as update_parent_check_state,
+    )
+except (ImportError, ValueError):
+    try:
+        from tree_utils import (
+            chosen_fields as chosen_fields,
+        )
+        from tree_utils import (
+            collect_checked_fields as collect_checked_fields,
+        )
+        from tree_utils import (
+            collect_tree_changes as collect_tree_changes,
+        )
+        from tree_utils import (
+            is_item_checked as is_item_checked,
+        )
+        from tree_utils import (
+            set_children_check_state as set_children_check_state,
+        )
+        from tree_utils import (
+            update_parent_check_state as update_parent_check_state,
+        )
+    except ImportError:
+        try:
+            from common.tree_utils import (
+                chosen_fields as chosen_fields,
+            )
+            from common.tree_utils import (
+                collect_checked_fields as collect_checked_fields,
+            )
+            from common.tree_utils import (
+                collect_tree_changes as collect_tree_changes,
+            )
+            from common.tree_utils import (
+                is_item_checked as is_item_checked,
+            )
+            from common.tree_utils import (
+                set_children_check_state as set_children_check_state,
+            )
+            from common.tree_utils import (
+                update_parent_check_state as update_parent_check_state,
+            )
+        except ImportError:
+            pass
 
 try:
     from calibre.gui2.actions import InterfaceAction
@@ -720,7 +803,11 @@ class MergePreviewDialog(QDialog):
                 book_item = QTreeWidgetItem(self.tree, [disp_title, f"{len(sections)} chapter(s)"])
                 book_item.setFlags(book_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 book_item.setCheckState(0, Qt.CheckState.Checked)
-                book_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "story", "story": story, "res": res})
+                book_item.setData(
+                    0,
+                    Qt.ItemDataRole.UserRole,
+                    {"type": "story", "story": story, "res": res},
+                )
 
                 for heading, body in sections:
                     child_item = QTreeWidgetItem(book_item, [heading, "Chapter"])
@@ -729,7 +816,12 @@ class MergePreviewDialog(QDialog):
                     child_item.setData(
                         0,
                         Qt.ItemDataRole.UserRole,
-                        {"type": "chapter", "heading": heading, "body": body, "story": story},
+                        {
+                            "type": "chapter",
+                            "heading": heading,
+                            "body": body,
+                            "story": story,
+                        },
                     )
 
                 book_item.setExpanded(True)
@@ -804,31 +896,10 @@ class MergePreviewDialog(QDialog):
         self.update_summary()
 
     def _set_children_check_state(self, item, state):
-        for i in range(item.childCount()):
-            child = item.child(i)
-            child.setCheckState(0, state)
-            self._set_children_check_state(child, state)
+        set_children_check_state(item, state)
 
     def _update_parent_check_state(self, item):
-        parent = item.parent()
-        if parent is None:
-            return
-        checked_count = sum(
-            1 for i in range(parent.childCount()) if parent.child(i).checkState(0) == Qt.CheckState.Checked
-        )
-        unchecked_count = sum(
-            1 for i in range(parent.childCount()) if parent.child(i).checkState(0) == Qt.CheckState.Unchecked
-        )
-        total = parent.childCount()
-
-        if checked_count == total:
-            parent.setCheckState(0, Qt.CheckState.Checked)
-        elif unchecked_count == total:
-            parent.setCheckState(0, Qt.CheckState.Unchecked)
-        else:
-            parent.setCheckState(0, Qt.CheckState.PartiallyChecked)
-
-        self._update_parent_check_state(parent)
+        update_parent_check_state(item)
 
     def on_item_changed(self, item, column):
         self.tree.blockSignals(True)
@@ -904,7 +975,10 @@ class MergePreviewDialog(QDialog):
             if not isinstance(data, dict) or data.get("type") != "story":
                 continue
 
-            if book_item.checkState(0) in (Qt.CheckState.Checked, Qt.CheckState.PartiallyChecked):
+            if book_item.checkState(0) in (
+                Qt.CheckState.Checked,
+                Qt.CheckState.PartiallyChecked,
+            ):
                 story = data["story"]
                 active_sections = []
                 for j in range(book_item.childCount()):
@@ -944,104 +1018,18 @@ class MergePreviewDialog(QDialog):
             ok_btn.setEnabled(len(active_stories) > 0)
 
 
-def clean_lines(text_or_widget):
-    """Extract non-empty, whitespace-trimmed text lines from strings or text edit widgets."""
-    if hasattr(text_or_widget, "toPlainText"):
-        text = text_or_widget.toPlainText()
-    elif isinstance(text_or_widget, str):
-        text = text_or_widget
-    elif text_or_widget is None:
-        text = ""
-    else:
-        text = str(text_or_widget)
-    return [line.strip() for line in text.splitlines() if line.strip()]
-
-
-def chosen_fields(boxes, field_labels=None):
-    """Query active metadata selection checkboxes.
-    `boxes`: dict mapping field names to QCheckBox widgets or boolean values.
-    `field_labels`: list of (field_key, label) tuples, list of field keys, or None.
-    Returns a tuple of checked field keys.
-    """
-    if field_labels is None:
-        if isinstance(boxes, dict):
-            keys = list(boxes.keys())
-        else:
-            keys = []
-    else:
-        keys = [item[0] if isinstance(item, (tuple, list)) else item for item in field_labels]
-
-    result = []
-    for key in keys:
-        box = boxes.get(key) if isinstance(boxes, dict) else getattr(boxes, key, None)
-        if box is not None:
-            if callable(getattr(box, "isChecked", None)):
-                checked = box.isChecked()
-            else:
-                checked = bool(box)
-            if checked:
-                result.append(key)
-    return tuple(result)
-
-
-def append_log(widget, text):
-    """Format timestamped status message into a log widget."""
-    formatted = f"{time.strftime('%H:%M:%S')}  {text}"
-    if hasattr(widget, "appendPlainText"):
-        widget.appendPlainText(formatted)
-    elif hasattr(widget, "append"):
-        widget.append(formatted)
-    elif hasattr(widget, "write"):
-        widget.write(formatted + "\n")
-    return formatted
-
-
-def collect_tree_changes(tree):
-    """Extract checked field items and metadata payloads from a tree widget.
-    Returns list of (top_item_user_data, {child_user_data: child_user_data_plus_1}).
-    """
-    items = []
-    user_role = getattr(getattr(Qt, "ItemDataRole", None), "UserRole", 32)
-    try:
-        user_role_int = int(user_role)
-    except (ValueError, TypeError):
-        user_role_int = 32
-
-    for i in range(tree.topLevelItemCount()):
-        top = tree.topLevelItem(i)
-        changes = {}
-        for j in range(top.childCount()):
-            child = top.child(j)
-            checked_state = child.checkState(0)
-            is_checked = (checked_state == Qt.CheckState.Checked) or (getattr(checked_state, "value", None) == 2)
-            if not is_checked:
-                try:
-                    is_checked = int(checked_state) == 2
-                except (ValueError, TypeError):
-                    is_checked = False
-            if is_checked:
-                key = child.data(0, user_role)
-                if key is None:
-                    key = child.data(0, user_role_int)
-                val = child.data(0, user_role + 1) if not isinstance(user_role, int) else None
-                if val is None:
-                    val = child.data(0, user_role_int + 1)
-                changes[key] = val
-        if changes:
-            top_key = top.data(0, user_role)
-            if top_key is None:
-                top_key = top.data(0, user_role_int)
-            items.append((top_key, changes))
-    return items
-
-
 class MergeSelectedActionMixin:
     """Action mixin providing a merge_selected handler for merging selected library books into an EPUB."""
 
     def merge_selected(self):
         ids = list(self.gui.library_view.get_selected_ids())
         if not ids or len(ids) < 2:
-            info_dialog(self.gui, "EPUB Merger", "Select two or more books in Calibre first to merge.", show=True)
+            info_dialog(
+                self.gui,
+                "EPUB Merger",
+                "Select two or more books in Calibre first to merge.",
+                show=True,
+            )
             return
         try:
             try:
@@ -1052,7 +1040,9 @@ class MergeSelectedActionMixin:
             try:
                 from common.libkit import merge_library_books
             except ImportError:
-                from calibre_plugins.epub_promo_scrubber.libkit import merge_library_books
+                from calibre_plugins.epub_promo_scrubber.libkit import (
+                    merge_library_books,
+                )
         book_id, errors = merge_library_books(self.gui, ids)
         if book_id:
             info_dialog(
@@ -1063,13 +1053,27 @@ class MergeSelectedActionMixin:
                 show=True,
             )
         else:
-            error_dialog(self.gui, "EPUB Merger", "Could not merge books:\n" + "\n".join(errors), show=True)
+            error_dialog(
+                self.gui,
+                "EPUB Merger",
+                "Could not merge books:\n" + "\n".join(errors),
+                show=True,
+            )
 
 
 class EmptyStateOverlay(QWidget):
     """Centralized overlay component for empty list, table, tree, or text views."""
 
-    def __init__(self, target_widget, icon="", title="", message="", action_text=None, on_action=None, actions=None):
+    def __init__(
+        self,
+        target_widget,
+        icon="",
+        title="",
+        message="",
+        action_text=None,
+        on_action=None,
+        actions=None,
+    ):
         self.target_widget = target_widget
         self.parent_w = (
             target_widget.viewport()
@@ -1119,7 +1123,12 @@ class EmptyStateOverlay(QWidget):
         main_layout.addWidget(self.card)
 
         self.set_message(
-            title=title, message=message, icon=icon, action_text=action_text, on_action=on_action, actions=actions
+            title=title,
+            message=message,
+            icon=icon,
+            action_text=action_text,
+            on_action=on_action,
+            actions=actions,
         )
         self.update_geometry()
         self.hide()
@@ -1129,11 +1138,22 @@ class EmptyStateOverlay(QWidget):
             self.setGeometry(self.parent_w.rect())
 
     def eventFilter(self, watched, event):
-        if watched == self.parent_w and event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+        if watched == self.parent_w and event.type() in (
+            QEvent.Type.Resize,
+            QEvent.Type.Show,
+        ):
             self.update_geometry()
         return super().eventFilter(watched, event)
 
-    def set_message(self, title=None, message=None, icon=None, action_text=None, on_action=None, actions=None):
+    def set_message(
+        self,
+        title=None,
+        message=None,
+        icon=None,
+        action_text=None,
+        on_action=None,
+        actions=None,
+    ):
         if icon is not None:
             self.icon_label.setText(icon)
             self.icon_label.setVisible(bool(icon))
@@ -1160,10 +1180,23 @@ class EmptyStateOverlay(QWidget):
             btn.clicked.connect(cb)
             self.button_layout.addWidget(btn)
 
-    def show_empty(self, title=None, message=None, icon=None, action_text=None, on_action=None, actions=None):
+    def show_empty(
+        self,
+        title=None,
+        message=None,
+        icon=None,
+        action_text=None,
+        on_action=None,
+        actions=None,
+    ):
         if any(arg is not None for arg in (title, message, icon, action_text, on_action, actions)):
             self.set_message(
-                title=title, message=message, icon=icon, action_text=action_text, on_action=on_action, actions=actions
+                title=title,
+                message=message,
+                icon=icon,
+                action_text=action_text,
+                on_action=on_action,
+                actions=actions,
             )
 
         palette = self.target_widget.palette()
@@ -1200,16 +1233,3 @@ class EmptyStateOverlay(QWidget):
             self.show_empty()
         else:
             self.hide_empty()
-
-
-def parse_lines(text_or_widget):
-    """Parse text or a widget with .toPlainText()/.text() into a list of non-empty stripped lines."""
-    if text_or_widget is None:
-        return []
-    if hasattr(text_or_widget, "toPlainText"):
-        raw = text_or_widget.toPlainText()
-    elif hasattr(text_or_widget, "text") and callable(text_or_widget.text):
-        raw = text_or_widget.text()
-    else:
-        raw = str(text_or_widget)
-    return [line.strip() for line in raw.splitlines() if line.strip()]
