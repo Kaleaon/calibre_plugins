@@ -21,3 +21,7 @@ The plugin menu also includes **Repair selected books already in Calibre**. Sele
 Version 1.0.1 was tested with the shared January 2025 export part 003: all 51 books recovered and imported into Calibre 9.15 with no errors. Content inspection identified 47 EPUBs and four PDFs; 16 of those EPUBs had been named `.pdf`. Calibre recovered known authors for 48 books and covers for all 51. Takeout ZIPs are streamed per member, allowing the archive itself to exceed the individual-book size limit. Other parts of the export and the full October 2026 export were not validated.
 
 Optional comic conversion was also verified with both real image-only PDFs (45 pages each): all pages rendered and both CBZs imported successfully. Both text-bearing PDFs stayed PDF. Lossless rendering took several minutes per comic in this environment.
+
+## Metadata source
+
+This plugin also ships as a Calibre metadata source in a separate ZIP, `TakeoutGoogleBooksSource.zip` (Calibre allows only one plugin per ZIP). The source **Takeout Google Books** fetches metadata and covers from Google Books — the same `volumeInfo` records Google Takeout sidecars carry, mapped the same way the importer maps them (title, authors, publisher, description, language, categories as tags, published date, ISBN). Search by title/author or ISBN, or look a volume up directly by its Google Books id. Install it alongside the fixer and enable it in Calibre's Download metadata source list.
