@@ -54,8 +54,17 @@ class DownloadDialog(QDialog):
         self.ib_password.setText(prefs['inkbunny_password'])
         creds.addWidget(self.ib_password)
         layout.addLayout(creds)
+
+        sf = QHBoxLayout()
+        sf.addWidget(QLabel('SoFurry personal access token (optional; unlocks login-only and adult-rated stories):'))
+        self.sf_token = QLineEdit()
+        self.sf_token.setPlaceholderText('token (saved)')
+        self.sf_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.sf_token.setText(prefs['sofurry_token'])
+        sf.addWidget(self.sf_token)
+        layout.addLayout(sf)
         layout.addWidget(QLabel('Your account needs "Enable API access" in its Inkbunny account settings. '
-                                'SoFurry login-only stories cannot be read yet; public ones can.'))
+                                'Without a SoFurry token, only public SoFurry stories can be read.'))
 
         row = QHBoxLayout()
         fetch = QPushButton('Fetch story list')
@@ -89,12 +98,15 @@ class DownloadDialog(QDialog):
             return
         user, password = self.ib_user.text().strip(), self.ib_password.text()
         prefs['inkbunny_username'], prefs['inkbunny_password'] = user, password  # saved so it is not re-entered
+        token = self.sf_token.text().strip()
+        prefs['sofurry_token'] = token  # saved so it is not re-entered
         plog.log('fetch start', f'lines={len(lines)} user={user or "guest"}')
 
         def work(task):
             fetcher = core.Fetcher(cancelled=task.cancelled)
             return core.expand_targets(fetcher, lines, lambda msg: setattr(task, 'status', msg),
-                                       inkbunny_username=user, inkbunny_password=password)
+                                       inkbunny_username=user, inkbunny_password=password,
+                                       sofurry_token=token)
 
         # Disable the whole dialog while the task runs (v1.0.1): run_task spins the Qt event loop,
         # so without this the user can click Download/Cancel on this dialog mid-fetch and close it
@@ -146,3 +158,6 @@ class DownloadDialog(QDialog):
 
     def credentials(self):
         return self.ib_user.text().strip(), self.ib_password.text()
+
+    def sofurry_token(self):
+        return self.sf_token.text().strip()

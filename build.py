@@ -11,6 +11,7 @@ SHARED = [
     "opml_kit.py",
     "log_utils.py",
     "tree_utils.py",
+    "metakit.py",
 ]
 PLUGINS = [
     ("plugin", "TakeoutBookFixer", "takeout_book_fixer"),

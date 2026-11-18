@@ -303,6 +303,42 @@ class SoFurryTests(unittest.TestCase):
         self.assertIn('sofurry.com/s/', errors[0])
 
 
+class HeaderFetcher:
+    """Fetcher that records the headers each request carried."""
+
+    def __init__(self, handler):
+        self.handler = handler
+        self.calls = []
+
+    def get(self, url, retries=3, headers=None, limit=None, post=None):
+        self.calls.append((url, headers))
+        return self.handler(url)
+
+
+class SoFurryAuthTests(unittest.TestCase):
+    def test_token_goes_to_sofurry_only(self):
+        hf = HeaderFetcher(lambda url: 'ok')
+        wrapped = core.authed_fetcher(hf, 'sekrit')
+        self.assertIsNot(wrapped, hf)
+        wrapped.get('https://sofurry.com/s/abc123.data')
+        wrapped.get('https://files.example/story.txt')
+        self.assertEqual(hf.calls[0][1], {'Authorization': 'Bearer sekrit'})
+        self.assertFalse(hf.calls[1][1])  # signed content hosts never receive the token
+
+    def test_blank_token_leaves_fetcher_untouched(self):
+        hf = HeaderFetcher(lambda url: 'ok')
+        self.assertIs(core.authed_fetcher(hf, ''), hf)
+        self.assertIs(core.authed_fetcher(hf, '   '), hf)
+
+    def test_expand_targets_sends_token_on_sofurry_reads(self):
+        hf = HeaderFetcher(sf_handler)
+        refs, errors = core.expand_targets(hf, ['https://sofurry.com/u/bob'], sofurry_token='sekrit')
+        self.assertEqual(errors, [])
+        self.assertEqual([r['key'] for r in refs], ['s1', 's2'])
+        self.assertTrue(hf.calls)
+        self.assertTrue(all(h == {'Authorization': 'Bearer sekrit'} for _, h in hf.calls))
+
+
 class DispatchTests(unittest.TestCase):
     def test_mixed_lines_and_junk(self):
         f = FakeFetcher(lambda url: ib_handler(url) if 'inkbunny' in url or 'files.example' in url else sf_handler(url))

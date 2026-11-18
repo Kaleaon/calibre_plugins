@@ -42,7 +42,7 @@ To match the continuous integration (CI) pipeline in `.github/workflows/ci.yml`,
 
 ## 3. Building Plugin Packages (Strict Mode)
 
-To build all 10 suite plugin zip packages into the `dist/` directory in strict packaging mode (the eleventh tool, Calibre Link, is built separately from `calibre_link/` via its Go sidecar and its release ZIP is committed to `dist/` prebuilt):
+To build all 11 suite plugin zip packages — plus the 10 companion metadata-source zips (one per plugin; Calibre registers exactly one plugin per ZIP, so each source ships separately, reusing its plugin's modules — see `SOURCES`/`SOURCE_FILES` in `build_plugins.py` and `common/metakit.py`) — into the `dist/` directory in strict packaging mode (the twelfth tool, Calibre Link, is built separately from `calibre_link/` via its Go sidecar and its release ZIP is committed to `dist/` prebuilt; it has no metadata source, as it is the bridge that consumes them). The eleventh suite plugin is the Plugin Pack Manager (`pack_manager/`), the bulk installer/updater for the whole pack; its pack list (`pack_manager/manifest.py`) is test-checked against `build_plugins.py`, and `install_all.py` at the repo root is the command-line twin of the same installer (drives `calibre-customize`, or `--copy-to` a plugins folder):
 
 ```bash
 python build.py
