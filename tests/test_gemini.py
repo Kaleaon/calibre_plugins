@@ -1006,6 +1006,7 @@ class BackgroundScanTests(unittest.TestCase):
         action = action_mod.GeminiFixerAction()
 
         active_threads = set()
+        second_worker_started = threading.Event()
         lock = threading.Lock()
 
         class MockMetadata:
@@ -1022,6 +1023,9 @@ class BackgroundScanTests(unittest.TestCase):
             def get_metadata(self, book_id, get_cover=False):
                 with lock:
                     active_threads.add(threading.current_thread().name)
+                    if len(active_threads) >= 2:
+                        second_worker_started.set()
+                second_worker_started.wait(timeout=2.0)
                 return MockMetadata()
 
             def formats(self, book_id):
@@ -3506,7 +3510,10 @@ class ApiKeyValidationTests(unittest.TestCase):
         self.assertIn("Could not reach Google", str(cm.exception))
 
     def test_action_ui_test_api_key_button_and_dialogs(self):
+        import shutil
+
         saved_modules = dict(sys.modules)
+        tmp_batch_dir = tempfile.mkdtemp()
         try:
             for name in ("calibre", "calibre.gui2", "calibre.gui2.actions", "calibre.utils", "calibre.utils.config"):
                 sys.modules[name] = MagicMock()
@@ -3532,7 +3539,7 @@ class ApiKeyValidationTests(unittest.TestCase):
                     "batch_size": 2,
                     "min_interval": 0,
                     "undo": {},
-                    "batch_dir": "/tmp/gemini_batches",
+                    "batch_dir": tmp_batch_dir,
                     "system_instruction_mode": "append",
                     "custom_system_instructions": "",
                 }
@@ -3642,6 +3649,7 @@ class ApiKeyValidationTests(unittest.TestCase):
                 check_handler()
             val_mock.assert_called_once_with("valid-key")
         finally:
+            shutil.rmtree(tmp_batch_dir, ignore_errors=True)
             for k in list(sys.modules):
                 if k not in saved_modules:
                     del sys.modules[k]
