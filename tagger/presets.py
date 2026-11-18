@@ -133,7 +133,7 @@ def text_to_sites(text):
 
 def deduplicate_rules(existing_rules, new_rules):
     """Merge new_rules into existing_rules, eliminating exact duplicate rules and merging unique tags for identical patterns.
-    
+
     Returns (merged_rule_dicts, added_count).
     """
     merged = [dict(r) for r in existing_rules]
@@ -258,7 +258,7 @@ def load_bundled_presets():
 
 def merge_preset_into_active(active_rules_text, active_sites_text, preset_data):
     """Merge a preset pack's rules and custom sites into active rules and sites text.
-    
+
     Returns (updated_rules_text, updated_sites_text, rules_added_count, sites_added_count).
     """
     active_rules = text_to_rule_dicts(active_rules_text)

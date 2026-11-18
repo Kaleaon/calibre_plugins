@@ -279,7 +279,7 @@ class RuleSetManagerDialog(QDialog):
         self.rules_table.setItem(row, 1, QTableWidgetItem(fld_str))
         self.rules_table.setItem(row, 2, QTableWidgetItem(pattern or ""))
 
-        tags_str = ", ".join(tags) if isinstance(tags, (list, tuple)) else str(tags or "")
+        tags_str = ", ".join(tags) if isinstance(tags, list | tuple) else str(tags or "")
         self.rules_table.setItem(row, 3, QTableWidgetItem(tags_str))
         self.rules_table.setItem(row, 4, QTableWidgetItem(status))
 
@@ -292,7 +292,7 @@ class RuleSetManagerDialog(QDialog):
         chk.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
         self.sites_table.setItem(row, 0, chk)
 
-        hosts_str = ", ".join(hosts) if isinstance(hosts, (list, tuple)) else str(hosts or "")
+        hosts_str = ", ".join(hosts) if isinstance(hosts, list | tuple) else str(hosts or "")
         self.sites_table.setItem(row, 1, QTableWidgetItem(hosts_str))
         self.sites_table.setItem(row, 2, QTableWidgetItem(name or ""))
         self.sites_table.setItem(row, 3, QTableWidgetItem(status))

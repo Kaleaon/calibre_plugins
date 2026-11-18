@@ -47,16 +47,25 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
         mock_cfg = MagicMock()
         mock_cfg.defaults = {}
         sys.modules["calibre.utils.config"].JSONConfig = lambda *a, **k: mock_cfg
-        sys.modules.pop("calibre_plugins", None)
-        sys.modules.pop("calibre_plugins.story_collection_tagger", None)
-
         repo_root = Path(__file__).resolve().parents[1]
         sys.path.insert(0, str(repo_root))
         sys.path.insert(0, str(repo_root / "common"))
         sys.path.insert(0, str(repo_root / "tagger"))
 
-        spec = importlib.util.spec_from_file_location("tagger_action_real_qt", repo_root / "tagger" / "action.py")
+        cp_mod = types.ModuleType("calibre_plugins")
+        cp_mod.__path__ = []
+        tagger_pkg = types.ModuleType("calibre_plugins.story_collection_tagger")
+        tagger_pkg.__path__ = [str(repo_root / "tagger"), str(repo_root / "common")]
+        cp_mod.story_collection_tagger = tagger_pkg
+        sys.modules["calibre_plugins"] = cp_mod
+        sys.modules["calibre_plugins.story_collection_tagger"] = tagger_pkg
+
+        spec = importlib.util.spec_from_file_location(
+            "calibre_plugins.story_collection_tagger.action",
+            repo_root / "tagger" / "action.py",
+        )
         cls.action = importlib.util.module_from_spec(spec)
+        sys.modules["calibre_plugins.story_collection_tagger.action"] = cls.action
         spec.loader.exec_module(cls.action)
 
     @classmethod
