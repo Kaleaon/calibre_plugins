@@ -123,7 +123,7 @@ class PluginImportTests(unittest.TestCase):
             package = self.load(plugin)
             libkit = importlib.import_module(package + '.libkit')
             action_mod = importlib.import_module(package + '.action')
-            
+
             # Identify action class
             action_cls = action_mod.MetabodsAction if plugin == 'metabods_downloader' else action_mod.NiftyAction
             self.assertTrue(issubclass(action_cls, libkit.DownloaderAction))

@@ -23,6 +23,7 @@ installed plugin is skipped), --list (show what would be installed, install noth
 
 Exit status is 0 when everything requested installed (or listed) cleanly, 1 on any failure.
 """
+
 import argparse
 import importlib.util
 import os
@@ -43,8 +44,8 @@ def _load(module_name, path):
     return module
 
 
-manifest = _load('pack_manifest', ROOT / 'pack_manager' / 'manifest.py')
-core = _load('pack_core', ROOT / 'pack_manager' / 'core.py')
+manifest = _load("pack_manifest", ROOT / "pack_manager" / "manifest.py")
+core = _load("pack_core", ROOT / "pack_manager" / "core.py")
 select_entries = manifest.select_entries
 
 INSTALL_MD = """# Installing the calibre plugin pack
@@ -85,7 +86,7 @@ Restart Calibre after installing or updating any plugin.
 def find_calibre_customize(explicit=None):
     if explicit:
         return explicit if Path(explicit).is_file() else None
-    for name in ('calibre-customize', 'calibre-customize.exe'):
+    for name in ("calibre-customize", "calibre-customize.exe"):
         found = shutil.which(name)
         if found:
             return found
@@ -95,36 +96,36 @@ def find_calibre_customize(explicit=None):
 def run_customize(customize, args, config_dir=None):
     env = dict(os.environ)
     if config_dir:
-        env['CALIBRE_CONFIG_DIRECTORY'] = str(config_dir)
+        env["CALIBRE_CONFIG_DIRECTORY"] = str(config_dir)
     return subprocess.run([customize, *args], capture_output=True, text=True, env=env)
 
 
 def guess_plugins_dir(args):
     """Where the target calibre keeps its user plugin ZIPs, when it can be worked out. Used for
     the downgrade guard; a wrong or missing guess just means no guard, never a wrong install."""
-    if getattr(args, 'copy_to', None):
+    if getattr(args, "copy_to", None):
         return Path(args.copy_to)
-    if getattr(args, 'config_dir', None):
-        return Path(args.config_dir) / 'plugins'
-    env_dir = os.environ.get('CALIBRE_CONFIG_DIRECTORY')
+    if getattr(args, "config_dir", None):
+        return Path(args.config_dir) / "plugins"
+    env_dir = os.environ.get("CALIBRE_CONFIG_DIRECTORY")
     if env_dir:
-        return Path(env_dir) / 'plugins'
-    if sys.platform.startswith('win'):
-        base = Path(os.environ.get('APPDATA', Path.home() / 'AppData' / 'Roaming')) / 'calibre'
-    elif sys.platform == 'darwin':
-        base = Path.home() / 'Library' / 'Preferences' / 'calibre'
+        return Path(env_dir) / "plugins"
+    if sys.platform.startswith("win"):
+        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "calibre"
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Preferences" / "calibre"
     else:
-        base = Path.home() / '.config' / 'calibre'
-    return base / 'plugins'
+        base = Path.home() / ".config" / "calibre"
+    return base / "plugins"
 
 
 def installed_names(customize, config_dir=None):
     """The text of `calibre-customize -l`, or '' when it cannot be run."""
     try:
-        result = run_customize(customize, ['-l'], config_dir)
+        result = run_customize(customize, ["-l"], config_dir)
     except OSError:
-        return ''
-    return result.stdout if result.returncode == 0 else ''
+        return ""
+    return result.stdout if result.returncode == 0 else ""
 
 
 def make_bundle(source_dir, entries, out_path):
@@ -132,58 +133,67 @@ def make_bundle(source_dir, entries, out_path):
     source_dir = Path(source_dir)
     found, missing = core.folder_pack(source_dir, entries)
     out_path = Path(out_path)
-    with zipfile.ZipFile(out_path, 'w', zipfile.ZIP_DEFLATED) as bundle:
+    with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as bundle:
         for entry in found:
-            bundle.write(source_dir / entry['zip'], entry['zip'])
-        bundle.write(Path(__file__), 'install_all.py')
-        for wrapper in ('install-all.bat', 'install-all.sh'):
+            bundle.write(source_dir / entry["zip"], entry["zip"])
+        bundle.write(Path(__file__), "install_all.py")
+        for wrapper in ("install-all.bat", "install-all.sh"):
             if (ROOT / wrapper).is_file():
                 bundle.write(ROOT / wrapper, wrapper)
-        bundle.writestr('INSTALL.md', INSTALL_MD)
+        bundle.writestr("INSTALL.md", INSTALL_MD)
     return found, missing, out_path
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='Bulk-install or update the Kaleaon calibre plugin pack.')
+    parser = argparse.ArgumentParser(description="Bulk-install or update the Kaleaon calibre plugin pack.")
     source = parser.add_mutually_exclusive_group()
-    source.add_argument('--dist', action='store_true', help="use the repo's dist/ folder (default)")
-    source.add_argument('--folder', metavar='PATH', help='folder holding the pack ZIPs')
-    source.add_argument('--download', action='store_true', help='download the pack from GitHub, verifying hashes')
-    parser.add_argument('--base-url', default=manifest.DEFAULT_BASE_URL, help='dist base URL for --download')
-    parser.add_argument('--calibre-customize', metavar='PATH', help='path to calibre-customize')
-    parser.add_argument('--config-dir', metavar='PATH', help='calibre configuration directory to install into')
-    parser.add_argument('--copy-to', metavar='DIR', help='copy ZIPs into this calibre plugins folder instead of using calibre-customize')
-    parser.add_argument('--only', action='append', default=[], help='only entries matching this text (repeatable)')
-    parser.add_argument('--exclude', action='append', default=[], help='skip entries matching this text (repeatable)')
-    parser.add_argument('--skip-sources', action='store_true', help='skip the metadata sources')
-    parser.add_argument('--skip-bridge', action='store_true', help='skip Calibre Link')
-    parser.add_argument('--force', action='store_true',
-                        help='install even when the ZIP is older than the installed plugin (default: skip downgrades)')
-    parser.add_argument('--list', action='store_true', help='list what would be installed; install nothing')
-    parser.add_argument('--make-bundle', metavar='PATH', help='build an all-in-one bundle ZIP; install nothing')
+    source.add_argument("--dist", action="store_true", help="use the repo's dist/ folder (default)")
+    source.add_argument("--folder", metavar="PATH", help="folder holding the pack ZIPs")
+    source.add_argument("--download", action="store_true", help="download the pack from GitHub, verifying hashes")
+    parser.add_argument("--base-url", default=manifest.DEFAULT_BASE_URL, help="dist base URL for --download")
+    parser.add_argument("--calibre-customize", metavar="PATH", help="path to calibre-customize")
+    parser.add_argument("--config-dir", metavar="PATH", help="calibre configuration directory to install into")
+    parser.add_argument(
+        "--copy-to", metavar="DIR", help="copy ZIPs into this calibre plugins folder instead of using calibre-customize"
+    )
+    parser.add_argument("--only", action="append", default=[], help="only entries matching this text (repeatable)")
+    parser.add_argument("--exclude", action="append", default=[], help="skip entries matching this text (repeatable)")
+    parser.add_argument("--skip-sources", action="store_true", help="skip the metadata sources")
+    parser.add_argument("--skip-bridge", action="store_true", help="skip Calibre Link")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="install even when the ZIP is older than the installed plugin (default: skip downgrades)",
+    )
+    parser.add_argument("--list", action="store_true", help="list what would be installed; install nothing")
+    parser.add_argument("--make-bundle", metavar="PATH", help="build an all-in-one bundle ZIP; install nothing")
     args = parser.parse_args(argv)
 
-    entries = select_entries(include_sources=not args.skip_sources, include_bridge=not args.skip_bridge,
-                             include_manager=True, only=args.only or None, exclude=args.exclude or None)
+    entries = select_entries(
+        include_sources=not args.skip_sources,
+        include_bridge=not args.skip_bridge,
+        include_manager=True,
+        only=args.only or None,
+        exclude=args.exclude or None,
+    )
     if not entries:
-        print('No pack entries match those filters.', file=sys.stderr)
+        print("No pack entries match those filters.", file=sys.stderr)
         return 2
 
     if args.make_bundle:
-        source_dir = Path(args.folder) if args.folder else ROOT / 'dist'
+        source_dir = Path(args.folder) if args.folder else ROOT / "dist"
         found, missing, out_path = make_bundle(source_dir, entries, args.make_bundle)
-        print(f'Bundle written: {out_path} ({out_path.stat().st_size / 1e6:.1f} MB, {len(found)} plugin ZIPs)')
+        print(f"Bundle written: {out_path} ({out_path.stat().st_size / 1e6:.1f} MB, {len(found)} plugin ZIPs)")
         for entry in missing:
-            print(f'  missing from {source_dir}: {entry["zip"]}')
+            print(f"  missing from {source_dir}: {entry['zip']}")
         return 1 if missing else 0
 
     tmp = None
     if args.download:
-        tmp = tempfile.mkdtemp(prefix='plugin-pack-')
+        tmp = tempfile.mkdtemp(prefix="plugin-pack-")
         sums = core.fetch_sums(args.base_url)
-        results = core.download_pack(entries, tmp, args.base_url, sums=sums, verify=True,
-                                     log=lambda line: print(line))
-        failed = [r for r in results if not r['ok']]
+        results = core.download_pack(entries, tmp, args.base_url, sums=sums, verify=True, log=lambda line: print(line))
+        failed = [r for r in results if not r["ok"]]
         for result in failed:
             print(f"✗ {result['entry']['name']}: {result['error']}", file=sys.stderr)
         if failed:
@@ -193,9 +203,9 @@ def main(argv=None):
     elif args.folder:
         folder = Path(args.folder)
     else:
-        folder = ROOT / 'dist'
+        folder = ROOT / "dist"
     if not folder.is_dir():
-        print(f'ZIP folder not found: {folder}', file=sys.stderr)
+        print(f"ZIP folder not found: {folder}", file=sys.stderr)
         return 2
 
     found, missing = core.folder_pack(folder, entries)
@@ -205,11 +215,11 @@ def main(argv=None):
     if args.list:
         for entry in found:
             try:
-                version = core.format_version(core.zip_info(folder / entry['zip'])['version'])
+                version = core.format_version(core.zip_info(folder / entry["zip"])["version"])
             except Exception:
-                version = 'unknown'
+                version = "unknown"
             print(f"{entry['zip']:<42} {entry['name']} {version}")
-        print(f'{len(found)} of {len(entries)} pack ZIPs present in {folder}')
+        print(f"{len(found)} of {len(entries)} pack ZIPs present in {folder}")
         if tmp:
             shutil.rmtree(tmp, ignore_errors=True)
         return 1 if missing else 0
@@ -223,17 +233,19 @@ def main(argv=None):
     def downgrade_skip(entry):
         """True (and counted) when installing this entry would lower the installed version."""
         nonlocal skipped
-        current = installed.get(entry['import_name'])
+        current = installed.get(entry["import_name"])
         if args.force or not current:
             return False
         try:
-            new_version = core.zip_info(folder / entry['zip'])['version']
+            new_version = core.zip_info(folder / entry["zip"])["version"]
         except Exception:
             return False
-        if core.is_downgrade(current['version'], new_version):
+        if core.is_downgrade(current["version"], new_version):
             skipped += 1
-            print(f"• {entry['name']}: installed {core.format_version(current['version'])} is newer than "
-                  f"{core.format_version(new_version)} — skipped (use --force to downgrade)")
+            print(
+                f"• {entry['name']}: installed {core.format_version(current['version'])} is newer than "
+                f"{core.format_version(new_version)} — skipped (use --force to downgrade)"
+            )
             return True
         return False
 
@@ -242,7 +254,7 @@ def main(argv=None):
             if downgrade_skip(entry):
                 continue
             try:
-                core.install_zip(folder / entry['zip'], plugins_dir=args.copy_to)
+                core.install_zip(folder / entry["zip"], plugins_dir=args.copy_to)
                 installed_count += 1
                 print(f"✓ {entry['name']}: copied into {args.copy_to}")
             except Exception as exc:
@@ -251,8 +263,11 @@ def main(argv=None):
     else:
         customize = find_calibre_customize(args.calibre_customize)
         if not customize:
-            print('calibre-customize not found. Pass --calibre-customize PATH, put calibre on PATH, '
-                  'or use --copy-to DIR with Calibre closed.', file=sys.stderr)
+            print(
+                "calibre-customize not found. Pass --calibre-customize PATH, put calibre on PATH, "
+                "or use --copy-to DIR with Calibre closed.",
+                file=sys.stderr,
+            )
             if tmp:
                 shutil.rmtree(tmp, ignore_errors=True)
             return 2
@@ -260,7 +275,7 @@ def main(argv=None):
         for entry in found:
             if downgrade_skip(entry):
                 continue
-            result = run_customize(customize, ['-a', str(folder / entry['zip'])], args.config_dir)
+            result = run_customize(customize, ["-a", str(folder / entry["zip"])], args.config_dir)
             if result.returncode == 0:
                 installed_count += 1
                 done.append(entry)
@@ -268,19 +283,23 @@ def main(argv=None):
             else:
                 failures.append(entry)
                 detail = (result.stderr or result.stdout).strip().splitlines()
-                print(f"✗ {entry['name']}: calibre-customize failed"
-                      + (f" — {detail[-1]}" if detail else ''), file=sys.stderr)
+                print(
+                    f"✗ {entry['name']}: calibre-customize failed" + (f" — {detail[-1]}" if detail else ""),
+                    file=sys.stderr,
+                )
         listing = installed_names(customize, args.config_dir).lower()
         if listing:
-            unseen = [e['name'] for e in done if e['name'].lower() not in listing]
+            unseen = [e["name"] for e in done if e["name"].lower() not in listing]
             if unseen:
-                print('Not seen in `calibre-customize -l` afterwards (check manually): ' + ', '.join(unseen))
+                print("Not seen in `calibre-customize -l` afterwards (check manually): " + ", ".join(unseen))
     if tmp:
         shutil.rmtree(tmp, ignore_errors=True)
-    print(f'Done: {installed_count} installed, {skipped} skipped, {len(failures)} failed. '
-          'Restart Calibre to load the new plugins.')
+    print(
+        f"Done: {installed_count} installed, {skipped} skipped, {len(failures)} failed. "
+        "Restart Calibre to load the new plugins."
+    )
     return 1 if failures else 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

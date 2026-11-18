@@ -13,6 +13,8 @@ pyparsing
 PyMuPDF
 pytest
 ruff
+pre-commit
+filelock>=4.2.1
 soupsieve>=4.0.0; python_version >= '3.11'
 soupsieve>=2.10; python_version < '3.11'
 colorama>=0.4.6; sys_platform == 'win32'
