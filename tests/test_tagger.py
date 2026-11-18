@@ -102,6 +102,14 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(parsed[0].tags, ["Theme.Growth", "Growth"])
         self.assertEqual(len(errors), 3)
 
+    def test_rules_regex_strip_whitespace_and_empty(self):
+        parsed, errors = rules.parse_rules(
+            "re:  [a-z]+  => Letters\nre:(( => Bad Regex\ntitle:re:  ^Start  => StartsWith"
+        )
+        self.assertEqual(len(parsed), 2)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("bad regular expression", errors[0])
+
     def test_sites(self):
         sites, errors = rules.parse_sites("storiesonline.net, sol.net => Stories Online\nbroken")
         self.assertEqual(sites, [("Stories Online", ["storiesonline.net", "sol.net"], [])])
@@ -256,7 +264,7 @@ class TaggerDialogTests(unittest.TestCase):
             if k not in self.saved_modules:
                 del sys.modules[k]
         sys.modules.update(self.saved_modules)
-        sys.modules.pop('common.guikit', None)
+        sys.modules.pop("common.guikit", None)
 
     def test_show_dialog_sets_word_wrap_on_labels(self):
         spec = importlib.util.spec_from_file_location(
@@ -574,6 +582,100 @@ class TaggerDialogTests(unittest.TestCase):
         self.assertEqual(signals_blocked_during_set_text, [True])
         self.assertFalse(rules_edit.signalsBlocked())
 
+    def test_live_regex_validation_in_form_builder(self):
+        action_mod = self._load_action_mod()
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+
+        qt_core = sys.modules["qt.core"]
+        widgets = {}
+
+        def mock_widget(cls_name, *a, **k):
+            m = MagicMock()
+            m._args = a
+            widgets.setdefault(cls_name, []).append(m)
+            return m
+
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget("QPlainTextEdit", *a, **k)
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget("QLineEdit", *a, **k)
+        qt_core.QComboBox.side_effect = lambda *a, **k: mock_widget("QComboBox", *a, **k)
+        qt_core.QCheckBox.side_effect = lambda *a, **k: mock_widget("QCheckBox", *a, **k)
+        qt_core.QRadioButton.side_effect = lambda *a, **k: mock_widget("QRadioButton", *a, **k)
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget("QPushButton", *a, **k)
+        qt_core.QLabel.side_effect = lambda *a, **k: mock_widget("QLabel", *a, **k)
+
+        action.show_dialog()
+
+        mode_combo = widgets["QComboBox"][1]
+        pat_edit = widgets["QLineEdit"][0]
+        tags_edit = widgets["QLineEdit"][1]
+        add_rule_btn = next(w for w in widgets["QPushButton"] if w._args and w._args[0] == "Add Rule")
+
+        validate_form = pat_edit.textChanged.connect.call_args[0][0]
+
+        # Mode = Regex, Pattern = invalid
+        mode_combo.currentText.return_value = "Regex"
+        pat_edit.text.return_value = "(("
+        tags_edit.text.return_value = "LitRPG"
+        validate_form()
+
+        pat_edit.setStyleSheet.assert_called_with("border: 1px solid red;")
+        add_rule_btn.setEnabled.assert_called_with(False)
+
+        # Mode = Regex, Pattern = valid
+        pat_edit.text.return_value = "litrpg"
+        validate_form()
+
+        pat_edit.setStyleSheet.assert_called_with("")
+        add_rule_btn.setEnabled.assert_called_with(True)
+
+        # Mode = Regex, Pattern = empty
+        pat_edit.text.return_value = ""
+        validate_form()
+
+        pat_edit.setStyleSheet.assert_called_with("")
+        add_rule_btn.setEnabled.assert_called_with(False)
+
+    def test_live_raw_text_regex_validation(self):
+        action_mod = self._load_action_mod()
+        action = action_mod.TaggerAction()
+        action.gui = MagicMock()
+        action.gui.library_view.get_selected_ids.return_value = [1]
+
+        qt_core = sys.modules["qt.core"]
+        widgets = {}
+
+        def mock_widget(cls_name, *a, **k):
+            m = MagicMock()
+            m._args = a
+            widgets.setdefault(cls_name, []).append(m)
+            return m
+
+        qt_core.QPlainTextEdit.side_effect = lambda *a, **k: mock_widget("QPlainTextEdit", *a, **k)
+        qt_core.QLineEdit.side_effect = lambda *a, **k: mock_widget("QLineEdit", *a, **k)
+        qt_core.QPushButton.side_effect = lambda *a, **k: mock_widget("QPushButton", *a, **k)
+
+        action.show_dialog()
+
+        rules_edit = next(w for w in widgets["QPlainTextEdit"] if w._args and w._args[0] == action_mod.prefs["rules"])
+        preview_btn = next(w for w in widgets["QPushButton"] if w._args and w._args[0] == "Preview")
+
+        on_raw_text_changed = rules_edit.textChanged.connect.call_args_list[0][0][0]
+
+        # Simulate typing invalid regex
+        rules_edit.toPlainText.return_value = "re:(( => Bad"
+        on_raw_text_changed()
+
+        rules_edit.setStyleSheet.assert_called_with("border: 1px solid red;")
+        preview_btn.setEnabled.assert_called_with(False)
+
+        # Simulate typing valid regex
+        rules_edit.toPlainText.return_value = "re:valid => Good"
+        on_raw_text_changed()
+
+        rules_edit.setStyleSheet.assert_called_with("")
+        preview_btn.setEnabled.assert_called_with(True)
 
 
 class SelectionStateTests(unittest.TestCase):
@@ -997,7 +1099,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
             if k not in self.saved_modules:
                 del sys.modules[k]
         sys.modules.update(self.saved_modules)
-        sys.modules.pop('common.guikit', None)
+        sys.modules.pop("common.guikit", None)
 
     def test_manager_dialog_initialization_and_commit(self):
         spec = importlib.util.spec_from_file_location(
@@ -1031,7 +1133,11 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         elapsed = time.time() - start
 
         self.assertEqual(len(dlg.local_rules), 1000)
-        self.assertLess(elapsed, 2.0, f"Table population for 1000 rules took too long ({elapsed:.2f}s)")
+        self.assertLess(
+            elapsed,
+            2.0,
+            f"Table population for 1000 rules took too long ({elapsed:.2f}s)",
+        )
 
     def test_manager_dialog_unchecked_rules_are_excluded(self):
         spec = importlib.util.spec_from_file_location(
@@ -1085,6 +1191,37 @@ class RuleSetManagerDialogTests(unittest.TestCase):
 
         dlg._on_accept()
         dlg.accept.assert_not_called()
+
+    def test_manager_dialog_live_table_cell_pattern_validation(self):
+        spec = importlib.util.spec_from_file_location(
+            "action", Path(__file__).resolve().parents[1] / "tagger/action.py"
+        )
+        action_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(action_mod)
+
+        dlg = action_mod.RuleSetManagerDialog(None, current_rules="rule1 => Tag1", current_sites="")
+
+        mock_pat_item = MagicMock()
+        mock_pat_item.column = MagicMock(return_value=2)
+        mock_pat_item.text = MagicMock(return_value="re:((")
+
+        dlg.rules_table.rowCount = MagicMock(return_value=1)
+        dlg.rules_table.item = MagicMock(return_value=mock_pat_item)
+
+        ok_btn = MagicMock()
+        dlg.button_box.button = MagicMock(return_value=ok_btn)
+
+        # Trigger pattern change to invalid regex
+        dlg._on_item_changed(mock_pat_item)
+
+        mock_pat_item.setBackground.assert_called()
+        ok_btn.setEnabled.assert_called_with(False)
+
+        # Trigger pattern change to valid regex
+        mock_pat_item.text = MagicMock(return_value="re:valid")
+        dlg._on_item_changed(mock_pat_item)
+
+        ok_btn.setEnabled.assert_called_with(True)
 
     def test_export_rule_set_writes_json_file(self):
         import json

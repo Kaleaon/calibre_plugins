@@ -320,10 +320,17 @@ class MatchInspectorDialog(QDialog):
                     new = cand.get("date")
                 elif field == "tags":
                     old = list(self.book.get("tags") or [])
-                    new = list(self.book.get("tags") or [])
+                    new = list(cand.get("tags") or cand.get("subjects") or [])
                 elif field == "identifiers":
                     old = dict(self.book.get("identifiers") or {})
-                    new = dict(self.book.get("identifiers") or {})
+                    if isinstance(cand.get("identifiers"), dict):
+                        new = dict(cand["identifiers"])
+                    else:
+                        new = {
+                            k: cand[k]
+                            for k in ("recording_id", "release_id", "olid")
+                            if cand.get(k)
+                        }
                 elif field == "cover":
                     old = None
                     new = cand.get("cover_urls")
