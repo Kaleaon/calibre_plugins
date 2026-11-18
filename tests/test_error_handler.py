@@ -11,10 +11,13 @@ from urllib.error import HTTPError, URLError
 if 'qt.core' not in sys.modules:
     try:
         import PyQt6.QtCore as _qtcore
+        import PyQt6.QtGui as _qtgui
         import PyQt6.QtWidgets as _qtwidgets
         qt = types.ModuleType('qt')
         qtcore = types.ModuleType('qt.core')
         for k, v in _qtcore.__dict__.items():
+            setattr(qtcore, k, v)
+        for k, v in _qtgui.__dict__.items():
             setattr(qtcore, k, v)
         for k, v in _qtwidgets.__dict__.items():
             setattr(qtcore, k, v)
@@ -126,6 +129,30 @@ class ErrorHandlerTests(unittest.TestCase):
         self.assertEqual(task.error.category, "File Access Error")
         self.assertIn("Permission denied in worker", task.error.details)
         self.assertIn("Troubleshooting steps:", str(task.error))
+
+    def test_audio_tagging_error_formatting(self):
+        try:
+            import mutagen
+
+            exc = mutagen.MutagenError("corrupted MP3 ID3 header at offset 128")
+        except ImportError:
+
+            class DummyMutagenError(Exception):
+                pass
+
+            DummyMutagenError.__module__ = "mutagen.id3"
+            exc = DummyMutagenError("corrupted MP3 ID3 header at offset 128")
+
+        friendly = format_exception(exc)
+        self.assertEqual(friendly.category, "Audio Tagging Error")
+        self.assertIn("audio file tags could not be read or written", friendly.explanation)
+        self.assertTrue(any("intact and plays in a media player" in step for step in friendly.recovery))
+        self.assertIn("corrupted MP3 ID3 header", friendly.details)
+
+    def test_audio_tag_string_error_formatting(self):
+        msg = "Audio tag header is malformed or invalid"
+        friendly = format_exception(msg)
+        self.assertEqual(friendly.category, "Audio Tagging Error")
 
 
 if __name__ == '__main__':

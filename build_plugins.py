@@ -17,6 +17,9 @@ SHARED = [
     "task_queue.py",
     "queue_ui.py",
     "error_handler.py",
+    "opml_kit.py",
+    "log_utils.py",
+    "tree_utils.py",
 ]
 PLUGINS = {
     "TakeoutBookFixer.zip": ("plugin", "takeout_book_fixer", SHARED, False),
@@ -26,7 +29,7 @@ PLUGINS = {
     "StoryCollectionTagger.zip": (
         "tagger",
         "story_collection_tagger",
-        ["guikit.py", "error_handler.py"],
+        ["guikit.py", "error_handler.py", "log_utils.py", "tree_utils.py"],
         False,
     ),
     "FanficDownloader.zip": ("fanfic", "fanfic_downloader", SHARED, True),
@@ -34,14 +37,26 @@ PLUGINS = {
     "GeminiLibraryFixer.zip": (
         "gemini",
         "gemini_library_fixer",
-        ["storykit.py", "guikit.py", "error_handler.py"],
+        [
+            "storykit.py",
+            "guikit.py",
+            "error_handler.py",
+            "log_utils.py",
+            "tree_utils.py",
+        ],
         False,
     ),
     "MediaMatcher.zip": (
         "media",
         "media_matcher",
-        ["storykit.py", "guikit.py", "error_handler.py"],
-        False,
+        [
+            "storykit.py",
+            "guikit.py",
+            "error_handler.py",
+            "log_utils.py",
+            "tree_utils.py",
+        ],
+        True,
     ),
     "InkbunnySoFurryDownloader.zip": (
         "furry",
@@ -113,11 +128,17 @@ def _licenses():
         except metadata.PackageNotFoundError:
             continue
         for f in dist.files or []:
-            if re.search(r"(?i)(^|/)(licen[cs]e|notice)[^/]*$", str(f)):
-                parts.append(
-                    f"\n===== {dist_name} {dist.version}: {f.name} =====\n"
-                    + dist.locate_file(f).read_text(encoding="utf-8", errors="replace")
-                )
+            if re.search(r"(?i)(^|[/\\])(licen[cs]e|notice)[^/\\]*$", str(f)):
+                try:
+                    file_path = dist.locate_file(f)
+                    if hasattr(file_path, "is_file") and not file_path.is_file():
+                        continue
+                    parts.append(
+                        f"\n===== {dist_name} {dist.version}: {f.name} =====\n"
+                        + file_path.read_text(encoding="utf-8", errors="replace")
+                    )
+                except (OSError, ValueError):
+                    continue
     return "\n".join(parts)
 
 
@@ -209,6 +230,21 @@ def add_vendored(z):
     )
 
 
+def add_mutagen(z):
+    """Copy pure-Python mutagen from third_party/mutagen into the MediaMatcher zip."""
+    mutagen_dir = root / "third_party" / "mutagen"
+    if not mutagen_dir.exists():
+        raise ImportError(f"{mutagen_dir} not found; vendored mutagen is required to build MediaMatcher")
+    for path in _package_files(mutagen_dir):
+        if path.name == "COPYING" or path.name == "LICENSE":
+            continue
+        rel = path.relative_to(mutagen_dir).as_posix()
+        z.write(path, f"mutagen/{rel}")
+    copying = mutagen_dir / "COPYING"
+    if copying.exists():
+        z.writestr("MUTAGEN_LICENSE.txt", copying.read_text(encoding="utf-8", errors="replace"))
+
+
 def build_all(dest, skip_unavailable=False):
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
@@ -225,7 +261,10 @@ def build_all(dest, skip_unavailable=False):
                     z.write(root / "common" / name, name)
                 z.writestr(f"plugin-import-name-{import_name}.txt", "")
                 if vendored:
-                    add_vendored(z)
+                    if zip_name == "FanficDownloader.zip":
+                        add_vendored(z)
+                    elif zip_name == "MediaMatcher.zip":
+                        add_mutagen(z)
         except ImportError as exc:
             target.unlink(missing_ok=True)
             if not skip_unavailable:
