@@ -101,15 +101,18 @@ jobs:
       - name: Build Go sidecar binaries (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        working-directory: calibre_link/sidecar
         run: |
-          New-Item -ItemType Directory -Force -Path calibre_link/tailscale
+          New-Item -ItemType Directory -Force -Path ../tailscale
           $env:CGO_ENABLED = "0"
           $env:GOOS = "windows"
           $env:GOARCH = "amd64"
-          go build -trimpath -ldflags "-s -w" -o calibre_link/tailscale/calibre-tsnet-windows-amd64.exe ./calibre_link/sidecar
+          go build -trimpath -ldflags "-s -w" -o ../tailscale/calibre-tsnet-windows-amd64.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:GOOS = "linux"
-          go build -trimpath -ldflags "-s -w" -o calibre_link/tailscale/calibre-tsnet-linux-amd64 ./calibre_link/sidecar
-          Get-ChildItem calibre_link/tailscale
+          go build -trimpath -ldflags "-s -w" -o ../tailscale/calibre-tsnet-linux-amd64 .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem ../tailscale
 
       - name: Build plugin packages in strict mode
         run: |

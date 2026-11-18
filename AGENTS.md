@@ -65,10 +65,13 @@ python calibre_link/build_zip.py
 On Windows (PowerShell):
 ```powershell
 New-Item -ItemType Directory -Force -Path calibre_link/tailscale
+Push-Location calibre_link/sidecar
 $env:CGO_ENABLED = "0"; $env:GOOS = "windows"; $env:GOARCH = "amd64"
-go build -trimpath -ldflags "-s -w" -o calibre_link/tailscale/calibre-tsnet-windows-amd64.exe ./calibre_link/sidecar
+go build -trimpath -ldflags "-s -w" -o ../tailscale/calibre-tsnet-windows-amd64.exe .
 $env:GOOS = "linux"
-go build -trimpath -ldflags "-s -w" -o calibre_link/tailscale/calibre-tsnet-linux-amd64 ./calibre_link/sidecar
+go build -trimpath -ldflags "-s -w" -o ../tailscale/calibre-tsnet-linux-amd64 .
+Remove-Item Env:CGO_ENABLED, Env:GOOS, Env:GOARCH
+Pop-Location
 python calibre_link/build_zip.py
 ```
 
