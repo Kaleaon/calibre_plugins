@@ -61,7 +61,7 @@ except ImportError:
 
 FIELD_LABELS = [('title', _('Titles')), ('authors', _('Authors')), ('series', _('Series and volume number')), ('tags', _('Tags')),
                 ('language', _('Language (only if empty)')), ('isbn', _('ISBN (read from the back cover or title page)'))]
-SHOW = {'title': _('Title'), 'authors': _('Authors'), 'series': _('Series'), 'tags': _('Tags'), 'language': _('Language'), 'isbn': _('ISBN')}
+SHOW = {'title': _('Title'), 'authors': _('Authors'), 'series': _('Series'), 'series_index': _('Series Index'), 'tags': _('Tags'), 'language': _('Language'), 'isbn': _('ISBN')}
 PRIVACY = _('Your API key is stored unencrypted in Calibre\'s settings folder. Only book details (title, authors, series, tags, '
             'publisher, language, file names) are sent to Google; the opening text and the cover pictures of a book are sent only if you tick those options. '
             'Changing a title or author also renames the book\'s folder and files in your library. Nothing changes until you press Apply.')
@@ -312,8 +312,16 @@ def prepare_image(data, max_side=1000):
 
 def show_value(field, value):
     if field == 'series':
-        name, index = value
-        return f'{name} #{index:g}' if name and index is not None else (name or '(none)')
+        if isinstance(value, (list, tuple)) and len(value) == 2:
+            name, index = value
+            return f'{name} #{index:g}' if name and index is not None else (name or '(none)')
+        return value or '(none)'
+    if field == 'series_index':
+        if value is not None:
+            if isinstance(value, (int, float)):
+                return f'{value:g}'
+            return str(value)
+        return '(none)'
     if isinstance(value, list):
         return ', '.join(value) if value else '(none)'
     return value or '(none)'
@@ -714,8 +722,13 @@ class GeminiFixerAction(DialogAction):
                     elif field == 'authors':
                         db.set_field('authors', {book_id: tuple(new)})
                     elif field == 'series':
-                        db.set_field('series', {book_id: new[0]})
-                        db.set_field('series_index', {book_id: new[1]})
+                        if isinstance(new, (list, tuple)) and len(new) == 2:
+                            db.set_field('series', {book_id: new[0]})
+                            db.set_field('series_index', {book_id: new[1] if new[1] is not None else 1.0})
+                        else:
+                            db.set_field('series', {book_id: new})
+                    elif field == 'series_index':
+                        db.set_field('series_index', {book_id: new if new is not None else 1.0})
                     elif field == 'tags':
                         db.set_field('tags', {book_id: tuple(new)})
                     elif field == 'language':
@@ -726,7 +739,12 @@ class GeminiFixerAction(DialogAction):
                         db.set_field('identifiers', {book_id: current_ids})
                     else:
                         continue
-                    saved[field] = [old[0], old[1] if old[1] is not None else 1.0] if field == 'series' else old
+                    if field == 'series':
+                        saved[field] = [old[0], old[1] if old[1] is not None else 1.0] if isinstance(old, (list, tuple)) and len(old) == 2 else old
+                    elif field == 'series_index':
+                        saved[field] = old if old is not None else 1.0
+                    else:
+                        saved[field] = old
                 except Exception as exc:
                     book_failed = True
                     errors.append(f'{book_label}: {field}: {exc}')
@@ -754,8 +772,13 @@ class GeminiFixerAction(DialogAction):
                     elif field == 'authors':
                         db.set_field('authors', {book_id: tuple(old)})
                     elif field == 'series':
-                        db.set_field('series', {book_id: old[0] or None})
-                        db.set_field('series_index', {book_id: old[1] if old[1] is not None else 1.0})
+                        if isinstance(old, (list, tuple)) and len(old) == 2:
+                            db.set_field('series', {book_id: old[0] or None})
+                            db.set_field('series_index', {book_id: old[1] if old[1] is not None else 1.0})
+                        else:
+                            db.set_field('series', {book_id: old or None})
+                    elif field == 'series_index':
+                        db.set_field('series_index', {book_id: old if old is not None else 1.0})
                     elif field == 'tags':
                         db.set_field('tags', {book_id: tuple(old)})
                     elif field == 'language':
