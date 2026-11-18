@@ -23,6 +23,10 @@ if str(ROOT / "scrubber_plugin") not in sys.path:
 for stub_name in ["calibre", "calibre.customize", "calibre.gui2", "calibre.gui2.actions"]:
     if stub_name not in sys.modules:
         sys.modules[stub_name] = MagicMock()
+if isinstance(sys.modules["calibre.gui2.actions"], MagicMock):
+    sys.modules["calibre.gui2.actions"].InterfaceAction = object
+if isinstance(sys.modules["calibre.customize"], MagicMock):
+    sys.modules["calibre.customize"].InterfaceActionBase = object
 
 if "calibre_plugins" not in sys.modules:
     cp = types.ModuleType("calibre_plugins")

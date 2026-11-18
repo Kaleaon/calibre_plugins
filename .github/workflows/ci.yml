@@ -80,7 +80,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install --require-hashes -r requirements.txt
+          python -m pip install --require-hashes -r requirements.txt
 
       - name: Run static code linting and formatting check
         run: python .github/scripts/run_ci_checks.py lint
@@ -89,6 +89,7 @@ jobs:
 
       - name: Build plugin packages in strict mode
         run: |
+          python build.py
           python build_plugins.py --strict
 
       - name: Verify generated plugin zip artifacts
