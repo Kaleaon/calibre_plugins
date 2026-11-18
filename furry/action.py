@@ -37,6 +37,7 @@ class FurryAction(libkit.DownloaderAction):
         plog.log('dialog accepted', f'refs={len(refs)}')
         skip, combine, title, chapter_range = dialog.options.values()
         user, password = dialog.credentials()
+        sf_token = dialog.sofurry_token()
         if not refs:
             return info_dialog(self.gui, 'Inkbunny & SoFurry', 'Nothing checked to download. '
                                'Paste addresses and use Fetch story list first.', show=True)
@@ -75,7 +76,8 @@ class FurryAction(libkit.DownloaderAction):
             fetcher = core.Fetcher(cancelled=task.cancelled)
             got, _, failed = core.download_refs(fetcher, refs, progress=prog,
                                                 chapter_range=chapter_range or None,
-                                                inkbunny_username=user, inkbunny_password=password)
+                                                inkbunny_username=user, inkbunny_password=password,
+                                                sofurry_token=sf_token)
             stories.extend(got)
             failures.extend(failed)
 

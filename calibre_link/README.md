@@ -95,6 +95,38 @@ Calibre Link → Customize plugin. Changes apply immediately.
 - `POST /calibredb` — compatibility shim: read-only subcommands and
   `set_metadata` are translated onto the live database; other write
   subcommands are refused with an explanation.
+- `GET /fs-list?path=` — list a folder inside the library folder
+  (v1.8.0; folders that are live book folders are flagged)
+- `POST /fs-move` — move a file or folder within the library folder
+  (v1.8.0). Built for cleanup: orphaned folders, the recycle bin,
+  staging files. Paths are confined to the library folder,
+  metadata.db is protected, existing destinations are never
+  overwritten, and live book folders (or anything containing /
+  inside one) are refused — calibre owns those paths; renaming a
+  book's folder is done by editing its metadata.
+- `POST /fs-upload` — write a file Tinker downloaded (e.g. a book
+  from Google Drive) into a folder inside the library folder
+  (v1.9.0), under the same confinement. From there it can be added
+  to the library properly or moved with /fs-move.
+- `POST /swap-title-authors/<id>` — repair a record whose title
+  and author(s) hold each other's values (v1.9.0). Backup first;
+  a "Last, First" title is inverted back to display form and kept
+  as the author_sort.
+- `GET /book-file/<id>?format=` — download a book's format file
+  (v1.10.0), and `GET /fs-download?path=` — download any file in
+  the library folder. These are the library → Google Drive leg:
+  Tinker pulls the file through the bridge, then uploads it to
+  Drive. metadata.db is refused here — /backup is the consistent
+  way to copy the database.
+- Chunked, resumable transfers (v1.11.0) — for files over the
+  64 MB single-shot cap, and for transfers that shouldn't start
+  over when a connection drops. Downloads take `offset`/`length`
+  ranges; uploads run begin → chunk → complete with the state
+  kept on disk in `.calibrelink-parts/` inside the library, so a
+  transfer survives even a calibre restart. Pausing is just
+  stopping; resuming picks up from the byte already saved, in
+  either direction. Completed uploads are verified by size and
+  sha256 before they land.
 
 Rules Tinker follows stay the same as with the old bridge: backups
 before writes, no deletions or merges without Joe's list first, and

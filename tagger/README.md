@@ -10,3 +10,7 @@ Adds tags so books from different sites can be organized together. Run **Auto-ta
 - **Keyword rules**: lines of `[field:]pattern => Tag, Tag` map what is already on a book to your own cross-site tags. Fields: `tags`, `title`, `author`, `series`, `comments`, `publisher`, `source`, `any`; the default looks at title, tags and series. A plain pattern is a case-insensitive substring, `=text` must match exactly, and `re:...` is a regular expression. For example `tags:=Muscle Growth => Theme.Growth` gives Metabods and other sites' books a shared tag, and `source:Royal Road => Format.Web serial` tags by site.
 - **Series tag**: optionally tag every book in a series (`Series.<name>`).
 - Books from other tools are tagged if their identifiers or publisher carry the site's address; use the extra-sites box if one is missed.
+
+## Metadata source
+
+This plugin also ships as a Calibre metadata source in a separate ZIP, `StoryCollectionTaggerSource.zip` (Calibre allows only one plugin per ZIP). The source **Story Source Tagger** contributes tags only: for the book being identified it works out the `Source.<Site>` tags and keyword-rule tags the tagger would add (using the tagger's saved rules, sites and prefixes) and returns the book with those tags. Install it alongside the tagger and enable it in Calibre's Download metadata source list.

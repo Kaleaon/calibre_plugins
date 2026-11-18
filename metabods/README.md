@@ -13,3 +13,7 @@ It builds EPUBs directly from the site's HTML print version (`story_print.php`, 
 - **Multi-part stories**: all parts of a story are one download and become chapters of a single EPUB with a table of contents. **Combine everything into one book** merges several separate stories into one omnibus EPUB with one nested contents entry per story.
 - Imported books get title, author, site tags and category as Calibre tags, the site summary as the comment, publisher *Metabods*, and a `metabods:<story id>` identifier, which **Skip stories already in this library** uses to avoid duplicates. Combined books carry no identifier.
 - Images, scripts and most inline styling are dropped; italics, bold, line breaks, indents and centering are kept.
+
+## Metadata source
+
+This plugin also ships as a Calibre metadata source in a separate ZIP, `MetabodsMetadataSource.zip` (Calibre allows only one plugin per ZIP). The source **Metabods** answers Download metadata requests with the site's own story metadata — author, tags, categories and summary — for books carrying a `metabods` story id or a story URL, and can also find stories by author through the site's author index (Metabods offers no title search). Install it alongside the downloader and enable it in Calibre's Download metadata source list.

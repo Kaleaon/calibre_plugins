@@ -30,3 +30,7 @@ SoFurry is read from the **current** site (sofurry.com): a story's data endpoint
 - Covers are the suite's generated covers (the sites' cover/thumbnail images are not imported).
 - Multi-file Inkbunny submissions and multi-chapter SoFurry stories keep their file/chapter titles as chapter headings when there is more than one.
 - Not run inside Calibre yet, and not yet verified against the live sites from the build environment — see the status note on the [main page](../README.md). The parsing, API handling, turbo-stream decoding, EPUB building and grouping are covered by offline tests with canned site answers (`tests/test_furry.py`).
+
+## Metadata source
+
+This plugin also ships as a Calibre metadata source in a separate ZIP, `InkbunnySoFurryMetadataSource.zip` (Calibre allows only one plugin per ZIP). The source **Inkbunny & SoFurry** answers Download metadata requests with Inkbunny's API search by title and direct lookup by submission id (using the login saved in the downloader's settings, or guest access), and with SoFurry lookups by submission id/URL and by author gallery, carrying the saved SoFurry token when one is set. Install it alongside the downloader and enable it in Calibre's Download metadata source list.

@@ -120,3 +120,7 @@ Choose the API if you have, or can get, approval from Reddit: it is the supporte
 - A chapter that its author edits is refreshed only when it is read again within the newest pages.
 - "First | Previous | Next" navigation lines at the start or end of a post are removed; other text is left exactly as posted.
 - Reddit content belongs to its authors and is subject to Reddit's terms; this is meant for personal reading copies.
+
+## Metadata source
+
+This plugin also ships as a Calibre metadata source in a separate ZIP, `RedditMetadataSource.zip` (Calibre allows only one plugin per ZIP). The source **Reddit Stories** answers Download metadata requests by searching Reddit by title (or by author) and grouping what it finds into series and single stories, exactly like the follower's discovery; a series result carries the series name and first part number. It reads through the follower's saved mode and credentials — public Atom feeds by default, the official API when configured. Install it alongside the follower and enable it in Calibre's Download metadata source list.
