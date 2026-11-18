@@ -31,13 +31,7 @@ class FanficAction(InterfaceAction):
         return {u.replace('|', ':') for u in libkit.existing_ids(self.gui, 'url')}
 
     def update_selected(self):
-        try:
-            from calibre_plugins.fanfic_downloader.config import prefs
-        except ImportError:
-            try:
-                from .config import prefs
-            except ImportError:
-                from config import prefs
+        from calibre_plugins.fanfic_downloader.config import prefs
 
         selected_ids = list(self.gui.library_view.get_selected_ids())
         if not selected_ids:
