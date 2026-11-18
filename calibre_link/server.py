@@ -31,6 +31,66 @@ unchanged — only /calibredb became a compatibility shim):
                           (backup first)
   POST /calibredb         {"args": [...]} — read-only subcommands + set_metadata
                           translated onto the live db; other writes refused.
+  GET  /fs-list?path=<rel>&offset=N&limit=N — list one folder inside
+                          the library folder (paths are library-relative;
+                          entries flag live book folders; offset/limit
+                          page through folders with >1000 entries and the
+                          reply carries the folder's total entry count)
+  POST /fs-move           {"src": <rel>, "dst": <rel>} — move a file or
+                          folder within the library folder. Confined:
+                          no absolute paths, no escapes, no overwriting,
+                          metadata.db protected, and live book folders
+                          (and their parents/contents) are refused —
+                          calibre owns those paths.
+  POST /fs-upload         {"path": <rel dir>, "filename", "data_base64",
+                          "overwrite": false} — write an uploaded file
+                          into a library folder (the receiving end of a
+                          download pipeline, e.g. books pulled from
+                          Google Drive). Same confinement as /fs-move;
+                          64 MB cap.
+  POST /swap-title-authors/<id> — repair a record whose title and
+                          author(s) hold each other's values (backup
+                          first; a "Last, First" title is inverted back
+                          to display form and kept as author_sort).
+  GET  /book-file/<id>?format=EPUB — a book's format file as base64
+                          (the library -> Google Drive upload leg;
+                          64 MB cap)
+  GET  /fs-download?path=<rel> — any file inside the library folder
+                          as base64 (same cap; metadata.db refused —
+                          use /backup for the database)
+  Both downloads accept &offset=N&length=N for chunked, resumable
+  transfers (response carries size/offset/eof); pause = stop
+  asking, resume = re-request from the saved offset.
+  Chunked upload (for files over the 64 MB single-shot cap, and
+  resumable across dropped connections and calibre restarts —
+  state is a part file + sidecar in <library>/.calibrelink-parts/):
+  POST /fs-upload-begin   {"transfer_id", "path", "filename", "size",
+                          "sha256"?, "overwrite"?} — idempotent;
+                          re-beginning an existing id reports how
+                          many bytes it already holds (resume point)
+  POST /fs-upload-chunk   {"transfer_id", "offset", "data_base64"}
+  GET  /fs-upload-status?transfer_id=<id>
+  POST /fs-upload-complete {"transfer_id"} — verifies size/sha256,
+                          re-checks confinement, renames into place
+  POST /fs-upload-abort   {"transfer_id"} — discards the part file
+  Transfer progress (v1.13 — feeds the status dialog's progress
+  bars for BOTH directions, uploads and downloads alike):
+  GET  /transfers         every known transfer with size, bytes
+                          done, percent, state and paused flag
+                          (uploads read from their sidecars;
+                          downloads tracked from ranges served)
+  POST /transfers-pause   {"key"} — key is an upload transfer_id,
+                          a download's library-relative path, or
+                          "*" for all; paused uploads refuse chunks
+                          and paused downloads refuse ranges
+  POST /transfers-resume  {"key"} — clears that pause ("*" = all)
+  Chat / command channel (v1.14 — the console window in calibre):
+  GET  /chat?since=<n>    messages after index n + total count;
+                          the log lives in .calibrelink-chat.json
+                          in the library folder (newest 500 kept)
+  POST /chat              {"from": "joe"|"tinker", "text"} —
+                          appends a message; Tinker reads and
+                          replies through these two routes
 
 Auth: every endpoint except /health needs header  X-Token: <token>.
 """
@@ -39,7 +99,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
-VERSION = "1.5.0"
+VERSION = "1.14.0"
 READ_SUBCOMMANDS = {"list", "search", "show_metadata", "check_library"}
 
 
@@ -150,6 +210,36 @@ def _make_handler(bridge):
                         return self.send_json(
                             {"ok": False, "error": "no such book"}, 404)
                     return self.send_json({"ok": True, "book": book})
+                if u.path == "/fs-list":
+                    return self.send_json(adapter.fs_list(
+                        qs.get("path", [""])[0],
+                        offset=_qint(qs, "offset", 0),
+                        limit=_qint(qs, "limit", 1000)))
+                if u.path == "/fs-download":
+                    return self.send_json(adapter.fs_download(
+                        qs.get("path", [""])[0],
+                        offset=_qint(qs, "offset", 0),
+                        length=_qint(qs, "length", None)))
+                if u.path == "/fs-upload-status":
+                    return self.send_json(adapter.upload_status(
+                        qs.get("transfer_id", [""])[0]))
+                if u.path == "/transfers":
+                    return self.send_json(adapter.transfers_list())
+                if u.path == "/chat":
+                    return self.send_json(adapter.chat_list(
+                        since=_qint(qs, "since", 0)))
+                if u.path.startswith("/book-file/"):
+                    book_id = u.path.rsplit("/", 1)[-1]
+                    if not book_id.isdigit():
+                        return self.send_json(
+                            {"ok": False, "error": "need numeric id"}, 400)
+                    return self.send_json(adapter.book_file(
+                        int(book_id), qs.get("format", [None])[0],
+                        offset=_qint(qs, "offset", 0),
+                        length=_qint(qs, "length", None)))
+                if u.path == "/deleted-books":
+                    return self.send_json(
+                        {"ok": True, **adapter.deleted_books()})
                 if u.path == "/log":
                     return self.send_json(
                         {"ok": True, "ops": adapter.ops_log()})
@@ -183,6 +273,87 @@ def _make_handler(bridge):
             u = urlparse(self.path)
             payload = self.read_payload()
             try:
+                if u.path == "/fs-move":
+                    return self.send_json(adapter.fs_move(
+                        payload.get("src") or "",
+                        payload.get("dst") or ""))
+                if u.path == "/fs-upload":
+                    import base64
+                    try:
+                        data = base64.b64decode(
+                            payload.get("data_base64") or "",
+                            validate=True)
+                    except Exception:
+                        return self.send_json(
+                            {"ok": False, "error": "bad base64"}, 400)
+                    if not data:
+                        return self.send_json(
+                            {"ok": False, "error": "empty file"}, 400)
+                    if len(data) > 64 * 1024 * 1024:
+                        return self.send_json(
+                            {"ok": False, "error": "file too large"}, 400)
+                    return self.send_json(adapter.fs_upload(
+                        payload.get("path") or "",
+                        payload.get("filename") or "",
+                        data,
+                        overwrite=bool(payload.get("overwrite", False))))
+                if u.path == "/fs-upload-begin":
+                    return self.send_json(adapter.upload_begin(
+                        payload.get("path") or "",
+                        payload.get("filename") or "",
+                        payload.get("size") or 0,
+                        payload.get("transfer_id") or "",
+                        sha256=payload.get("sha256"),
+                        overwrite=bool(payload.get("overwrite", False))))
+                if u.path == "/fs-upload-chunk":
+                    import base64
+                    try:
+                        data = base64.b64decode(
+                            payload.get("data_base64") or "",
+                            validate=True)
+                    except Exception:
+                        return self.send_json(
+                            {"ok": False, "error": "bad base64"}, 400)
+                    return self.send_json(adapter.upload_chunk(
+                        payload.get("transfer_id") or "",
+                        payload.get("offset") or 0, data))
+                if u.path == "/fs-upload-complete":
+                    return self.send_json(adapter.upload_complete(
+                        payload.get("transfer_id") or ""))
+                if u.path == "/fs-upload-abort":
+                    return self.send_json(adapter.upload_abort(
+                        payload.get("transfer_id") or ""))
+                if u.path == "/transfers-pause":
+                    return self.send_json(adapter.transfer_pause(
+                        payload.get("key") or "*"))
+                if u.path == "/transfers-resume":
+                    return self.send_json(adapter.transfer_resume(
+                        payload.get("key") or "*"))
+                if u.path == "/chat":
+                    return self.send_json(adapter.chat_post(
+                        payload.get("from") or "",
+                        payload.get("text") or ""))
+                if u.path.startswith("/swap-title-authors/"):
+                    book_id = u.path.rsplit("/", 1)[-1]
+                    if not book_id.isdigit():
+                        return self.send_json(
+                            {"ok": False, "error": "need numeric id"}, 400)
+                    return self.send_json(adapter.swap_title_authors(
+                        int(book_id)))
+                if u.path == "/restore-deleted":
+                    return self.send_json(adapter.restore_deleted(
+                        payload.get("ids") or []))
+                if u.path == "/trash-file":
+                    return self.send_json(adapter.trash_file(
+                        int(payload.get("id") or 0)))
+                if u.path == "/merge-books":
+                    keep = payload.get("keep")
+                    if keep is None:
+                        return self.send_json(
+                            {"ok": False, "error": "keep required"}, 400)
+                    return self.send_json(adapter.merge_books(
+                        int(keep),
+                        [int(x) for x in (payload.get("remove") or [])]))
                 if u.path == "/backup":
                     return self.send_json(
                         {"ok": True, "backup": adapter.backup()})
@@ -255,6 +426,13 @@ def _make_handler(bridge):
             return self.send_json({"ok": False, "error": "not found"}, 404)
 
     return H
+
+
+def _qint(qs, name, default):
+    try:
+        return int(qs.get(name, [default])[0])
+    except (TypeError, ValueError):
+        return default
 
 
 def _calibredb_shim(adapter, args):

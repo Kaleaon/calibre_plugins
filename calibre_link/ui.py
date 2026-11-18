@@ -32,12 +32,7 @@ def _sidecar_resource():
 
 class CalibreLinkAction(InterfaceAction):
     name = "Calibre Link"
-    action_spec = (
-        "Calibre Link",
-        None,
-        "Show Calibre Link bridge status / connection info",
-        None,
-    )
+    action_spec = ("Calibre Link", None, "Show Calibre Link bridge status / connection info", None)
 
     # -- lifecycle ------------------------------------------------------
     def genesis(self):
@@ -46,14 +41,7 @@ class CalibreLinkAction(InterfaceAction):
         self._sidecar_stopping = False
         self._auth_prompted = False
         self.suppress_dialogs = False
-        self.ts_status = {
-            "state": "off",
-            "auth_url": None,
-            "ip": None,
-            "dns": None,
-            "bridge": False,
-            "error": None,
-        }
+        self.ts_status = {"state": "off", "auth_url": None, "ip": None, "dns": None, "bridge": False, "error": None}
         self.adapter = CalibreAdapter(lambda: self.gui.current_db)
         self.qaction.triggered.connect(self.show_status)
 
@@ -72,10 +60,7 @@ class CalibreLinkAction(InterfaceAction):
     def start_server(self):
         self.stop_server()
         self.server = BridgeServer(
-            prefs.get("host", "0.0.0.0"),
-            int(prefs.get("port", 8765)),
-            get_token(),
-            self.adapter,
+            prefs.get("host", "0.0.0.0"), int(prefs.get("port", 8765)), get_token(), self.adapter
         )
         self.server.start()
         self._write_connection_file()
@@ -225,14 +210,7 @@ class CalibreLinkAction(InterfaceAction):
         self._sidecar_stopping = False
         self._auth_prompted = False
         if not prefs.get("ts_enabled", True):
-            self.ts_status = {
-                "state": "off",
-                "auth_url": None,
-                "ip": None,
-                "dns": None,
-                "bridge": False,
-                "error": None,
-            }
+            self.ts_status = {"state": "off", "auth_url": None, "ip": None, "dns": None, "bridge": False, "error": None}
             self._write_connection_file()
             return
         self.ts_status = {
@@ -247,7 +225,7 @@ class CalibreLinkAction(InterfaceAction):
             path = self._sidecar_path()
         except Exception as e:
             path = None
-            self.ts_status.update(state="error", error=f"could not extract Tailscale sidecar: {e}")
+            self.ts_status.update(state="error", error="could not extract Tailscale sidecar: %s" % e)
             self._write_connection_file()
             return
         if path is None:
@@ -268,8 +246,8 @@ class CalibreLinkAction(InterfaceAction):
         env = dict(os.environ)
         env["CLTS_HOSTNAME"] = prefs.get("ts_hostname", "calibre-link")
         env["CLTS_STATE_DIR"] = os.path.join(self._ts_dir(), "tsnet-state")
-        env["CLTS_LISTEN"] = f":{port}"
-        env["CLTS_TARGET"] = f"http://127.0.0.1:{port}"
+        env["CLTS_LISTEN"] = ":%d" % port
+        env["CLTS_TARGET"] = "http://127.0.0.1:%d" % port
         authkey = (prefs.get("ts_authkey") or "").strip()
         if authkey:
             env["CLTS_AUTHKEY"] = authkey
@@ -279,23 +257,14 @@ class CalibreLinkAction(InterfaceAction):
             kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         try:
             self.sidecar = subprocess.Popen(
-                [path],
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                **kwargs,
+                [path], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, **kwargs
             )
         except Exception as e:
-            self.ts_status.update(state="error", error=f"could not launch sidecar: {e}")
+            self.ts_status.update(state="error", error="could not launch sidecar: %s" % e)
             self._write_connection_file()
             return
         threading.Thread(
-            target=self._sidecar_reader,
-            args=(self.sidecar,),
-            name="calibre-link-tsnet-log",
-            daemon=True,
+            target=self._sidecar_reader, args=(self.sidecar,), name="calibre-link-tsnet-log", daemon=True
         ).start()
         self._write_connection_file()
 
@@ -339,7 +308,7 @@ class CalibreLinkAction(InterfaceAction):
         if not self._sidecar_stopping:
             self.ts_status.update(
                 state="error",
-                error="Tailscale node exited (code {}) — see tsnet.log".format(getattr(proc, "returncode", "?")),
+                error="Tailscale node exited (code %s) — see tsnet.log" % getattr(proc, "returncode", "?"),
             )
             self._write_connection_file()
 
@@ -387,9 +356,9 @@ class CalibreLinkAction(InterfaceAction):
         if st["state"] == "up":
             lines = ["Integrated Tailscale: CONNECTED — this calibre is on your tailnet as its own device."]
             if st.get("dns"):
-                lines.append(f"  Tailnet name: http://{st['dns']}:{port}")
+                lines.append("  Tailnet name: http://%s:%d" % (st["dns"], port))
             if st.get("ip"):
-                lines.append(f"  Tailnet IP:   http://{st['ip']}:{port}")
+                lines.append("  Tailnet IP:   http://%s:%d" % (st["ip"], port))
             lines.append(
                 "That is the address Tinker uses — reachable "
                 "from anywhere on your tailnet. The token "
@@ -400,13 +369,13 @@ class CalibreLinkAction(InterfaceAction):
             return [
                 "Integrated Tailscale: WAITING FOR ONE-TIME LOGIN.",
                 "Open this link in your browser and approve the device:",
-                f"  {st['auth_url']}",
+                "  %s" % st["auth_url"],
                 "You only do this once. Afterwards this file will show the tailnet address Tinker uses.",
             ]
         if st["state"] == "starting":
             return ["Integrated Tailscale: starting — reopen this file in a few seconds."]
         if st["state"] == "error":
-            return [f"Integrated Tailscale: not running — {st.get('error') or 'unknown error'}"]
+            return ["Integrated Tailscale: not running — %s" % (st.get("error") or "unknown error")]
         return ["Integrated Tailscale: off (enable it in Preferences -> Plugins -> Calibre Link)."]
 
     def _write_connection_file(self):
@@ -440,6 +409,7 @@ class CalibreLinkAction(InterfaceAction):
             QDialogButtonBox,
             QPushButton,
             QTextBrowser,
+            QTextEdit,
             QUrl,
             QVBoxLayout,
         )
@@ -448,19 +418,19 @@ class CalibreLinkAction(InterfaceAction):
         port = int(prefs.get("port", 8765))
         lines = ["Calibre Link", ""]
         if self.server is not None and self.server.running:
-            lines.append(f"Bridge: RUNNING on {host}:{port}")
+            lines.append("Bridge: RUNNING on %s:%d" % (host, port))
         elif self.server is not None and self.server.last_error:
-            lines.append(f"Bridge: FAILED TO START — {self.server.last_error}")
+            lines.append("Bridge: FAILED TO START — %s" % self.server.last_error)
         else:
             lines.append("Bridge: not running")
-        lines.append(f"Token: {get_token()}")
+        lines.append("Token: %s" % get_token())
         lines.append("")
         st = self.ts_status
         lines.append("Tailscale (integrated):")
         if st["state"] == "up":
             lines.append("  CONNECTED as %s" % (st.get("dns") or "?"))
             if st.get("ip"):
-                lines.append(f"  Tailnet IP: {st['ip']}")
+                lines.append("  Tailnet IP: %s" % st["ip"])
             lines.append("  Local bridge link: %s" % ("OK" if st.get("bridge") else "pending"))
         elif st["state"] == "auth":
             lines.append("  WAITING FOR ONE-TIME LOGIN — open:")
@@ -472,16 +442,16 @@ class CalibreLinkAction(InterfaceAction):
         elif st["state"] == "starting":
             lines.append("  starting…")
         elif st["state"] == "error":
-            lines.append("  ERROR: {}".format(st.get("error")))
+            lines.append("  ERROR: %s" % st.get("error"))
         else:
             lines.append("  off (Preferences -> Plugins -> Calibre Link)")
         lines.append("")
         try:
             info = self.adapter.health()
-            lines.append("Library: {}".format(info["library"]))
-            lines.append("Books: {}".format(info["book_count"]))
+            lines.append("Library: %s" % info["library"])
+            lines.append("Books: %s" % info["book_count"])
         except Exception as e:
-            lines.append(f"Library info unavailable: {e}")
+            lines.append("Library info unavailable: %s" % e)
         lines += [
             "",
             "The same details are in CalibreLink-connection.txt in your library folder.",
@@ -494,6 +464,208 @@ class CalibreLinkAction(InterfaceAction):
         text.setReadOnly(True)
         text.setHtml("<br>".join(lines))
         layout.addWidget(text)
+
+        # -- transfers: live progress bars (uploads + downloads) ------
+        from qt.core import QLabel, QListWidget, QListWidgetItem, QProgressBar, Qt, QTimer
+
+        def _fmt_bytes(n):
+            n = float(n or 0)
+            for unit in ("B", "KB", "MB", "GB"):
+                if n < 1024 or unit == "GB":
+                    return "%s %s" % (("%d" % n) if unit == "B" else ("%.1f" % n), unit)
+                n /= 1024.0
+
+        layout.addWidget(QLabel("Transfers — Drive uploads and downloads:"))
+        tlist = QListWidget()
+        tlist.setMaximumHeight(110)
+        layout.addWidget(tlist)
+        bar = QProgressBar()
+        bar.setRange(0, 100)
+        layout.addWidget(bar)
+        tlabel = QLabel("No transfers yet.")
+        layout.addWidget(tlabel)
+
+        def _show_transfer(t):
+            if not t:
+                bar.setValue(0)
+                tlabel.setText("No transfers yet.")
+                return
+            bar.setValue(int(t.get("percent", 0)))
+            tlabel.setText(
+                "%s: %s — %d%% (%s of %s)%s"
+                % (
+                    "Upload" if t.get("kind") == "upload" else "Download",
+                    t.get("name") or t.get("key"),
+                    t.get("percent", 0),
+                    _fmt_bytes(t.get("done")),
+                    _fmt_bytes(t.get("size")),
+                    " — PAUSED" if t.get("paused") else "",
+                )
+            )
+
+        def refresh_transfers():
+            try:
+                transfers = self.adapter.transfers_list().get("transfers", [])
+            except Exception as e:
+                tlabel.setText("Transfers unavailable: %s" % e)
+                return
+            current = tlist.currentItem()
+            cur_key = current.data(Qt.ItemDataRole.UserRole) if current is not None else None
+            tlist.clear()
+            shown = None
+            for t in transfers:
+                item = QListWidgetItem(
+                    "%s %s — %d%% (%s of %s)%s"
+                    % (
+                        "UP" if t.get("kind") == "upload" else "DOWN",
+                        t.get("name") or t.get("key"),
+                        t.get("percent", 0),
+                        _fmt_bytes(t.get("done")),
+                        _fmt_bytes(t.get("size")),
+                        " — paused" if t.get("paused") else "",
+                    )
+                )
+                item.setData(Qt.ItemDataRole.UserRole, t.get("key"))
+                item.setData(Qt.ItemDataRole.UserRole + 1, t)
+                tlist.addItem(item)
+                if t.get("key") == cur_key:
+                    tlist.setCurrentItem(item)
+                    shown = t
+                elif shown is None and t.get("state") in ("active", "paused", "ready"):
+                    shown = t
+            if shown is None and transfers:
+                shown = transfers[-1]
+            _show_transfer(shown)
+
+        def _selected_key():
+            item = tlist.currentItem()
+            if item is not None:
+                return item.data(Qt.ItemDataRole.UserRole) or "*"
+            return "*"
+
+        tlist.currentItemChanged.connect(
+            lambda *_: _show_transfer(
+                tlist.currentItem().data(Qt.ItemDataRole.UserRole + 1) if tlist.currentItem() is not None else None
+            )
+        )
+        refresh_transfers()
+        timer = QTimer(dlg)
+        timer.timeout.connect(refresh_transfers)
+        timer.start(1000)
+        dlg.finished.connect(timer.stop)
+
+        # -- chat / commands -------------------------------------------
+        from qt.core import QHBoxLayout, QLineEdit
+
+        layout.addWidget(
+            QLabel("Chat / commands — commands answer instantly here; anything else is a message to Tinker:")
+        )
+        chat_view = QTextEdit()
+        chat_view.setReadOnly(True)
+        chat_view.setMaximumHeight(150)
+        layout.addWidget(chat_view)
+        chat_row = QHBoxLayout()
+        chat_input = QLineEdit()
+        chat_input.setPlaceholderText("Type a command (help) or a message for Tinker…")
+        chat_row.addWidget(chat_input)
+        send_btn = QPushButton("Send")
+        chat_row.addWidget(send_btn)
+        layout.addLayout(chat_row)
+        chat_state = {"seen": 0}
+
+        def _chat_line(who, text):
+            chat_view.append("%s: %s" % (who, text))
+
+        def refresh_chat():
+            try:
+                data = self.adapter.chat_list(since=chat_state["seen"])
+            except Exception:
+                return
+            import time as _time
+
+            for m in data.get("messages", []):
+                stamp = _time.strftime("%H:%M", _time.localtime(m.get("ts", 0)))
+                _chat_line("%s %s" % ("Joe" if m.get("from") == "joe" else "Tinker", stamp), m.get("text", ""))
+            chat_state["seen"] = data.get("count", chat_state["seen"])
+
+        def run_command(raw):
+            """Run a local console command; return its output text,
+            or None when the input is not a command (it is then a
+            message for Tinker)."""
+            text = raw.strip()
+            low = text.lower().lstrip("/")
+            if low == "help":
+                return (
+                    "Commands: status · count · backup · "
+                    "transfers · pause all · resume all · "
+                    "pause <key> · resume <key> · help. "
+                    "Anything else is sent to Tinker."
+                )
+            if low == "status":
+                info = self.adapter.health()
+                return "Library: %s — %s books, bridge v%s" % (
+                    info.get("library"),
+                    info.get("book_count"),
+                    info.get("version", "?"),
+                )
+            if low in ("count", "books"):
+                return "%s books" % self.adapter.health().get("book_count")
+            if low == "backup":
+                return "Backup: %s" % self.adapter.backup().get("backup")
+            if low == "transfers":
+                rows = self.adapter.transfers_list().get("transfers", [])
+                if not rows:
+                    return "No transfers yet."
+                return " · ".join(
+                    "%s %s %d%%" % ("UP" if t["kind"] == "upload" else "DOWN", t.get("name") or t["key"], t["percent"])
+                    for t in rows
+                )
+            if low in ("pause all", "pause *"):
+                self.adapter.transfer_pause("*")
+                return "All transfers paused."
+            if low in ("resume all", "resume *"):
+                self.adapter.transfer_resume("*")
+                return "All transfers resumed."
+            if low.startswith("pause "):
+                key = text.split(None, 1)[1].strip()
+                self.adapter.transfer_pause(key)
+                refresh_transfers()
+                return "Paused: %s" % key
+            if low.startswith("resume "):
+                key = text.split(None, 1)[1].strip()
+                self.adapter.transfer_resume(key)
+                refresh_transfers()
+                return "Resumed: %s" % key
+            return None
+
+        def send_chat():
+            raw = chat_input.text().strip()
+            if not raw:
+                return
+            chat_input.clear()
+            out = None
+            try:
+                out = run_command(raw)
+            except Exception as e:
+                out = "Command failed: %s" % e
+            if out is not None:
+                _chat_line("Console", out)
+                return
+            r = self.adapter.chat_post("joe", raw)
+            if r.get("ok"):
+                refresh_chat()
+            else:
+                _chat_line("Console", "Not sent: %s" % r.get("error"))
+
+        send_btn.clicked.connect(send_chat)
+        chat_input.returnPressed.connect(send_chat)
+        _chat_line(
+            "Console",
+            "Commands answer instantly. Messages to Tinker are answered in this window when Tinker is active.",
+        )
+        refresh_chat()
+        timer.timeout.connect(refresh_chat)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(dlg.reject)
         auth_url = st.get("auth_url")
@@ -510,8 +682,14 @@ class CalibreLinkAction(InterfaceAction):
         restart_ts = QPushButton("Restart Tailscale")
         restart_ts.clicked.connect(lambda: (self.start_sidecar(), dlg.accept()))
         buttons.addButton(restart_ts, QDialogButtonBox.ButtonRole.ActionRole)
+        pause_btn = QPushButton("Pause transfer")
+        pause_btn.clicked.connect(lambda: (self.adapter.transfer_pause(_selected_key()), refresh_transfers()))
+        buttons.addButton(pause_btn, QDialogButtonBox.ButtonRole.ActionRole)
+        resume_btn = QPushButton("Resume transfer")
+        resume_btn.clicked.connect(lambda: (self.adapter.transfer_resume(_selected_key()), refresh_transfers()))
+        buttons.addButton(resume_btn, QDialogButtonBox.ButtonRole.ActionRole)
         layout.addWidget(buttons)
-        dlg.resize(560, 380)
+        dlg.resize(620, 780)
         dlg.exec()
         return dlg
 

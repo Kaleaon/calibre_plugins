@@ -1,0 +1,5 @@
+# Media Matcher Lookup — metadata source
+
+The `__init__.py` in this folder is the whole of this Calibre metadata source: a thin `Source` subclass that delegates to the `metadata_source` module of the plugin in `../media/`, which does the real searching with that plugin's own code and saved settings.
+
+It ships as its own ZIP (`MediaMatcherMetadataSource.zip`, built by `build_plugins.py`) because Calibre registers exactly one plugin per ZIP — the plugin in `../media/` is an InterfaceAction and cannot share `MediaMatcher.zip` with a metadata source. See the *Metadata sources* section of the main README.
