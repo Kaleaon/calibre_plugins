@@ -56,7 +56,7 @@ PLUGINS = {
             "log_utils.py",
             "tree_utils.py",
         ],
-        False,
+        True,
     ),
     "InkbunnySoFurryDownloader.zip": (
         "furry",
@@ -230,6 +230,21 @@ def add_vendored(z):
     )
 
 
+def add_mutagen(z):
+    """Copy pure-Python mutagen from third_party/mutagen into the MediaMatcher zip."""
+    mutagen_dir = root / "third_party" / "mutagen"
+    if not mutagen_dir.exists():
+        raise ImportError(f"{mutagen_dir} not found; vendored mutagen is required to build MediaMatcher")
+    for path in _package_files(mutagen_dir):
+        if path.name == "COPYING" or path.name == "LICENSE":
+            continue
+        rel = path.relative_to(mutagen_dir).as_posix()
+        z.write(path, f"mutagen/{rel}")
+    copying = mutagen_dir / "COPYING"
+    if copying.exists():
+        z.writestr("MUTAGEN_LICENSE.txt", copying.read_text(encoding="utf-8", errors="replace"))
+
+
 def build_all(dest, skip_unavailable=False):
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
@@ -246,7 +261,10 @@ def build_all(dest, skip_unavailable=False):
                     z.write(root / "common" / name, name)
                 z.writestr(f"plugin-import-name-{import_name}.txt", "")
                 if vendored:
-                    add_vendored(z)
+                    if zip_name == "FanficDownloader.zip":
+                        add_vendored(z)
+                    elif zip_name == "MediaMatcher.zip":
+                        add_mutagen(z)
         except ImportError as exc:
             target.unlink(missing_ok=True)
             if not skip_unavailable:

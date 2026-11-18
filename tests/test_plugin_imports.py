@@ -75,7 +75,7 @@ class PluginImportTests(unittest.TestCase):
                        'epub_promo_scrubber': ['action', 'ui', 'core', 'guikit'],
                        'story_collection_tagger': ['config', 'action', 'rules', 'presets', 'ui', 'guikit'],
                        'gemini_library_fixer': ['config', 'action', 'engine', 'guikit'],
-                       'media_matcher': ['config', 'action', 'tags', 'sources', 'matching', 'guikit'],
+                       'media_matcher': ['config', 'action', 'tags', 'sources', 'matching', 'guikit', 'mutagen_writer'],
                        'fanfic_downloader': ['config', 'action', 'ui', 'engine', 'flaresolverr', 'guikit']}.get(import_name, ['config', 'action', 'ui', 'core', 'guikit'])
             for module in modules:
                 with self.subTest(plugin=import_name, module=module):

@@ -90,7 +90,7 @@ def check_tests():
         "fanfic": ["tests/test_fanfic*.py", "tests/test_flaresolverr*.py"],
         "furry": ["tests/test_furry*.py"],
         "gemini": ["tests/test_gemini*.py"],
-        "media": ["tests/test_media*.py"],
+        "media": ["tests/test_media*.py", "tests/test_mutagen_writer*.py"],
         "metabods": ["tests/test_metabods*.py"],
         "nifty": ["tests/test_nifty*.py"],
         "reddit": ["tests/test_reddit*.py", "tests/test_manifest_reordering.py"],
@@ -100,6 +100,7 @@ def check_tests():
         "takeout": ["tests/test_takeout*.py"],
         "takeout_plugin": ["tests/test_takeout*.py"],
         "plugin": ["tests/test_takeout*.py", "tests/test_plugin*.py"],
+        "third_party": ["tests/test_mutagen_writer*.py"],
     }
 
     for f in changed_files:
