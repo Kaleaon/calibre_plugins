@@ -18,6 +18,8 @@ SHARED = [
     "queue_ui.py",
     "error_handler.py",
     "opml_kit.py",
+    "log_utils.py",
+    "tree_utils.py",
 ]
 PLUGINS = {
     "TakeoutBookFixer.zip": ("plugin", "takeout_book_fixer", SHARED, False),
@@ -27,7 +29,7 @@ PLUGINS = {
     "StoryCollectionTagger.zip": (
         "tagger",
         "story_collection_tagger",
-        ["guikit.py", "error_handler.py"],
+        ["guikit.py", "error_handler.py", "log_utils.py", "tree_utils.py"],
         False,
     ),
     "FanficDownloader.zip": ("fanfic", "fanfic_downloader", SHARED, True),
@@ -35,13 +37,25 @@ PLUGINS = {
     "GeminiLibraryFixer.zip": (
         "gemini",
         "gemini_library_fixer",
-        ["storykit.py", "guikit.py", "error_handler.py"],
+        [
+            "storykit.py",
+            "guikit.py",
+            "error_handler.py",
+            "log_utils.py",
+            "tree_utils.py",
+        ],
         False,
     ),
     "MediaMatcher.zip": (
         "media",
         "media_matcher",
-        ["storykit.py", "guikit.py", "error_handler.py"],
+        [
+            "storykit.py",
+            "guikit.py",
+            "error_handler.py",
+            "log_utils.py",
+            "tree_utils.py",
+        ],
         False,
     ),
     "InkbunnySoFurryDownloader.zip": (
