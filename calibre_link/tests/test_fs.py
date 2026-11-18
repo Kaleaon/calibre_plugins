@@ -2,12 +2,15 @@
 against a stub calibre db and a scratch library folder.
 Run: python3 tests/test_fs.py"""
 
+import base64 as _b64
+import hashlib as _hl
 import os
 import shutil
+import sqlite3
 import sys
 
 sys.path.insert(0, os.path.expanduser("~/workspace/calibre-plugin/src"))
-from adapter import CalibreAdapter
+from adapter import CalibreAdapter  # noqa: E402
 
 HOME = os.path.expanduser("~")
 LIB = os.path.join(HOME, "workspace/tools/test-tmp/lib-fs/Calibre Library")
@@ -46,8 +49,6 @@ put("Author B/Title Two (2)/book.epub", b"live")
 put("Orphan Folder (999)/lost.epub", b"orphan")
 put("stray.epub", b"stray")
 # a REAL (tiny) sqlite file as metadata.db, so adapter.backup() works
-import sqlite3  # noqa: E402
-
 _con = sqlite3.connect(os.path.join(LIB, "metadata.db"))
 _con.execute("create table books (id integer)")
 _con.commit()
@@ -225,8 +226,6 @@ assert not r["ok"], r  # empty title side cannot swap
 assert mdb.store[9].authors == ["No Title Here"]
 
 # -- downloads: book_file / fs_download -----------------------------------
-import base64 as _b64  # noqa: E402
-
 r = mad.book_file(8)
 assert r["ok"] and _b64.b64decode(r["data_base64"]) == b"BOOKBYTES", r
 assert r["filename"] == "Another Title - Jane Doe.epub", r["filename"]
@@ -251,8 +250,6 @@ download_refused("ghost.epub", "missing file")
 download_refused("../x", "escape via ..")
 
 # -- chunked, resumable uploads ---------------------------------------------
-import hashlib as _hl  # noqa: E402
-
 blob = bytes(range(256)) * 40  # 10240 bytes
 tid = "test-transfer-0001"
 r = ad.upload_begin("big", "bigfile.bin", len(blob), tid, sha256=_hl.sha256(blob).hexdigest())

@@ -2,6 +2,8 @@
 adapter backed by a COPY of the test library (sqlite, like the old
 standalone bridge). Run: python3 tests/test_server_api.py"""
 
+import base64 as _b64
+import hashlib as _hl
 import json
 import os
 import shutil
@@ -11,7 +13,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.expanduser("~/workspace/calibre-plugin/src"))
-from server import BridgeServer
+from server import BridgeServer  # noqa: E402
 
 HOME = os.path.expanduser("~")
 SRC_LIB = os.path.join(HOME, "workspace/calibre-bridge/test-library/Calibre Library")
@@ -262,7 +264,6 @@ s, r = call("POST", "/calibredb", {"args": ["remove", str(bid)]})
 assert not r["ok"]
 s, r = call("GET", "/nope")
 assert s == 404
-import base64 as _b64  # noqa: E402
 
 s, r = call(
     "POST",
@@ -332,8 +333,6 @@ assert s == 200 and r["ok"] and r["data_base64"] == "QUJD", r
 s, r = call("GET", "/fs-download?path=incoming/b.epub&offset=4&length=4")
 assert s == 200 and _b64.b64decode(r["data_base64"]) == b"-byt" and not r["eof"], r
 # chunked upload over HTTP: begin -> chunk -> status -> chunk -> complete
-import hashlib as _hl  # noqa: E402
-
 blob = b"Z" * 10000
 tid = "http-transfer-01"
 s, r = call(

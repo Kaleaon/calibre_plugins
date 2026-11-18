@@ -57,16 +57,20 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
                 "calibre_plugins.story_collection_tagger."
             ):
                 sys.modules.pop(key, None)
-        cp = types.ModuleType("calibre_plugins")
-        cp.__path__ = []
-        sys.modules["calibre_plugins"] = cp
+        cp_mod = types.ModuleType("calibre_plugins")
+        cp_mod.__path__ = []
         tagger_pkg = types.ModuleType("calibre_plugins.story_collection_tagger")
         tagger_pkg.__path__ = [str(repo_root / "tagger"), str(repo_root / "common")]
+        cp_mod.story_collection_tagger = tagger_pkg
+        sys.modules["calibre_plugins"] = cp_mod
         sys.modules["calibre_plugins.story_collection_tagger"] = tagger_pkg
-        cp.story_collection_tagger = tagger_pkg
 
-        spec = importlib.util.spec_from_file_location("tagger_action_real_qt", repo_root / "tagger" / "action.py")
+        spec = importlib.util.spec_from_file_location(
+            "calibre_plugins.story_collection_tagger.action",
+            repo_root / "tagger" / "action.py",
+        )
         cls.action = importlib.util.module_from_spec(spec)
+        sys.modules["calibre_plugins.story_collection_tagger.action"] = cls.action
         spec.loader.exec_module(cls.action)
 
     @classmethod

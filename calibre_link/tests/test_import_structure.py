@@ -4,7 +4,9 @@ plugin imports at load time, and verify the wiring."""
 
 import os
 import shutil
+import sqlite3
 import sys
+import tempfile
 import types
 import zipfile
 
@@ -118,9 +120,6 @@ assert ui._sidecar_resource() == "tailscale/calibre-tsnet-linux-amd64"
 print("ALL IMPORT-STRUCTURE TESTS PASSED")
 
 # --- v1.6.1 regression: real adapter merge path reaches the backup ---
-import sqlite3  # noqa: E402
-import tempfile  # noqa: E402
-
 _tmp = tempfile.mkdtemp()
 sqlite3.connect(os.path.join(_tmp, "metadata.db")).close()
 

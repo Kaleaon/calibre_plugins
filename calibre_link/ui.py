@@ -438,7 +438,7 @@ class CalibreLinkAction(InterfaceAction):
             if auth_url:
                 lines.append(f'  <a href="{auth_url}">{auth_url}</a>')
             else:
-                lines.append("  %s" % auth_url)
+                lines.append(f"  {auth_url}")
         elif st["state"] == "starting":
             lines.append("  starting…")
         elif st["state"] == "error":
