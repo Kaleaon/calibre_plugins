@@ -106,16 +106,16 @@ class CalibreLinkAction(InterfaceAction):
             fn = globals().get("get_resources")
             if fn is not None:
                 out = fn(resource)
-                if isinstance(out, (bytes, bytearray)) and out:
+                if isinstance(out, bytes | bytearray) and out:
                     return bytes(out)
                 if isinstance(out, dict):
                     data = out.get(resource)
-                    if isinstance(data, (bytes, bytearray)) and data:
+                    if isinstance(data, bytes | bytearray) and data:
                         return bytes(data)
                 out = fn([resource])
                 if isinstance(out, dict):
                     data = out.get(resource)
-                    if isinstance(data, (bytes, bytearray)) and data:
+                    if isinstance(data, bytes | bytearray) and data:
                         return bytes(data)
         except Exception:
             pass
@@ -129,7 +129,7 @@ class CalibreLinkAction(InterfaceAction):
                 out = fn([resource])
                 if isinstance(out, dict):
                     data = out.get(resource)
-                    if isinstance(data, (bytes, bytearray)) and data:
+                    if isinstance(data, bytes | bytearray) and data:
                         return bytes(data)
             except Exception:
                 pass
