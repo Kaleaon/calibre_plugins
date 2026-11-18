@@ -1310,9 +1310,16 @@ class ChapterCache:
                 p_map = self.posts
                 out = []
                 for m in manifest:
+                    if m.get("is_excluded"):
+                        continue
+                    if m.get("reconciliation_status") == "pending":
+                        continue
                     pid = m["post_id"]
-                    if pid in p_map and not m.get("is_excluded"):
-                        out.append(p_map[pid])
+                    if pid in p_map:
+                        post = dict(p_map[pid])
+                        if m.get("chapter_title"):
+                            post["title"] = m["chapter_title"]
+                        out.append(post)
                 return out
         return sorted(self.posts.values(), key=lambda p: (p["created"], p["title"]))
 
