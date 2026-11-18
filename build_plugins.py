@@ -1,5 +1,11 @@
 """Build every plugin zip into dist/. Shared modules from common/ are bundled into the plugins that use them.
 
+Each plugin also gets a companion metadata-source zip (see SOURCES): Calibre registers exactly one plugin per
+zip — the first Plugin subclass in its __init__.py — so a plugin cannot be both an InterfaceAction and a
+Metadata Source in one zip. The source zip reuses the plugin's own search/fetch modules (listed in
+SOURCE_FILES) under a different import name, with the <plugin>_source folder's __init__.py (a Source
+subclass) in place of the plugin's, plus common/metakit.py.
+
 The fanfic plugin also bundles the FanFicFare library and the third-party packages it imports. Those come from the Python
 environment running this script (`pip install fanficfare`); if they are missing that one zip is skipped with a message.
 """
@@ -20,6 +26,7 @@ SHARED = [
     "opml_kit.py",
     "log_utils.py",
     "tree_utils.py",
+    "metakit.py",
 ]
 PLUGINS = {
     "TakeoutBookFixer.zip": ("plugin", "takeout_book_fixer", SHARED, False),
@@ -29,7 +36,7 @@ PLUGINS = {
     "StoryCollectionTagger.zip": (
         "tagger",
         "story_collection_tagger",
-        ["guikit.py", "error_handler.py", "log_utils.py", "tree_utils.py"],
+        ["guikit.py", "error_handler.py", "log_utils.py", "tree_utils.py", "metakit.py"],
         False,
     ),
     "FanficDownloader.zip": ("fanfic", "fanfic_downloader", SHARED, True),
@@ -43,6 +50,7 @@ PLUGINS = {
             "error_handler.py",
             "log_utils.py",
             "tree_utils.py",
+            "metakit.py",
         ],
         False,
     ),
@@ -55,6 +63,7 @@ PLUGINS = {
             "error_handler.py",
             "log_utils.py",
             "tree_utils.py",
+            "metakit.py",
         ],
         True,
     ),
@@ -64,8 +73,59 @@ PLUGINS = {
         SHARED,
         False,
     ),
+    "PluginPackManager.zip": (
+        "pack_manager",
+        "plugin_pack_manager",
+        ["guikit.py", "error_handler.py"],
+        False,
+    ),
 }
 PLUGINS_BY_IMPORT = [v[1] for v in PLUGINS.values()]
+
+# Companion metadata sources: zip name -> (source folder, import name, plugin folder, vendored FanFicFare?)
+SOURCES = {
+    "TakeoutGoogleBooksSource.zip": ("plugin_source", "takeout_google_books_source", "plugin", False),
+    "EpubPromoScrubberSource.zip": ("scrubber_source", "epub_promo_scrubber_source", "scrubber_plugin", False),
+    "MetabodsMetadataSource.zip": ("metabods_source", "metabods_metadata_source", "metabods", False),
+    "NiftyMetadataSource.zip": ("nifty_source", "nifty_metadata_source", "nifty", False),
+    "StoryCollectionTaggerSource.zip": ("tagger_source", "story_collection_tagger_source", "tagger", False),
+    "FanficMetadataSource.zip": ("fanfic_source", "fanfic_metadata_source", "fanfic", True),
+    "RedditMetadataSource.zip": ("reddit_source", "reddit_metadata_source", "reddit", False),
+    "GeminiMetadataSource.zip": ("gemini_source", "gemini_metadata_source", "gemini", False),
+    "MediaMatcherMetadataSource.zip": ("media_source", "media_matcher_source", "media", False),
+    "InkbunnySoFurryMetadataSource.zip": ("furry_source", "inkbunny_sofurry_metadata_source", "furry", False),
+}
+SOURCES_BY_IMPORT = [v[1] for v in SOURCES.values()]
+
+# The plugin modules a metadata source needs: its metadata_source module plus the pure modules that module
+# (transitively) imports. GUI modules (action.py, ui.py, ...) are left out — they import the plugin's own
+# import name and Qt, neither of which a metadata source may touch.
+SOURCE_FILES = {
+    "plugin": ["metadata_source.py"],
+    "scrubber_plugin": ["core.py", "profiles.py", "image_classifier.py", "metadata_source.py"],
+    "metabods": ["core.py", "metadata_source.py"],
+    "nifty": ["core.py", "metadata_source.py"],
+    "tagger": ["rules.py", "fff_sites.py", "config.py", "metadata_source.py"],
+    "fanfic": ["engine.py", "config.py", "metadata_source.py"],
+    "reddit": ["core.py", "config.py", "metadata_source.py"],
+    "gemini": ["engine.py", "providers.py", "config.py", "metadata_source.py"],
+    "media": ["sources.py", "matching.py", "tags.py", "config.py", "metadata_source.py"],
+    "furry": ["core.py", "config.py", "metadata_source.py"],
+}
+
+# Shared modules from common/ a metadata source needs (metakit.py is always added on top of these).
+SOURCE_SHARED = {
+    "plugin": ["storykit.py"],
+    "scrubber_plugin": [],
+    "metabods": ["storykit.py"],
+    "nifty": ["storykit.py"],
+    "tagger": [],
+    "fanfic": [],
+    "reddit": ["storykit.py"],
+    "gemini": ["storykit.py"],
+    "media": [],
+    "furry": ["storykit.py"],
+}
 
 # FanFicFare parts left out: the command line, and the txt/html/mobi writers (the txt writer needs the GPL-licensed
 # html2text; this plugin only ever writes EPUB).
@@ -265,6 +325,25 @@ def build_all(dest, skip_unavailable=False):
                         add_vendored(z)
                     elif zip_name == "MediaMatcher.zip":
                         add_mutagen(z)
+        except ImportError as exc:
+            target.unlink(missing_ok=True)
+            if not skip_unavailable:
+                raise
+            print(f"Skipped {zip_name}: {exc}", file=sys.stderr)
+            continue
+        built[import_name] = target
+    for zip_name, (source_folder, import_name, folder, vendored) in SOURCES.items():
+        target = dest / zip_name
+        try:
+            with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as z:
+                z.write(root / source_folder / "__init__.py", "__init__.py")
+                for name in SOURCE_FILES[folder]:
+                    z.write(root / folder / name, name)
+                for name in dict.fromkeys([*SOURCE_SHARED[folder], "metakit.py"]):
+                    z.write(root / "common" / name, name)
+                z.writestr(f"plugin-import-name-{import_name}.txt", "")
+                if vendored:
+                    add_vendored(z)
         except ImportError as exc:
             target.unlink(missing_ok=True)
             if not skip_unavailable:

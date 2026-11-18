@@ -5,7 +5,7 @@ class FanficDownloader(InterfaceActionBase):
     description = 'Download stories from Royal Road, Archive of Our Own and 100+ other sites as EPUB, using FanFicFare\'s adapters'
     supported_platforms = ['windows', 'osx', 'linux']
     author = 'Bookfixer'
-    version = (1, 0, 0)
+    version = (1, 1, 0)
     minimum_calibre_version = (6, 0, 0)
     actual_plugin = 'calibre_plugins.fanfic_downloader.action:FanficAction'
 
