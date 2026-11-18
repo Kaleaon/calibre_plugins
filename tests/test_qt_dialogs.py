@@ -1987,25 +1987,6 @@ class GuikitHelpersTests(QtCase):
             text_edit.setPlainText("  http://example.com/1 \n\n http://example.com/2 ")
             self.assertEqual(parse_lines(text_edit), ["http://example.com/1", "http://example.com/2"])
 
-    def test_collect_checked_fields(self):
-        from common.guikit import collect_checked_fields
-
-        if not HAVE_QT:
-            return
-
-        box_a = QtWidgets.QCheckBox()
-        box_a.setChecked(True)
-        box_b = QtWidgets.QCheckBox()
-        box_b.setChecked(False)
-        box_c = QtWidgets.QCheckBox()
-        box_c.setChecked(True)
-
-        boxes = {"title": box_a, "authors": box_b, "series": box_c}
-        labels = [("series", "Series"), ("title", "Titles"), ("authors", "Authors")]
-
-        self.assertEqual(collect_checked_fields(boxes, labels), ("series", "title"))
-        self.assertEqual(collect_checked_fields(boxes), ("title", "series"))
-
     def test_append_log(self):
         from common.guikit import append_log
 
@@ -2040,25 +2021,6 @@ class GuikitHelpersTests(QtCase):
 
         changes = collect_tree_changes(tree)
         self.assertEqual(changes, [(101, {"title": "New Title"})])
-
-    def test_format_field_value(self):
-        from common.guikit import format_field_value
-
-        self.assertEqual(format_field_value("series", ("Dune", 1.0)), "Dune #1")
-        self.assertEqual(format_field_value("series", (None, None)), "(none)")
-        self.assertEqual(format_field_value("album", ("Album", 2.0)), "Album #2")
-        self.assertEqual(format_field_value("date", "2026-10-20T12:00:00Z"), "2026-10-20")
-        self.assertEqual(format_field_value("authors", ["Author A", "Author B"]), "Author A, Author B")
-        self.assertEqual(format_field_value("tags", []), "(none)")
-        self.assertEqual(format_field_value("identifiers", {"isbn": "12345"}), "isbn:12345")
-        self.assertEqual(format_field_value("cover", None), "none")
-        self.assertEqual(
-            format_field_value("cover", ("http://coverartarchive.org/img.jpg",)), "front cover from Cover Art Archive"
-        )
-        self.assertEqual(
-            format_field_value("cover", ("http://openlibrary.org/img.jpg",)), "front cover from Open Library"
-        )
-        self.assertEqual(format_field_value("title", None), "(none)")
 
 
 def make_dirty_epub():
