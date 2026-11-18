@@ -63,3 +63,7 @@ Download Chromaprint from [acoustid.org/chromaprint](https://acoustid.org/chroma
 - **Not done:** a *successful* AcoustID lookup (it needs a registered key, which was not available), so the fingerprint path is tested only with canned AcoustID answers. How accurate the matching is on a real music collection is untested beyond a few tracks; start with a few books and read the scores.
 - Tag readers were tested on files written by ffmpeg (MP3 ID3v2.3/2.4, FLAC, Ogg Vorbis, Opus, M4A, M4B, with and without cover art) and on hand-built bytes for the rest (ID3v1, v2.2, unsynchronisation, multi-page Ogg comments, truncated and junk files). Files from other encoders and taggers may differ.
 - The two windows were run under real Qt (PyQt6, offscreen) against a stand-in library: adding from a folder, lookup, apply, undo, cancel and saved settings.
+
+## Metadata source
+
+This plugin also ships as a Calibre metadata source in a separate ZIP, `MediaMatcherMetadataSource.zip` (Calibre allows only one plugin per ZIP). The source **Media Matcher Lookup** answers Download metadata requests with the plugin's own clients and scoring: MusicBrainz for music (album becomes the series, track number the series index, covers from the Cover Art Archive) and Open Library for books and audiobooks, including direct lookup by ISBN, MusicBrainz recording/release id or Open Library id. It uses the plugin's saved settings (contact string, kind, AcoustID options). Install it alongside Media Matcher and enable it in Calibre's Download metadata source list.

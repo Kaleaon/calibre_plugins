@@ -14,7 +14,18 @@ EXPECTED_ZIPS = [
     "GeminiLibraryFixer.zip",
     "MediaMatcher.zip",
     "InkbunnySoFurryDownloader.zip",
+    "PluginPackManager.zip",
     "CalibreLink.zip",
+    "TakeoutGoogleBooksSource.zip",
+    "EpubPromoScrubberSource.zip",
+    "MetabodsMetadataSource.zip",
+    "NiftyMetadataSource.zip",
+    "StoryCollectionTaggerSource.zip",
+    "FanficMetadataSource.zip",
+    "RedditMetadataSource.zip",
+    "GeminiMetadataSource.zip",
+    "MediaMatcherMetadataSource.zip",
+    "InkbunnySoFurryMetadataSource.zip",
 ]
 
 

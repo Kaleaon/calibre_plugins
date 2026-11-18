@@ -6,3 +6,4 @@ plugin/__pycache__/
 tests/__pycache__/
 *.zip
 !dist/*.zip
+.venv/

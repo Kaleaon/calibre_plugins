@@ -24,3 +24,7 @@ Nifty is a plain directory tree (section / category / story or series folder) of
 - The hard-wrapped text is re-flowed into paragraphs; blocks that look like verse or lists keep their line breaks; `____`, `***` and `---` scene breaks become rules. A few old stories are HTML pages and are cleaned like Metabods text.
 - Metadata comes from the mail headers: the title is the Subject with chapter markers and category lists removed, the author is the From name (the email address is dropped), the date becomes the publication date, and the section and category become tags. Publisher is *Nifty*; identifier is `nifty:<path>`.
 - **Limits**: old files with no headers get the author *Unknown* and a title taken from the folder or file name. Odd or truncated Subject lines may leave an imperfect title. Nothing is added that the archive does not publish.
+
+## Metadata source
+
+This plugin also ships as a Calibre metadata source in a separate ZIP, `NiftyMetadataSource.zip` (Calibre allows only one plugin per ZIP). The source **Nifty** answers Download metadata requests by `nifty` archive path or story URL, and by author + title through the archive's author directory; only a matched story's first chapter is read, which carries its title, author and date. Install it alongside the downloader and enable it in Calibre's Download metadata source list.
