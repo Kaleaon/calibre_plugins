@@ -17,6 +17,19 @@ if "calibre" not in sys.modules:
 
     sys.modules["calibre.customize"].InterfaceActionBase = InterfaceActionBase
 
+if "calibre_plugins" not in sys.modules:
+    cp = types.ModuleType("calibre_plugins")
+    cp.__path__ = []
+    sys.modules["calibre_plugins"] = cp
+else:
+    cp = sys.modules["calibre_plugins"]
+
+if "calibre_plugins.epub_promo_scrubber" not in sys.modules:
+    scrubber_pkg = types.ModuleType("calibre_plugins.epub_promo_scrubber")
+    scrubber_pkg.__path__ = [str(ROOT / "scrubber_plugin"), str(ROOT / "common")]
+    sys.modules["calibre_plugins.epub_promo_scrubber"] = scrubber_pkg
+    cp.epub_promo_scrubber = scrubber_pkg
+
 try:
     from qt.core import (
         QApplication,

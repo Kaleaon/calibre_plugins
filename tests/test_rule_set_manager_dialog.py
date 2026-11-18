@@ -1,5 +1,6 @@
 """PyQt6 GUI tests for RuleSetManagerDialog in Story Collection Tagger."""
 
+import importlib.util
 import json
 import sys
 import tempfile
@@ -8,51 +9,79 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from PyQt6 import QtCore, QtGui, QtWidgets
-
-# Set up qt.core mapping to PyQt6
-qtcore = types.ModuleType("qt.core")
-for mod in (QtCore, QtGui, QtWidgets):
-    for name in dir(mod):
-        if not name.startswith("_"):
-            setattr(qtcore, name, getattr(mod, name))
-sys.modules["qt"] = types.ModuleType("qt")
-sys.modules["qt.core"] = qtcore
-
-# Set up Calibre mocks
-calibre_mod = types.ModuleType("calibre")
-calibre_mod.__path__ = []
-sys.modules["calibre"] = calibre_mod
-sys.modules["calibre.customize"] = types.ModuleType("calibre.customize")
-sys.modules["calibre.customize"].InterfaceActionBase = object
-sys.modules["calibre.gui2"] = types.ModuleType("calibre.gui2")
-sys.modules["calibre.gui2"].error_dialog = lambda *a, **k: None
-sys.modules["calibre.gui2"].info_dialog = lambda *a, **k: None
-sys.modules["calibre.gui2.actions"] = types.ModuleType("calibre.gui2.actions")
-sys.modules["calibre.gui2.actions"].InterfaceAction = object
-sys.modules["calibre.utils"] = types.ModuleType("calibre.utils")
-sys.modules["calibre.utils.config"] = types.ModuleType("calibre.utils.config")
-mock_cfg = MagicMock()
-mock_cfg.defaults = {}
-sys.modules["calibre.utils.config"].JSONConfig = lambda *a, **k: mock_cfg
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "common"))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tagger"))
-
-import action  # noqa: E402
+try:
+    from PyQt6 import QtCore, QtGui, QtWidgets
+except ImportError:  # pragma: no cover - environments without PyQt6
+    QtCore = QtGui = QtWidgets = None
 
 
+@unittest.skipIf(QtWidgets is None, "PyQt6 is required for RuleSetManagerRealQtTests")
 class RuleSetManagerRealQtTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls._saved_modules = dict(sys.modules)
+        cls._saved_path = list(sys.path)
+
         cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+        qtcore = types.ModuleType("qt.core")
+        for mod in (QtCore, QtGui, QtWidgets):
+            for name in dir(mod):
+                if not name.startswith("_"):
+                    setattr(qtcore, name, getattr(mod, name))
+        qt_mod = types.ModuleType("qt")
+        qt_mod.core = qtcore
+        sys.modules["qt"] = qt_mod
+        sys.modules["qt.core"] = qtcore
+
+        calibre_mod = types.ModuleType("calibre")
+        calibre_mod.__path__ = []
+        sys.modules["calibre"] = calibre_mod
+        sys.modules["calibre.customize"] = types.ModuleType("calibre.customize")
+        sys.modules["calibre.customize"].InterfaceActionBase = object
+        sys.modules["calibre.gui2"] = types.ModuleType("calibre.gui2")
+        sys.modules["calibre.gui2"].error_dialog = lambda *a, **k: None
+        sys.modules["calibre.gui2"].info_dialog = lambda *a, **k: None
+        sys.modules["calibre.gui2.actions"] = types.ModuleType("calibre.gui2.actions")
+        sys.modules["calibre.gui2.actions"].InterfaceAction = object
+        sys.modules["calibre.utils"] = types.ModuleType("calibre.utils")
+        sys.modules["calibre.utils.config"] = types.ModuleType("calibre.utils.config")
+        mock_cfg = MagicMock()
+        mock_cfg.defaults = {}
+        sys.modules["calibre.utils.config"].JSONConfig = lambda *a, **k: mock_cfg
+
+        repo_root = Path(__file__).resolve().parents[1]
+        sys.path.insert(0, str(repo_root))
+        sys.path.insert(0, str(repo_root / "common"))
+        sys.path.insert(0, str(repo_root / "tagger"))
+
+        cp_pkg = types.ModuleType("calibre_plugins")
+        cp_pkg.__path__ = []
+        tagger_pkg = types.ModuleType("calibre_plugins.story_collection_tagger")
+        tagger_pkg.__path__ = [str(repo_root / "tagger"), str(repo_root / "common")]
+        cp_pkg.story_collection_tagger = tagger_pkg
+        sys.modules["calibre_plugins"] = cp_pkg
+        sys.modules["calibre_plugins.story_collection_tagger"] = tagger_pkg
+        for submod in ("config", "rules", "presets", "error_handler", "guikit", "ui", "action"):
+            sys.modules.pop(f"calibre_plugins.story_collection_tagger.{submod}", None)
+
+        spec = importlib.util.spec_from_file_location("tagger_action_real_qt", repo_root / "tagger" / "action.py")
+        cls.action = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.action)
+
+    @classmethod
+    def tearDownClass(cls):
+        for k in list(sys.modules.keys()):
+            if k not in cls._saved_modules:
+                del sys.modules[k]
+        sys.modules.update(cls._saved_modules)
+        sys.path[:] = cls._saved_path
 
     def test_dialog_initialization(self):
         current_rules = "tags:=Muscle Growth => Theme.Growth\nlitrpg => LitRPG"
         current_sites = "storiesonline.net, sol.net => Stories Online"
 
-        dlg = action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites=current_sites)
+        dlg = self.action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites=current_sites)
         self.assertEqual(dlg.rules_table.rowCount(), 2)
         self.assertEqual(dlg.sites_table.rowCount(), 1)
         self.assertEqual(dlg.get_commit_mode(), "merge")
@@ -70,7 +99,7 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
 
     def test_filter_live_search(self):
         current_rules = "tags:=Muscle Growth => Theme.Growth\nlitrpg => LitRPG\nprogression => LitRPG"
-        dlg = action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites="")
+        dlg = self.action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites="")
 
         # Search for Growth
         dlg.search_edit.setText("growth")
@@ -91,7 +120,7 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
 
     def test_select_all_deselect_all_toggles(self):
         current_rules = "rule1 => Tag1\nrule2 => Tag2"
-        dlg = action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites="")
+        dlg = self.action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites="")
 
         # Deselect all
         dlg._set_all_checked(dlg.rules_table, False)
@@ -109,7 +138,7 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
         current_rules = "litrpg => LitRPG\ntags:=Muscle Growth => Theme.Growth"
         current_sites = "storiesonline.net, sol.net => Stories Online"
 
-        dlg = action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites=current_sites)
+        dlg = self.action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites=current_sites)
 
         # Incoming package:
         # 1. New rule: cultivation => Xianxia
@@ -178,7 +207,7 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
         current_rules = "litrpg => LitRPG\noldrule => OldTag"
         current_sites = "oldsite.net => Old Site"
 
-        dlg = action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites=current_sites)
+        dlg = self.action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites=current_sites)
 
         incoming_data = {
             "version": 1,
@@ -224,7 +253,7 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
 
     def test_error_handling_invalid_json_and_regex(self):
         current_rules = "litrpg => LitRPG"
-        dlg = action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites="")
+        dlg = self.action.RuleSetManagerDialog(None, current_rules=current_rules, current_sites="")
 
         # 1. Invalid JSON
         with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
@@ -255,7 +284,7 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
         initial_rules = "tags:=Muscle Growth => Theme.Growth\nlitrpg => LitRPG"
         initial_sites = "storiesonline.net, sol.net => Stories Online"
 
-        dlg1 = action.RuleSetManagerDialog(None, current_rules=initial_rules, current_sites=initial_sites)
+        dlg1 = self.action.RuleSetManagerDialog(None, current_rules=initial_rules, current_sites=initial_sites)
 
         with tempfile.NamedTemporaryFile(suffix=".json", mode="w", encoding="utf-8", delete=False) as tf:
             export_path = tf.name
@@ -270,7 +299,7 @@ class RuleSetManagerRealQtTests(unittest.TestCase):
         self.assertEqual(len(data["sites"]), 1)
 
         # Now import into a clean dialog
-        dlg2 = action.RuleSetManagerDialog(None, current_rules="", current_sites="", mode="replace")
+        dlg2 = self.action.RuleSetManagerDialog(None, current_rules="", current_sites="", mode="replace")
         dlg2._load_json(export_path)
         dlg2._on_accept()
 

@@ -2,7 +2,11 @@
 target-version = "py310"
 line-length = 120
 include = [
+    "build.py",
+    "build_plugins.py",
     "common/guikit.py",
+    "common/log_utils.py",
+    "common/tree_utils.py",
     "fanfic/ui.py",
     "nifty/core.py",
     "plugin/action.py",
@@ -13,18 +17,13 @@ include = [
     "scrubber_plugin/core.py",
     "scrubber_plugin/ui.py",
     "tagger/action.py",
+    "tests/test_guikit.py",
     "tests/test_importer.py",
     "tests/test_nifty_authors.py",
     "tests/test_qt_dialogs.py",
     "tests/test_rule_set_manager_dialog.py",
     "tests/test_scrubber.py",
     "tests/test_scrubber_restore.py",
-    "common/guikit.py",
-    "common/log_utils.py",
-    "common/tree_utils.py",
-    "build.py",
-    "build_plugins.py",
-    "tests/test_guikit.py",
 ]
 extend-exclude = [
     "dist",
@@ -40,6 +39,7 @@ extend-exclude = [
     "plugin",
     "reddit",
     "scripts",
+    "scrubber_plugin",
     "build.py",
     "build_plugins.py",
     "calibre_link/adapter.py",
@@ -74,6 +74,7 @@ extend-exclude = [
     "tests/test_media.py",
     "tests/test_media_dialogs.py",
     "tests/test_metabods.py",
+    "tests/test_mutagen_writer.py",
     "tests/test_nifty.py",
     "tests/test_nifty_authors.py",
     "tests/test_nifty_posting_order.py",
@@ -83,6 +84,7 @@ extend-exclude = [
     "tests/test_reddit.py",
     "tests/test_reddit_login.py",
     "tests/test_reddit_registry.py",
+    "tests/test_scrubber.py",
     "tests/test_scrubber_config.py",
     "tests/test_scrubber_history.py",
     "tests/test_scrubber_pipeline.py",
@@ -105,7 +107,7 @@ select = [
     "W",   # pycodestyle warnings
     "UP",  # pyupgrade
 ]
-ignore = ["E501", "E741", "UP017", "UP031"]
+ignore = ["E501", "E741", "UP031", "UP017"]
 
 [tool.ruff.lint.isort]
 known-first-party = [
@@ -131,4 +133,5 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-v --ignore=tests/test_qt_dialogs.py --ignore=tests/test_media_dialogs.py --ignore=tests/test_empty_state_overlay.py --ignore=tests/test_reddit_registry.py --ignore=tests/test_readme_index.py --ignore=tests/test_scrubber.py"
