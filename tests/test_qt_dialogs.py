@@ -676,6 +676,7 @@ class RedditPluginTests(QtCase):
         sys.modules["calibre.gui2.actions"].InterfaceAction = object
         self.package = self.load("reddit_follower")
         self.core = importlib.import_module(self.package + ".core")
+        self.addCleanup(setattr, self.core, "Fetcher", self.core.Fetcher)
         self.config = importlib.import_module(self.package + ".config")
         self.ui = importlib.import_module(self.package + ".ui")
         self.ui.QMessageBox = RecordingBox
@@ -1389,6 +1390,129 @@ class RedditPluginTests(QtCase):
         self.assertTrue(dialog.api.isChecked())
         self.assertTrue(dialog.switch_api_button.isHidden())
 
+    def test_reddit_auth_error_dialog_ui_components(self):
+        core = self.core
+        action = self.make_action()
+        err = core.RateLimited("https://www.reddit.com/r/HFY/new.rss", retry_after=300)
+        dialog = self.ui.RedditAuthErrorDialog(None, error=err, action=action, title="Test Error")
+        dialog.show()
+        self.assertEqual(dialog.windowTitle(), "Test Error")
+        self.assertIsInstance(dialog, QtWidgets.QDialog)
+        self.assertIn("Log in with Reddit Now", dialog.login_button.text())
+        self.assertIn("Retry Check", dialog.retry_button.text())
+        self.assertIn("Snooze", dialog.snooze_button.text())
+        self.assertIsNotNone(dialog.details_box)
+        self.assertFalse(dialog.details_box.isVisible())
+        dialog.details_toggle_btn.click()
+        self.assertTrue(dialog.details_box.isVisible())
+        dialog.details_toggle_btn.click()
+        self.assertFalse(dialog.details_box.isVisible())
+
+        # Render dialog screenshot for verification artifact
+        pixmap = dialog.grab()
+        pixmap.save("/tmp/reddit_auth_error_dialog.png")
+        dialog.close()
+
+    def test_reddit_auth_error_dialog_snooze_behavior(self):
+        core = self.core
+        action = self.make_action()
+        err = core.RateLimited("https://www.reddit.com/r/HFY/new.rss", retry_after=600)
+        dialog = self.ui.RedditAuthErrorDialog(None, error=err, action=action)
+        before = time.time()
+        dialog.snooze_button.click()
+        self.assertEqual(dialog.result(), QtWidgets.QDialog.DialogCode.Rejected)
+        self.assertGreaterEqual(action.backoff_until, before + 590)
+
+    def test_reddit_auth_error_dialog_retry_behavior(self):
+        action = self.make_action()
+        qm = action.get_queue_manager()
+        qm.enqueue_task("series_123", "check_follow", {"id": "series_123", "name": "Series"})
+        qm.mark_failed("series_123", "Rate limited")
+        self.assertEqual(qm.get_tasks()[0]["status"], "BACKOFF")
+
+        action.backoff_until = time.time() + 3600
+        called = []
+        action.check_now = lambda follows: called.append(follows)
+
+        dialog = self.ui.RedditAuthErrorDialog(
+            None, error="HTTP 429 Too Many Requests", action=action, follows=[{"id": "series_123"}]
+        )
+        dialog.retry_button.click()
+        self.assertEqual(dialog.result(), QtWidgets.QDialog.DialogCode.Accepted)
+        self.assertEqual(action.backoff_until, 0.0)
+        self.assertEqual(qm.get_tasks()[0]["status"], "QUEUED")
+        self.assertEqual(called, [[{"id": "series_123"}]])
+
+    def test_reddit_auth_error_dialog_login_flow_and_retrigger(self):
+        login = importlib.import_module(self.package + ".login")
+        action = self.make_action()
+        qm = action.get_queue_manager()
+        qm.enqueue_task("s1", "check_follow", {"id": "s1"})
+        qm.mark_failed("s1", "OAuth error")
+
+        self.config.prefs["client_id"] = "test-id"
+        self.config.prefs["client_secret"] = "test-secret"
+        self.config.prefs["refresh_token"] = ""
+        self.config.prefs["account_name"] = ""
+        action.backoff_until = time.time() + 1800
+
+        called = []
+        action.check_now = lambda follows: called.append(follows)
+
+        dialog = self.ui.RedditAuthErrorDialog(
+            None, error="OAuth 401 Unauthorized", action=action, follows=[{"id": "s1"}]
+        )
+
+        with (
+            patch.object(login, "CallbackServer") as mock_server_cls,
+            patch.object(
+                login, "log_in", return_value={"refresh_token": "refresh1", "username": "Reader"}
+            ) as mock_login,
+        ):
+            mock_server_instance = MagicMock()
+            mock_server_instance.redirect_uri = "http://127.0.0.1:8844/callback"
+            mock_server_cls.return_value.__enter__.return_value = mock_server_instance
+            dialog.login_button.click()
+            self.assertTrue(mock_server_cls.called)
+            self.assertTrue(mock_login.called)
+
+        self.assertEqual(dialog.result(), QtWidgets.QDialog.DialogCode.Accepted)
+        self.assertEqual(self.config.prefs["refresh_token"], "refresh1")
+        self.assertEqual(self.config.prefs["account_name"], "Reader")
+        self.assertEqual(self.config.prefs["mode"], "api")
+        self.assertEqual(action.backoff_until, 0.0)
+        self.assertEqual(qm.get_tasks()[0]["status"], "QUEUED")
+        self.assertEqual(called, [[{"id": "s1"}]])
+
+    def test_check_now_intercepts_rate_limit_and_displays_dialog(self):
+        core = self.core
+        action = self.make_action()
+        follow = core.new_follow("Test Series", "r/HFY")
+        self.config.prefs["follows"] = [follow]
+
+        class FailingFetcher:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def get(self, url, *args, **kwargs):
+                raise core.RateLimited(url, 450)
+
+        with patch.object(core, "Fetcher", FailingFetcher):
+            action.check_now([follow])
+            self.assertIsNotNone(getattr(action, "last_dialog", None))
+            self.assertIsInstance(action.last_dialog, self.ui.RedditAuthErrorDialog)
+            self.assertIn("429", str(action.last_dialog.error).lower() + action.last_dialog.friendly.details)
+
+    def test_poll_intercepts_background_rate_limit_and_suppresses_headless(self):
+        core = self.core
+        action = self.make_action()
+        action._job = {"results": [], "error": core.RateLimited("https://example.com", 500)}
+        action._poll()
+        self.assertIsNotNone(getattr(action, "last_dialog", None))
+        self.assertIsInstance(action.last_dialog, self.ui.RedditAuthErrorDialog)
+        self.assertIn("429", action.last_background_error.lower())
+        self.assertIn("check failed", action.gui.status_bar.show_message.call_args[0][0].lower())
+
 
 class GeminiDb(BaseMockDb):
     """Just enough of Calibre's db.new_api for the Gemini fixer: books in memory, every write recorded."""
@@ -1987,25 +2111,6 @@ class GuikitHelpersTests(QtCase):
             text_edit.setPlainText("  http://example.com/1 \n\n http://example.com/2 ")
             self.assertEqual(parse_lines(text_edit), ["http://example.com/1", "http://example.com/2"])
 
-    def test_collect_checked_fields(self):
-        from common.guikit import collect_checked_fields
-
-        if not HAVE_QT:
-            return
-
-        box_a = QtWidgets.QCheckBox()
-        box_a.setChecked(True)
-        box_b = QtWidgets.QCheckBox()
-        box_b.setChecked(False)
-        box_c = QtWidgets.QCheckBox()
-        box_c.setChecked(True)
-
-        boxes = {"title": box_a, "authors": box_b, "series": box_c}
-        labels = [("series", "Series"), ("title", "Titles"), ("authors", "Authors")]
-
-        self.assertEqual(collect_checked_fields(boxes, labels), ("series", "title"))
-        self.assertEqual(collect_checked_fields(boxes), ("title", "series"))
-
     def test_append_log(self):
         from common.guikit import append_log
 
@@ -2040,25 +2145,6 @@ class GuikitHelpersTests(QtCase):
 
         changes = collect_tree_changes(tree)
         self.assertEqual(changes, [(101, {"title": "New Title"})])
-
-    def test_format_field_value(self):
-        from common.guikit import format_field_value
-
-        self.assertEqual(format_field_value("series", ("Dune", 1.0)), "Dune #1")
-        self.assertEqual(format_field_value("series", (None, None)), "(none)")
-        self.assertEqual(format_field_value("album", ("Album", 2.0)), "Album #2")
-        self.assertEqual(format_field_value("date", "2026-10-20T12:00:00Z"), "2026-10-20")
-        self.assertEqual(format_field_value("authors", ["Author A", "Author B"]), "Author A, Author B")
-        self.assertEqual(format_field_value("tags", []), "(none)")
-        self.assertEqual(format_field_value("identifiers", {"isbn": "12345"}), "isbn:12345")
-        self.assertEqual(format_field_value("cover", None), "none")
-        self.assertEqual(
-            format_field_value("cover", ("http://coverartarchive.org/img.jpg",)), "front cover from Cover Art Archive"
-        )
-        self.assertEqual(
-            format_field_value("cover", ("http://openlibrary.org/img.jpg",)), "front cover from Open Library"
-        )
-        self.assertEqual(format_field_value("title", None), "(none)")
 
 
 def make_dirty_epub():

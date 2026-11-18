@@ -1734,18 +1734,11 @@ class MatchInspectorAndSingleBookTests(unittest.TestCase):
         self.assertGreater(len(cands), 0)
         self.assertEqual(cands[0]["title"], "Dune")
 
-    def test_update_diffs_unchanged_tags_and_identifiers_display_candidate_metadata(
-        self,
-    ):
+    def test_update_diffs_unchanged_tags_and_identifiers_display_candidate_metadata(self):
         MatchInspectorDialog = _load_match_inspector()
         if MatchInspectorDialog is None:
             self.skipTest("PyQt6 is not available")
-        book = library_book(
-            id=1,
-            title="Yesterday",
-            tags=["BookTag", "Music"],
-            identifiers={"isbn": "123"},
-        )
+        book = library_book(id=1, title="Yesterday", tags=["BookTag", "Music"], identifiers={"isbn": "123"})
         cand = {
             "title": "Yesterday",
             "score": 0.95,
@@ -1804,12 +1797,7 @@ class MatchInspectorAndSingleBookTests(unittest.TestCase):
         }
         self.assertEqual(rows["Tags"], ("Sci-Fi", "Space Opera, Arrakis", "Unchanged"))
         self.assertEqual(
-            rows["Ids"],
-            (
-                "olid:OL123M",
-                "olid:OL123M, recording_id:rec-99, release_id:rel-88",
-                "Unchanged",
-            ),
+            rows["Ids"], ("olid:OL123M", "olid:OL123M, recording_id:rec-99, release_id:rel-88", "Unchanged")
         )
 
     def test_update_diffs_explicit_identifiers_dict_takes_precedence(self):
@@ -1847,10 +1835,7 @@ class MatchInspectorAndSingleBookTests(unittest.TestCase):
             )
             for i in range(dlg.diff_tree.topLevelItemCount())
         }
-        self.assertEqual(
-            rows["Ids"],
-            ("isbn:111, mb_recording:rec-1, mb_release:rel-1", "isbn:222", "Unchanged"),
-        )
+        self.assertEqual(rows["Ids"], ("isbn:111, mb_recording:rec-1, mb_release:rel-1", "isbn:222", "Unchanged"))
 
     def test_update_diffs_empty_and_missing_keys_graceful_fallback(self):
         MatchInspectorDialog = _load_match_inspector()
