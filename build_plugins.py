@@ -228,6 +228,8 @@ def add_vendored(z):
         + (bro / "LICENSE").read_text(encoding="utf-8")
         + "\nSource: https://github.com/sidney/brotlidecpy\n",
     )
+
+
 def add_mutagen(z):
     """Copy pure-Python mutagen from third_party/mutagen into the MediaMatcher zip."""
     mutagen_dir = root / "third_party" / "mutagen"

@@ -29,6 +29,7 @@ from qt.core import (
     QTimer,
     QVBoxLayout,
     QWidget,
+    QPlainTextEdit,
 )
 
 try:
@@ -64,12 +65,21 @@ except ImportError:
         run_task,
     )
 try:
-    from calibre_plugins.reddit_follower.error_handler import show_friendly_error_dialog
+    from calibre_plugins.reddit_follower.error_handler import (
+        format_exception,
+        show_friendly_error_dialog,
+    )
 except ImportError:
     try:
-        from .error_handler import show_friendly_error_dialog
+        from .error_handler import format_exception, show_friendly_error_dialog
     except ImportError:
-        from error_handler import show_friendly_error_dialog
+        try:
+            from error_handler import format_exception, show_friendly_error_dialog
+        except ImportError:
+            from common.error_handler import (
+                format_exception,
+                show_friendly_error_dialog,
+            )
 from calibre_plugins.reddit_follower.storykit import Fetcher
 
 _ENSURED_QT_APP = None
@@ -330,6 +340,378 @@ class ManifestDialog(QDialog):
         elif hasattr(self.action, "update_library"):
             self.action.update_library(self.follow, has_changes=True)
         self.accept()
+
+
+class ReorderableChapterTable(QTableWidget):
+    """Table widget with row drag-and-drop reordering support."""
+
+    def __init__(self, rows, cols, parent=None):
+        super().__init__(rows, cols, parent)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        if hasattr(self, "viewport"):
+            self.viewport().setAcceptDrops(True)
+        self.setDragDropOverwriteMode(False)
+        self.setDropIndicatorShown(True)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.on_reordered_callback = None
+
+    def dropEvent(self, event):
+        if event.source() == self:
+            selected_rows = sorted({item.row() for item in self.selectedItems()})
+            if selected_rows:
+                source_row = selected_rows[0]
+                pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+                drop_row = self.rowAt(pos.y())
+                if drop_row == -1:
+                    drop_row = self.rowCount() - 1
+                if drop_row != source_row:
+                    self.move_row(source_row, drop_row)
+                    event.accept()
+                    if self.on_reordered_callback:
+                        self.on_reordered_callback()
+                    return
+        super().dropEvent(event)
+
+    def move_row(self, source_row, target_row):
+        if source_row == target_row or source_row < 0 or target_row < 0:
+            return
+        if source_row >= self.rowCount() or target_row >= self.rowCount():
+            return
+
+        self.blockSignals(True)
+        row_items = [self.takeItem(source_row, c) for c in range(self.columnCount())]
+        self.removeRow(source_row)
+        self.insertRow(target_row)
+        for c, it in enumerate(row_items):
+            if it:
+                self.setItem(target_row, c, it)
+        self.selectRow(target_row)
+        self.reindex_sequences()
+        self.blockSignals(False)
+
+    def reindex_sequences(self):
+        for r in range(self.rowCount()):
+            seq_item = self.item(r, 0)
+            if seq_item:
+                seq_item.setText(str(r + 1))
+
+
+class ChapterManagerDialog(QDialog):
+    """Standalone dialog for series chapter ordering, title editing, exclusions, and reconciliation."""
+
+    COLUMNS = ["Seq", "Include", "Chapter Title (Editable)", "Author", "Created", "Status", "Link"]
+
+    def __init__(self, parent, follow, action):
+        _ensure_qt_app()
+        super().__init__(parent)
+        ThemeTokenEngine.register_widget(self)
+        self.follow = follow
+        self.action = action
+        self.setWindowTitle(f"Chapter Manager \u2013 {follow['name']}")
+        self.resize(900, 520)
+        layout = QVBoxLayout(self)
+
+        # Instructions
+        self.info_label = QLabel(
+            _(
+                "Drag and drop rows or use Move Up / Move Down to set narrative order. "
+                'Double-click titles to edit inline. Uncheck "Include" to exclude non-narrative posts.'
+            )
+        )
+        self.info_label.setWordWrap(True)
+        layout.addWidget(self.info_label)
+
+        # Reconciliation warning banner
+        self.review_banner = QFrame(self)
+        self.review_banner.setFrameShape(QFrame.Shape.StyledPanel)
+        self.review_banner.setStyleSheet(
+            "QFrame { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; border-radius: 4px; padding: 6px; }"
+        )
+        banner_layout = QHBoxLayout(self.review_banner)
+        banner_layout.setContentsMargins(6, 4, 6, 4)
+        self.review_banner_label = QLabel(self.review_banner)
+        self.review_banner_label.setWordWrap(True)
+        banner_layout.addWidget(self.review_banner_label, 1)
+
+        self.banner_approve_all_btn = create_token_button(_("Approve All"))
+        self.banner_approve_all_btn.clicked.connect(self.approve_all)
+        banner_layout.addWidget(self.banner_approve_all_btn)
+        layout.addWidget(self.review_banner)
+        self.review_banner.setVisible(False)
+
+        # Main table and side controls
+        table_container = QHBoxLayout()
+        self.table = ReorderableChapterTable(0, len(self.COLUMNS), self)
+        self.table.setHorizontalHeaderLabels([_(col) for col in self.COLUMNS])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.SelectedClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+        )
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.itemChanged.connect(self.on_item_changed)
+        self.table.on_reordered_callback = self.on_table_reordered
+        table_container.addWidget(self.table, 1)
+
+        # Side action buttons
+        side_layout = QVBoxLayout()
+        self.move_up_btn = create_token_button(_("Move Up"))
+        self.move_up_btn.clicked.connect(self.move_selected_up)
+        side_layout.addWidget(self.move_up_btn)
+
+        self.move_down_btn = create_token_button(_("Move Down"))
+        self.move_down_btn.clicked.connect(self.move_selected_down)
+        side_layout.addWidget(self.move_down_btn)
+
+        self.toggle_exclude_btn = create_token_button(_("Toggle Exclude"))
+        self.toggle_exclude_btn.clicked.connect(self.toggle_exclude_selected)
+        side_layout.addWidget(self.toggle_exclude_btn)
+
+        self.approve_selected_btn = create_token_button(_("Approve Selected"))
+        self.approve_selected_btn.clicked.connect(self.approve_selected)
+        side_layout.addWidget(self.approve_selected_btn)
+
+        self.approve_all_btn = create_token_button(_("Approve All"))
+        self.approve_all_btn.clicked.connect(self.approve_all)
+        side_layout.addWidget(self.approve_all_btn)
+
+        self.reset_order_btn = create_token_button(_("Reset to Default"))
+        self.reset_order_btn.clicked.connect(self.reset_to_default)
+        side_layout.addWidget(self.reset_order_btn)
+
+        side_layout.addStretch()
+        table_container.addLayout(side_layout)
+        layout.addLayout(table_container, 1)
+
+        # Bottom buttons
+        bottom_layout = QHBoxLayout()
+        self.save_btn = create_token_button(_("Save Manifest"))
+        self.save_btn.clicked.connect(lambda: self.save_manifest(quiet=False))
+        bottom_layout.addWidget(self.save_btn)
+
+        self.rebuild_btn = create_token_button(_("Save & Rebuild EPUB"))
+        self.rebuild_btn.clicked.connect(self.rebuild_epub)
+        bottom_layout.addWidget(self.rebuild_btn)
+
+        bottom_layout.addStretch()
+
+        close_btn = create_token_button(_("Close"))
+        close_btn.clicked.connect(self.accept)
+        bottom_layout.addWidget(close_btn)
+        layout.addLayout(bottom_layout)
+
+        self.refresh()
+
+    def refresh(self):
+        reg = self.action.registry() if hasattr(self.action, "registry") else None
+        if not reg:
+            return
+        entries = reg.get_manifest(self.follow["id"])
+        self.table.blockSignals(True)
+        self.table.setRowCount(len(entries))
+
+        for row, entry in enumerate(entries):
+            created_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(entry.get("created", 0.0)))
+            recon = entry.get("reconciliation_status", "approved")
+            is_dup = entry.get("is_duplicate", 0)
+            is_excl = bool(entry.get("is_excluded", 0))
+
+            if is_dup:
+                status_txt = _("Duplicate")
+            elif recon == "pending":
+                status_txt = _("⚠️ Needs Review")
+            else:
+                status_txt = _("Approved")
+
+            # 0: Seq
+            seq_item = QTableWidgetItem(str(row + 1))
+            seq_item.setData(Qt.ItemDataRole.UserRole, entry["post_id"])
+            seq_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.table.setItem(row, 0, seq_item)
+
+            # 1: Include (Checkbox)
+            incl_item = QTableWidgetItem(_("Excluded") if is_excl else _("Included"))
+            incl_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsUserCheckable
+            )
+            incl_item.setCheckState(Qt.CheckState.Unchecked if is_excl else Qt.CheckState.Checked)
+            self.table.setItem(row, 1, incl_item)
+
+            # 2: Title (Inline editable)
+            title_txt = entry.get("chapter_title") or entry.get("title", "")
+            title_item = QTableWidgetItem(title_txt)
+            title_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEditable)
+            self.table.setItem(row, 2, title_item)
+
+            # 3: Author
+            author_txt = entry.get("author_attribution") or entry.get("author", "")
+            author_item = QTableWidgetItem(author_txt)
+            author_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.table.setItem(row, 3, author_item)
+
+            # 4: Created
+            created_item = QTableWidgetItem(created_str)
+            created_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.table.setItem(row, 4, created_item)
+
+            # 5: Status
+            status_item = QTableWidgetItem(status_txt)
+            status_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.table.setItem(row, 5, status_item)
+
+            # 6: Link
+            link_item = QTableWidgetItem(entry.get("link", ""))
+            link_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self.table.setItem(row, 6, link_item)
+
+        self.table.blockSignals(False)
+        self.table.resizeColumnsToContents()
+        self.update_review_banner()
+
+    def on_item_changed(self, item):
+        if item.column() == 1:
+            is_checked = item.checkState() == Qt.CheckState.Checked
+            expected_text = _("Included") if is_checked else _("Excluded")
+            if item.text() != expected_text:
+                self.table.blockSignals(True)
+                item.setText(expected_text)
+                self.table.blockSignals(False)
+
+    def on_table_reordered(self):
+        self.table.reindex_sequences()
+
+    def move_selected_up(self):
+        rows = sorted({item.row() for item in self.table.selectedItems()})
+        if not rows:
+            return
+        row = rows[0]
+        if row > 0:
+            self.table.move_row(row, row - 1)
+
+    def move_selected_down(self):
+        rows = sorted({item.row() for item in self.table.selectedItems()})
+        if not rows:
+            return
+        row = rows[0]
+        if row < self.table.rowCount() - 1:
+            self.table.move_row(row, row + 1)
+
+    def toggle_exclude_selected(self):
+        rows = sorted({item.row() for item in self.table.selectedItems()})
+        if not rows:
+            return
+        self.table.blockSignals(True)
+        for r in rows:
+            incl_item = self.table.item(r, 1)
+            if incl_item:
+                new_state = (
+                    Qt.CheckState.Unchecked
+                    if incl_item.checkState() == Qt.CheckState.Checked
+                    else Qt.CheckState.Checked
+                )
+                incl_item.setCheckState(new_state)
+                incl_item.setText(_("Included") if new_state == Qt.CheckState.Checked else _("Excluded"))
+        self.table.blockSignals(False)
+
+    def approve_selected(self):
+        rows = sorted({item.row() for item in self.table.selectedItems()})
+        if not rows:
+            return
+        for r in rows:
+            status_item = self.table.item(r, 5)
+            if status_item and "Needs Review" in status_item.text():
+                status_item.setText(_("Approved"))
+        self.update_review_banner()
+
+    def approve_all(self):
+        for r in range(self.table.rowCount()):
+            status_item = self.table.item(r, 5)
+            if status_item and "Needs Review" in status_item.text():
+                status_item.setText(_("Approved"))
+        self.update_review_banner()
+
+    def update_review_banner(self):
+        pending_cnt = 0
+        for r in range(self.table.rowCount()):
+            status_item = self.table.item(r, 5)
+            if status_item and "Needs Review" in status_item.text():
+                pending_cnt += 1
+
+        if pending_cnt > 0:
+            self.review_banner_label.setText(
+                _(
+                    "⚠️ {count} newly scraped chapter(s) need review relative to custom order. "
+                    "Drag into place and approve before rebuilding."
+                ).format(count=pending_cnt)
+            )
+            self.review_banner.setVisible(True)
+        else:
+            self.review_banner.setVisible(False)
+
+    def get_manifest_rows_data(self):
+        entries = []
+        for r in range(self.table.rowCount()):
+            seq_item = self.table.item(r, 0)
+            post_id = seq_item.data(Qt.ItemDataRole.UserRole) if seq_item else None
+            if not post_id:
+                continue
+            incl_item = self.table.item(r, 1)
+            is_excl = 1 if (incl_item and incl_item.checkState() == Qt.CheckState.Unchecked) else 0
+
+            title_item = self.table.item(r, 2)
+            title = title_item.text().strip() if title_item else ""
+
+            status_item = self.table.item(r, 5)
+            status_str = status_item.text() if status_item else ""
+            recon = "pending" if "Needs Review" in status_str else "approved"
+
+            entries.append(
+                {
+                    "post_id": post_id,
+                    "sequence_order": r + 1,
+                    "chapter_title": title,
+                    "is_excluded": is_excl,
+                    "reconciliation_status": recon,
+                }
+            )
+        return entries
+
+    def save_manifest(self, quiet=False):
+        reg = self.action.registry() if hasattr(self.action, "registry") else None
+        if not reg:
+            return
+        entries = self.get_manifest_rows_data()
+        reg.save_custom_manifest(self.follow["id"], entries)
+        self.update_review_banner()
+        if not quiet:
+            QMessageBox.information(self, _("Chapter Manager"), _("Chapter manifest saved successfully."))
+
+    def rebuild_epub(self):
+        self.save_manifest(quiet=True)
+        if hasattr(self.action, "update_library"):
+            res = self.action.update_library(self.follow, True)
+            msg = res or _("EPUB compilation complete.")
+            QMessageBox.information(self, _("Rebuild EPUB"), msg)
+
+    def reset_to_default(self):
+        if (
+            QMessageBox.question(
+                self,
+                _("Reset Order"),
+                _("Reset chapter order to chronological and approve pending items?"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
+        reg = self.action.registry() if hasattr(self.action, "registry") else None
+        if reg:
+            reg.reset_manifest_order(self.follow["id"])
+            self.refresh()
 
 
 class FollowDialog(QDialog):
@@ -1450,6 +1832,19 @@ class ManageDialog(QDialog):
         layout.addWidget(self.backoff_banner)
         self.backoff_banner.setVisible(False)
 
+        self.recon_banner = QFrame(self)
+        self.recon_banner.setFrameShape(QFrame.Shape.StyledPanel)
+        self.recon_banner.setStyleSheet(
+            "QFrame { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; border-radius: 4px; padding: 4px; }"
+        )
+        recon_layout = QHBoxLayout(self.recon_banner)
+        recon_layout.setContentsMargins(6, 2, 6, 2)
+        self.recon_label = QLabel(self.recon_banner)
+        self.recon_label.setWordWrap(True)
+        recon_layout.addWidget(self.recon_label, 1)
+        layout.addWidget(self.recon_banner)
+        self.recon_banner.setVisible(False)
+
         self.table = create_token_table(0, len(self.COLUMNS), header_labels=self.COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -1462,7 +1857,7 @@ class ManageDialog(QDialog):
             (_("Find stories…"), self.find),
             (_("Add…"), self.add),
             (_("Edit…"), self.edit),
-            (_("Manifest…"), self.manifest),
+            (_("Chapter manager…"), self.manifest),
             (_("Remove"), self.remove),
             (_("Queue manager…"), self.open_queue_manager),
             (_("Test selected"), self.test_selected),
@@ -1557,6 +1952,8 @@ class ManageDialog(QDialog):
 
         follows = self.follows()
         self.table.setRowCount(len(follows))
+        pending_total = 0
+        reg = self.action.registry() if hasattr(self.action, "registry") else None
         for r, follow in enumerate(follows):
             checked = (
                 time.strftime("%Y-%m-%d %H:%M", time.localtime(follow["last_checked"]))
@@ -1575,18 +1972,36 @@ class ManageDialog(QDialog):
                 source_desc = core.describe_source(sources[0])
             else:
                 source_desc = core.describe_source(follow.get("source", {}))
+
+            status_str = follow.get("last_status", "")
+            if reg and hasattr(reg, "has_pending_reconciliation") and reg.has_pending_reconciliation(follow["id"]):
+                pending_cnt = reg.get_pending_manifest_count(follow["id"])
+                pending_total += pending_cnt
+                status_str = f"{status_str} [Needs Review]" if status_str else _("Needs Review")
+
             cells = [
                 follow["name"],
                 source_desc + core.describe_filters(follow),
                 str(self.action.chapter_count(follow)),
                 checked,
-                follow.get("last_status", ""),
+                status_str,
             ]
             for c, text in enumerate(cells):
                 item = QTableWidgetItem(text)
                 item.setData(Qt.ItemDataRole.UserRole, follow["id"])
                 self.table.setItem(r, c, item)
         self.table.resizeColumnsToContents()
+
+        if hasattr(self, "recon_banner"):
+            if pending_total > 0:
+                self.recon_label.setText(
+                    _(
+                        "⚠️ {count} newly scraped chapter(s) need review relative to custom order. Open Chapter Manager to review."
+                    ).format(count=pending_total)
+                )
+                self.recon_banner.setVisible(True)
+            else:
+                self.recon_banner.setVisible(False)
         mode_str = _("the official API") if prefs["mode"] == "api" else _("public feeds")
         auto_str = (
             _("; automatic checks every {hours:.1f} hours.").format(
@@ -1646,7 +2061,11 @@ class ManageDialog(QDialog):
         current = next((f for f in self.follows() if f["id"] == ids[0]), None)
         if not current:
             return
-        ManifestDialog(self, current, self.action).exec()
+        ChapterManagerDialog(self, current, self.action).exec()
+        self.refresh()
+
+    def chapter_manager(self):
+        self.manifest()
 
     def remove(self):
         ids = self.selected_ids()
@@ -1738,3 +2157,193 @@ class ManageDialog(QDialog):
             )
         except Exception as exc:
             show_friendly_error_dialog(self, _("Failed to import OPML"), exc)
+
+
+try:
+    from calibre.gui2.dialogs.message_box import ErrorDialog
+except ImportError:
+    try:
+        from calibre.gui2 import ErrorDialog
+    except ImportError:
+        ErrorDialog = None
+
+_ErrorDialogBase = ErrorDialog if (ErrorDialog is not None and isinstance(ErrorDialog, type)) else QDialog
+
+
+class RedditAuthErrorDialog(_ErrorDialogBase):
+    """Specialized modal recovery dialog for Reddit authentication and rate-limit errors."""
+
+    open_browser = staticmethod(webbrowser.open)
+    login_endpoints = {}
+
+    def __init__(
+        self,
+        parent=None,
+        error=None,
+        action=None,
+        follows=None,
+        det_msg=None,
+        title="Reddit stories",
+    ):
+        self.action = action
+        self.error = error
+        if follows is not None:
+            self.follows = list(follows)
+        elif action is not None and hasattr(action, "get_follows"):
+            self.follows = list(action.get_follows())
+        else:
+            self.follows = []
+
+        friendly = format_exception(error, det_msg=det_msg)
+        self.friendly = friendly
+        self.primary_msg = friendly.user_message
+        self.details_msg = friendly.details
+
+        if _ErrorDialogBase is not QDialog:
+            try:
+                super().__init__(
+                    title,
+                    f"{friendly.category}\n\n{self.primary_msg}",
+                    det_msg=self.details_msg,
+                    parent=parent,
+                )
+            except TypeError:
+                super().__init__(parent)
+        else:
+            super().__init__(parent)
+
+        ThemeTokenEngine.register_widget(self)
+        self.setWindowTitle(title or _("Reddit stories"))
+        self.resize(560, 360)
+
+        layout = self.layout()
+        if layout is None:
+            layout = QVBoxLayout(self)
+
+        header_text = (
+            f"<b>{friendly.category}</b>" if friendly.category else "<b>Reddit Authentication / Rate Limit</b>"
+        )
+        self.header_label = QLabel(header_text)
+        self.header_label.setWordWrap(True)
+        layout.addWidget(self.header_label)
+
+        self.msg_label = QLabel(self.primary_msg)
+        self.msg_label.setWordWrap(True)
+        layout.addWidget(self.msg_label)
+
+        if self.details_msg:
+            self.details_toggle_btn = QPushButton(_("Show Technical Details"))
+            self.details_toggle_btn.clicked.connect(self._toggle_details)
+            layout.addWidget(self.details_toggle_btn)
+
+            self.details_box = QPlainTextEdit()
+            self.details_box.setReadOnly(True)
+            self.details_box.setPlainText(self.details_msg)
+            self.details_box.setVisible(False)
+            layout.addWidget(self.details_box)
+        else:
+            self.details_toggle_btn = None
+            self.details_box = None
+
+        btn_layout = QHBoxLayout()
+        self.login_button = self.login_btn = QPushButton(_("Log in with Reddit Now"))
+        self.login_button.setToolTip(_("Authenticate with Reddit via OAuth to obtain fresh API credentials"))
+        self.login_button.clicked.connect(self.on_login)
+
+        self.retry_button = self.retry_btn = QPushButton(_("Retry Check"))
+        self.retry_button.setToolTip(_("Clear backoff, reset queue tasks, and retry checking now"))
+        self.retry_button.clicked.connect(self.on_retry)
+
+        self.snooze_button = self.snooze_btn = QPushButton(_("Snooze"))
+        self.snooze_button.setToolTip(_("Snooze chapter checks and back off temporarily"))
+        self.snooze_button.clicked.connect(self.on_snooze)
+
+        btn_layout.addWidget(self.login_button)
+        btn_layout.addWidget(self.retry_button)
+        btn_layout.addWidget(self.snooze_button)
+        layout.addLayout(btn_layout)
+
+    def _toggle_details(self):
+        if self.details_box is not None:
+            vis = not self.details_box.isVisible()
+            self.details_box.setVisible(vis)
+            self.details_toggle_btn.setText(_("Hide Technical Details") if vis else _("Show Technical Details"))
+
+    def exec(self):
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen" and not getattr(self, "_force_modal", False):
+            return QDialog.DialogCode.Rejected
+        return super().exec()
+
+    exec_ = exec
+
+    def on_snooze(self):
+        if self.action is not None:
+            wait = getattr(self.error, "retry_after", None) or (15 * 60)
+            self.action.backoff_until = time.time() + wait
+        self.reject()
+
+    def on_retry(self):
+        self._reset_backoff_and_queue()
+        self.accept()
+        if self.action is not None and hasattr(self.action, "check_now"):
+            self.action.check_now(self.follows)
+
+    def _reset_backoff_and_queue(self):
+        if self.action is not None:
+            self.action.backoff_until = 0.0
+            try:
+                qm = self.action.get_queue_manager()
+                for task_item in qm.get_tasks():
+                    if (
+                        task_item.get("status") in ("BACKOFF", "DEAD_LETTER")
+                        and task_item.get("task_type") == "check_follow"
+                    ):
+                        qm.retry_task(task_item["task_id"])
+            except Exception:
+                pass
+
+    def on_login(self):
+        client_id = (prefs.get("client_id") or "").strip()
+        client_secret = (prefs.get("client_secret") or "").strip()
+        if not client_id:
+            QMessageBox.warning(
+                self,
+                _("Reddit Story Follower"),
+                _("Enter your Reddit app's client id in Settings first."),
+            )
+            return
+
+        try:
+            with login.CallbackServer() as server:
+                task = run_task(
+                    self,
+                    _("Waiting for you to approve the login in your browser…"),
+                    lambda t: login.log_in(
+                        Fetcher(cancelled=t.cancelled),
+                        client_id,
+                        client_secret,
+                        server,
+                        self.open_browser,
+                        t.cancelled,
+                        **{k: v for k, v in self.login_endpoints.items() if k != "revoke_url"},
+                    ),
+                )
+        except login.LoginError as exc:
+            show_friendly_error_dialog(self, _("Reddit Story Follower"), exc, show=True)
+            return
+
+        if task.error:
+            if "cancelled" not in str(task.error).lower():
+                show_friendly_error_dialog(self, _("Reddit Story Follower"), task.error, show=True)
+            return
+
+        if task.result:
+            prefs["refresh_token"] = task.result["refresh_token"]
+            prefs["account_name"] = task.result["username"]
+            prefs["mode"] = "api"
+
+            self._reset_backoff_and_queue()
+            self.accept()
+            if self.action is not None and hasattr(self.action, "check_now"):
+                self.action.check_now(self.follows)
+

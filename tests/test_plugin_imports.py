@@ -46,9 +46,7 @@ class PluginImportTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.saved = {
-            k: v
-            for k, v in sys.modules.items()
-            if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))
+            k: v for k, v in sys.modules.items() if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))
         }
         for name in STUBS + ["lxml", "lxml.etree"]:
             sys.modules[name] = MagicMock()
@@ -60,11 +58,7 @@ class PluginImportTests(unittest.TestCase):
         sys.modules["calibre_plugins"].__path__ = []
 
     def tearDown(self):
-        for k in [
-            k
-            for k in sys.modules
-            if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))
-        ]:
+        for k in [k for k in sys.modules if k.startswith(("calibre", "qt", "calibre_plugins", "lxml"))]:
             del sys.modules[k]
         sys.modules.update(self.saved)
         self.tmp.cleanup()
@@ -75,10 +69,15 @@ class PluginImportTests(unittest.TestCase):
             self.built = build_plugins.build_all(Path(self.tmp.name) / "dist")
         target = Path(self.tmp.name) / import_name
         zipfile.ZipFile(self.built[import_name]).extractall(target)
+        if "calibre_plugins" not in sys.modules:
+            cp = types.ModuleType("calibre_plugins")
+            cp.__path__ = []
+            sys.modules["calibre_plugins"] = cp
         package = f"calibre_plugins.{import_name}"
         module = types.ModuleType(package)
         module.__path__ = [str(target)]
         sys.modules[package] = module
+        setattr(sys.modules["calibre_plugins"], import_name, module)
         return package
 
     def test_every_plugin_module_imports(self):
@@ -97,7 +96,14 @@ class PluginImportTests(unittest.TestCase):
                     "watcher",
                     "guikit",
                 ],
-                "epub_promo_scrubber": ["action", "ui", "core", "guikit"],
+                "epub_promo_scrubber": [
+                    "action",
+                    "ui",
+                    "core",
+                    "guikit",
+                    "scanner",
+                    "profiles",
+                ],
                 "story_collection_tagger": [
                     "config",
                     "action",
@@ -105,6 +111,7 @@ class PluginImportTests(unittest.TestCase):
                     "presets",
                     "ui",
                     "guikit",
+                    "error_handler",
                 ],
                 "gemini_library_fixer": ["config", "action", "engine", "guikit"],
                 "media_matcher": [

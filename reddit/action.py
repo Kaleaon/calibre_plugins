@@ -17,12 +17,64 @@ except ImportError:
         from .error_handler import show_friendly_error_dialog
     except ImportError:
         from error_handler import show_friendly_error_dialog
-from calibre_plugins.reddit_follower.ui import (
-    DiscoverDialog,
-    ManageDialog,
-    SettingsDialog,
-    SubscriptionExchangeDialog,
-)
+try:
+    from calibre_plugins.reddit_follower.ui import (
+        DiscoverDialog,
+        ManageDialog,
+        RedditAuthErrorDialog,
+        SettingsDialog,
+        SubscriptionExchangeDialog,
+    )
+except ImportError:
+    try:
+        from .ui import (
+            DiscoverDialog,
+            ManageDialog,
+            RedditAuthErrorDialog,
+            SettingsDialog,
+            SubscriptionExchangeDialog,
+        )
+    except ImportError:
+        from ui import (
+            DiscoverDialog,
+            ManageDialog,
+            RedditAuthErrorDialog,
+            SettingsDialog,
+            SubscriptionExchangeDialog,
+        )
+
+
+def is_auth_or_rate_limit_error(error):
+    """Check if an error represents an HTTP 429 rate limit or OAuth/auth error."""
+    if error is None:
+        return False
+    if isinstance(error, core.RateLimited):
+        return True
+    if isinstance(error, core.SourceError):
+        return True
+    orig = getattr(error, "original_exc", None)
+    if orig is not None and is_auth_or_rate_limit_error(orig):
+        return True
+    category = getattr(error, "category", "")
+    if category in ("Rate Limit Exceeded", "Access Denied"):
+        return True
+    err_str = str(error).lower()
+    return any(
+        k in err_str
+        for k in (
+            "rate limit",
+            "429",
+            "slow down",
+            "too many requests",
+            "401",
+            "403",
+            "unauthorized",
+            "forbidden",
+            "oauth",
+            "token",
+            "credential",
+        )
+    )
 
 IDENTIFIER = "redditfollow"
 TICK_MS = 15 * 60 * 1000  # how often we look at which stories are due; looking costs nothing
@@ -109,7 +161,6 @@ class FollowerAction(InterfaceAction):
                 except ImportError:
                     import os as _os
                     import sys as _sys
-
                     _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
                     if _pkg_dir not in _sys.path:
                         _sys.path.insert(0, _pkg_dir)
@@ -133,7 +184,6 @@ class FollowerAction(InterfaceAction):
                     try:
                         import os as _os
                         import sys as _sys
-
                         _pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
                         if _pkg_dir not in _sys.path:
                             _sys.path.insert(0, _pkg_dir)
@@ -185,6 +235,14 @@ class FollowerAction(InterfaceAction):
     def settings(self):
         SettingsDialog(self.gui).exec()
 
+    def show_auth_error_dialog(self, error, follows=None):
+        dialog = RedditAuthErrorDialog(self.gui, error=error, action=self, follows=follows)
+        self.last_dialog = dialog
+        if os.environ.get("QT_QPA_PLATFORM") == "offscreen" and not getattr(self, "_show_modal_in_headless", False):
+            return dialog
+        dialog.exec()
+        return dialog
+
     def check_all_now(self):
         self.check_now(list(self.get_follows()))
 
@@ -217,12 +275,34 @@ class FollowerAction(InterfaceAction):
                     lambda msg: setattr(t, "status", msg),
                 ),
             )
-        except core.SourceError as exc:
+        except (core.RateLimited, core.SourceError) as exc:
+            return self.show_auth_error_dialog(exc, follows)
+        except Exception as exc:
+            if is_auth_or_rate_limit_error(exc):
+                return self.show_auth_error_dialog(exc, follows)
             return show_friendly_error_dialog(self.gui, "Reddit stories", exc, show=True)
         if task.error:
+            if is_auth_or_rate_limit_error(task.error):
+                return self.show_auth_error_dialog(task.error, follows)
             return show_friendly_error_dialog(self.gui, "Reddit stories", task.error, show=True)
         if task.result is None:
             return
+        if any(
+            r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error"))
+            for r in task.result
+        ):
+            first_err = next(
+                (
+                    r
+                    for r in task.result
+                    if r.get("rate_limited")
+                    or is_auth_or_rate_limit_error(r.get("error"))
+                ),
+                None,
+            )
+            err_msg = first_err.get("error") or "Rate limited by Reddit (HTTP 429)"
+            self.finish(task.result, interactive=False)
+            return self.show_auth_error_dialog(err_msg, follows)
         self.finish(task.result, interactive=True)
 
     def test_follow(self, follow):
@@ -299,9 +379,28 @@ class FollowerAction(InterfaceAction):
         job, self._job = self._job, {}
         if job.get("results"):
             self.finish(job["results"], interactive=False)
+            if any(
+                r.get("rate_limited") or is_auth_or_rate_limit_error(r.get("error"))
+                for r in job["results"]
+            ):
+                first_err = next(
+                    (
+                        r
+                        for r in job["results"]
+                        if r.get("rate_limited")
+                        or is_auth_or_rate_limit_error(r.get("error"))
+                    ),
+                    None,
+                )
+                err_msg = first_err.get("error") or "Rate limited by Reddit (HTTP 429)"
+                self.show_auth_error_dialog(
+                    err_msg, [r["follow"] for r in job["results"] if "follow" in r]
+                )
         elif job.get("error") and not isinstance(job["error"], core.Cancelled):
             self.last_background_error = str(job["error"])
             self.gui.status_bar.show_message(f"Reddit stories: check failed ({job['error']})", 10000)
+            if is_auth_or_rate_limit_error(job["error"]):
+                self.show_auth_error_dialog(job["error"], list(self.get_follows()))
 
     # -- applying results
     def finish(self, results, interactive):
@@ -343,6 +442,13 @@ class FollowerAction(InterfaceAction):
                 changed_books += 1
             elif not r["error"] and not r["rate_limited"]:
                 lines.append(f"{name}: up to date")
+            if hasattr(self, "registry") and self.registry():
+                try:
+                    pending_cnt = self.registry().get_pending_manifest_count(r["follow"]["id"])
+                    if pending_cnt:
+                        lines.append(f"{name}: {pending_cnt} new chapter(s) need review in Chapter Manager")
+                except Exception:
+                    pass
         if interactive:
             info_dialog(
                 self.gui,
@@ -355,6 +461,10 @@ class FollowerAction(InterfaceAction):
                 "Reddit stories updated: " + "; ".join(line for line in lines if "up to date" not in line),
                 15000,
             )
+        else:
+            pending_notes = [line for line in lines if "need review in Chapter Manager" in line]
+            if pending_notes:
+                self.gui.status_bar.show_message("; ".join(pending_notes), 15000)
 
     def rebuild_book(self, follow):
         """Rebuild the EPUB book for this follow using current manifest sequence and exclusions."""
