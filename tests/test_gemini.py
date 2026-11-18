@@ -978,7 +978,6 @@ class BackgroundScanTests(unittest.TestCase):
 
     def test_books_for_concurrent_worker_pool(self):
         import threading
-        import time
 
         spec = importlib.util.spec_from_file_location(
             "action", Path(__file__).resolve().parents[1] / "gemini/action.py"
