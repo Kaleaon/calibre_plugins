@@ -1,0 +1,1872 @@
+"""Asks Muse (Meta AI) to suggest fixes for book metadata, and checks the answers. Pure standard library so it can be
+tested outside Calibre.
+
+There is no Muse API key: the plugin writes each batch as a request file into an exchange folder
+(by default a .muse-fixer folder inside the library, which Muse can reach through the Calibre Link
+bridge) and waits for Muse's answer file. Everything downstream of generate() — validation,
+confidence filtering, big-change protection — is identical to the Gemini/Claude fixers.
+
+Nothing here changes a library. plan_fixes() returns suggestions; the caller shows them and applies only what the user accepts.
+The model is told to leave anything it is unsure about alone, and every answer is validated again here before it is offered.
+"""
+
+import difflib
+import json
+import os
+import re
+import string
+import time
+import urllib.error
+import urllib.request
+import zipfile
+
+try:
+    from .storykit import strip_tags
+except ImportError:
+    try:
+        from storykit import strip_tags
+    except ImportError:
+        from common.storykit import strip_tags
+
+__all__ = [
+    "EXCHANGE_DIRNAME",
+    "DEFAULT_WAIT_SECONDS",
+    "POLL_SECONDS",
+    "exchange_dir_for",
+    "check_exchange",
+    "DEFAULT_MODEL",
+    "CONFIDENCE",
+    "FIELDS",
+    "IMAGE_LIMIT",
+    "RETRY_STATUS",
+    "BIG_CHANGE_RATIO",
+    "IMAGE_TOKENS_PER_IMAGE",
+    "MODEL_COST_PER_1M",
+    "MODEL_FALLBACKS",
+    "INSTRUCTIONS",
+    "BUILTIN_PRESETS",
+    "TemplateError",
+    "get_all_templates",
+    "get_default_template_vars",
+    "render_template",
+    "compile_instructions",
+    "get_system_instructions",
+    "RESPONSE_SCHEMA",
+    "MuseError",
+    "MusePartialError",
+    "PartialMuseError",
+    "BatchExecutionState",
+    "MuseBatchPausedError",
+    "sanitize_error_message",
+    "QuotaExhausted",
+    "Blocked",
+    "describe_book",
+    "describe_change",
+    "generate",
+    "list_models",
+    "validate_api_key",
+    "epub_excerpt",
+    "NUMBERED",
+    "numbering_in_title",
+    "build_prompt",
+    "hydrate_image",
+    "build_parts",
+    "estimate_batch_usage",
+    "BACK_NAME",
+    "IMAGE_EXT",
+    "MIME",
+    "find_back_cover_descriptor",
+    "find_back_cover",
+    "clean_isbn",
+    "sanitize",
+    "is_big_change",
+    "get_fallback_model",
+    "is_service_unavailable_error",
+    "is_rate_limit_error",
+    "plan_fixes",
+    "CompiledBatchResult",
+    "save_batch_output",
+    "load_batch_output",
+    "list_batch_files",
+    "compile_batch_outputs",
+    "save_scan_state",
+    "load_completed_ids_fast",
+    "NON_TEXT_MODEL",
+    "is_usable_model",
+    "load_scan_state",
+    "clear_scan_state",
+    "clear_batch_outputs",
+    "get_completed_batch_book_ids",
+    "estimate_library_summary",
+    "plan_fixes_batched",
+]
+
+EXCHANGE_DIRNAME = ".muse-fixer"
+DEFAULT_MODEL = "muse"
+DEFAULT_WAIT_SECONDS = 1800
+POLL_SECONDS = 2
+CONFIDENCE = {"low": 0, "medium": 1, "high": 2}
+FIELDS = ("title", "authors", "series", "tags", "language", "isbn")
+IMAGE_LIMIT = 6_000_000  # bytes; a bigger cover or back page is skipped rather than uploaded
+RETRY_STATUS = {429, 500, 502, 503, 504}
+# A new title this unlike the old one is flagged as a big change and left unticked in the preview.
+BIG_CHANGE_RATIO = 0.5
+IMAGE_TOKENS_PER_IMAGE = 258
+MODEL_COST_PER_1M = {
+    "muse": 0.0,
+}
+
+MODEL_FALLBACKS = {
+    "muse": "muse",
+}
+
+INSTRUCTIONS = """You clean up the metadata of ebooks in a personal Calibre library. You get a JSON list of books; for each you may suggest corrections.
+
+Rules:
+- Fix only what is clearly wrong: junk in titles (site names, "z-lib", "[epub]", "(retail)", file extensions, underscores or dots used as spaces, ALL CAPS or all lower case), authors written "Last, First" or joined into one string, authors that are really a website or "Unknown", series and volume number that are visible in the title or file name but missing from the series fields, and obviously mis-spelled or duplicate tags.
+- Use proper title case for English titles, and keep the author's real spelling. Authors must be listed as "First Last".
+- Titles that start with a volume marker, such as "book 1 - the force awakens", "Vol. 2: Title", "Part 3 - Title" or "#4. Title", must lose that marker: the title becomes just the real title in title case ("The Force Awakens") and the number goes in series_index. Books that carry a "numbering_in_title" hint have exactly this problem. Set series too when you know it from the author, from other books in the list, or from the title; if you do not know the series name, return series null and still fix the title and series_index.
+- A series name must not contain the volume number, and the volume goes in series_index (for example title "Dune Messiah (Dune #2)" gives title "Dune Messiah", series "Dune", series_index 2).
+- Tags: return the complete cleaned tag list for the book (keep good tags, merge duplicates such as "sci-fi" and "Science Fiction" into one form, fix case). You may add at most 5 well-known genre tags you are certain of. Do not invent plot details.
+- language: only when the book has none; an ISO 639-2 three-letter code such as "eng".
+- Cover pictures: some books come with images, each labelled with the book id and where it is from ("front cover", "back cover"). Read the text printed on them: the title, author, series and volume number on the front, and on the back the blurb, publisher, language and ISBN. Text actually printed on a cover is better evidence than a file name or a messy title, so use it to fix the metadata, and put what you read in cover_text. Do not identify a book from artwork alone, and do not report text you cannot read clearly. An ISBN is only valid if you can read every digit; otherwise return null.
+- isbn: the ISBN printed on the back cover or copyright page, digits only (with X as the last character for an ISBN-10).
+- Never invent facts. If you are not sure, return null for that field, which means "leave it as it is". Returning a field identical to the current value is the same as null.
+- confidence says how sure you are about your suggestions for that book: high only when the correction is obvious from the data given.
+- reason is one short sentence.
+- Return one object for every book id you were given, in the same order."""
+
+BUILTIN_PRESETS = {
+    "Default Ebook Cleanup": {
+        "name": "Default Ebook Cleanup",
+        "description": "Standard metadata cleanup instructions for Calibre ebook collections.",
+        "text": INSTRUCTIONS,
+        "read_only": True,
+    },
+    "Comics & Manga Metadata": {
+        "name": "Comics & Manga Metadata",
+        "description": "Tailored rules for comics and manga: volume/chapter numbers, publisher logos, and genre demographics.",
+        "text": """You clean up the metadata of comic books and manga in a personal Calibre library. You get a JSON list of books; for each you may suggest corrections for these fields: {fields}.
+
+Rules:
+- Identify series name, volume number, and chapter numbers from issue titles or file names (e.g. "Spider-Man v2 #10" or "One Piece Vol. 101"). Extract volume and issue numbers into series_index.
+- Normalize publisher and imprint names (e.g. Marvel Comics, DC Comics, Image Comics, Shueisha, Kodansha).
+- Fix creator names to "First Last" format and list primary creators clearly.
+- Tags: keep relevant genre tags ({tag_policy}), including comic tropes, manga demographics (Shonen, Seinen, Shojo), or publisher tags.
+- Cover pictures: inspect covers for volume, issue numbers, subtitle, and publisher logos.
+- Never invent facts. Set confidence to at least {min_confidence} when sure.
+- Return one object for every book id you were given, in the same order.""",
+        "read_only": True,
+    },
+    "Academic & Technical Papers": {
+        "name": "Academic & Technical Papers",
+        "description": "Formal title, author list, and subject tag normalization for technical papers and textbooks.",
+        "text": """You clean up metadata for academic papers, technical ebooks, and textbooks in a personal Calibre library. Fields to fix: {fields}.
+
+Rules:
+- Normalize academic authors as "First Last" and list all co-authors accurately.
+- Retain full formal titles without truncation or informal abbreviations.
+- Extract publication year or journal/conference series information into series if appropriate.
+- Tags: clean domain-specific tags and subject keywords ({tag_policy}).
+- Confidence threshold: set confidence to at least {min_confidence} when sure.
+- Return one object for every book id in order.""",
+        "read_only": True,
+    },
+}
+
+
+class TemplateError(Exception):
+    """Raised when template variable interpolation fails or syntax is malformed."""
+
+
+class _StrictTemplateFormatter(string.Formatter):
+    """Custom Formatter that ensures unknown keys or malformed syntax raise KeyError/ValueError."""
+
+    def get_value(self, key, args, kwargs):
+        if isinstance(key, str):
+            if key in kwargs:
+                return kwargs[key]
+            raise KeyError(f"Unknown template variable {{{key}}}")
+        return super().get_value(key, args, kwargs)
+
+
+def get_all_templates(custom_templates=None):
+    """Returns a dict combining BUILTIN_PRESETS and custom_templates."""
+    templates = dict(BUILTIN_PRESETS)
+    if custom_templates and isinstance(custom_templates, dict):
+        for name, data in custom_templates.items():
+            if isinstance(data, dict):
+                entry = dict(data)
+                entry["read_only"] = False
+                templates[name] = entry
+    return templates
+
+
+def get_default_template_vars(
+    fields=None,
+    min_confidence="medium",
+    tags_remove=False,
+    batch_size=15,
+    model=DEFAULT_MODEL,
+    covers=False,
+    excerpt=False,
+    **extra,
+):
+    f_list = fields if fields is not None else FIELDS
+    if isinstance(f_list, (list, tuple)):
+        fields_str = ", ".join(f_list)
+    else:
+        fields_str = str(f_list)
+
+    if tags_remove:
+        tag_policy_str = "allow tag removal and renaming"
+    else:
+        tag_policy_str = "keep existing tags, merge duplicates, add at most 5 genre tags"
+
+    vars_dict = {
+        "fields": fields_str,
+        "min_confidence": str(min_confidence or "medium"),
+        "tag_policy": tag_policy_str,
+        "batch_size": str(batch_size),
+        "model": str(model or DEFAULT_MODEL),
+        "covers": "enabled" if covers else "disabled",
+        "excerpt": "enabled" if excerpt else "disabled",
+    }
+    vars_dict.update({k: str(v) for k, v in extra.items()})
+    return vars_dict
+
+
+def render_template(template_text, template_vars=None):
+    """
+    Renders template_text using template_vars dict.
+    Raises TemplateError if syntax is malformed or an unknown variable is referenced.
+    """
+    if not template_text:
+        return INSTRUCTIONS
+    if template_vars is None:
+        template_vars = get_default_template_vars()
+    formatter = _StrictTemplateFormatter()
+    try:
+        return formatter.format(template_text, **template_vars)
+    except (KeyError, ValueError, IndexError) as exc:
+        raise TemplateError(f"Malformed template syntax or unknown variable: {exc}") from exc
+    except Exception as exc:
+        raise TemplateError(f"Error rendering template: {exc}") from exc
+
+
+def compile_instructions(template_text=None, template_vars=None, notify=None):
+    """
+    Compiles system instructions from template_text and template_vars.
+    If template_text is None or empty, or if rendering fails due to syntax errors,
+    falls back to default INSTRUCTIONS and invokes notify if provided.
+    """
+    if not template_text:
+        template_text = INSTRUCTIONS
+    try:
+        return render_template(template_text, template_vars)
+    except TemplateError as exc:
+        if notify:
+            notify(f"⚠ Template syntax error ({exc}); falling back to default instructions.")
+        return INSTRUCTIONS
+
+
+def get_system_instructions(mode="append", custom_text="", base_instructions=None):
+    """Returns compiled system instructions based on mode ('append' or 'override') and custom_text."""
+    base = base_instructions if base_instructions is not None else INSTRUCTIONS
+    text = str(custom_text or "").strip()
+    if not text:
+        return base
+    if mode == "override":
+        return text
+    return f"{base}\n\n{text}"
+
+
+RESPONSE_SCHEMA = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "id": {"type": "INTEGER"},
+            "title": {"type": "STRING", "nullable": True},
+            "authors": {"type": "ARRAY", "items": {"type": "STRING"}, "nullable": True},
+            "series": {"type": "STRING", "nullable": True},
+            "series_index": {"type": "NUMBER", "nullable": True},
+            "tags": {"type": "ARRAY", "items": {"type": "STRING"}, "nullable": True},
+            "language": {"type": "STRING", "nullable": True},
+            "isbn": {"type": "STRING", "nullable": True},
+            "cover_text": {"type": "STRING", "nullable": True},
+            "confidence": {"type": "STRING", "enum": ["low", "medium", "high"]},
+            "reason": {"type": "STRING"},
+        },
+        "required": ["id", "confidence"],
+    },
+}
+
+
+class MuseError(Exception):
+    """A problem talking to the API that the user should read. Never contains the API key."""
+
+
+class MusePartialError(MuseError):
+    """Raised when batch processing stops early due to an error, carrying partial suggestions and skipped records."""
+
+    def __init__(self, message, suggestions=None, skipped=None, original_error=None):
+        super().__init__(message)
+        self.suggestions = list(suggestions) if suggestions is not None else []
+        self.skipped = list(skipped) if skipped is not None else []
+        self.original_error = original_error
+
+
+PartialMuseError = MusePartialError
+
+
+class BatchExecutionState:
+    """Stores execution state for an interrupted or resumable batch scan."""
+
+    def __init__(self, completed_ids=None, pending_books=None, suggestions=None, skipped=None, model_config=None):
+        self.completed_ids = list(completed_ids) if completed_ids is not None else []
+        self.pending_books = list(pending_books) if pending_books is not None else []
+        self.suggestions = list(suggestions) if suggestions is not None else []
+        self.skipped = list(skipped) if skipped is not None else []
+        cfg = dict(model_config) if model_config is not None else {}
+        cfg.pop("api_key", None)
+        self.model_config = cfg
+
+    @property
+    def is_resumable(self):
+        return len(self.pending_books) > 0
+
+    def to_dict(self):
+        cfg = dict(self.model_config)
+        cfg.pop("api_key", None)
+        return {
+            "completed_ids": list(self.completed_ids),
+            "pending_books": [dict(b) for b in self.pending_books],
+            "suggestions": [dict(s) for s in self.suggestions],
+            "skipped": list(self.skipped),
+            "model_config": cfg,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        if not data:
+            return cls()
+        return cls(
+            completed_ids=data.get("completed_ids"),
+            pending_books=data.get("pending_books"),
+            suggestions=data.get("suggestions"),
+            skipped=data.get("skipped"),
+            model_config=data.get("model_config"),
+        )
+
+
+class MuseBatchPausedError(MusePartialError):
+    """Raised when batch processing is paused due to rate limits or quota errors, carrying execution state."""
+
+    def __init__(self, message, state=None, suggestions=None, skipped=None, original_error=None):
+        if state is not None:
+            if suggestions is None:
+                suggestions = state.suggestions
+            if skipped is None:
+                skipped = state.skipped
+        super().__init__(message, suggestions=suggestions, skipped=skipped, original_error=original_error)
+        self.state = state
+
+
+def sanitize_error_message(msg, api_key=None):
+    """Sanitizes sensitive information like API keys from exception messages."""
+    text = str(msg or "")
+    if api_key and str(api_key).strip():
+        key_str = str(api_key).strip()
+        if len(key_str) >= 4:
+            text = text.replace(key_str, "[REDACTED]")
+    text = re.sub(r"([?&]key=)[^&\s]+", r"\1[REDACTED]", text)
+    text = re.sub(r"([?&]api_key=)[^&\s]+", r"\1[REDACTED]", text)
+    return text
+
+
+class QuotaExhausted(MuseError):
+    """Muse did not answer in time. The request stays in the exchange folder, so a later run can pick the answer up."""
+
+
+class Blocked(MuseError):
+    """Muse declined this request (its answer file said so, e.g. for a batch it could not process)."""
+
+
+# ----------------------------------------------------------------------------------------------------- describing work
+
+
+def describe_book(book):
+    """One line for the activity log: the data about a book that is sent to Muse."""
+    parts = [f"“{book.get('title') or '(no title)'}”", "by " + (", ".join(book.get("authors") or []) or "(no author)")]
+    if book.get("series"):
+        index = book.get("series_index")
+        parts.append(f"series {book['series']}" + (f" #{index:g}" if index is not None else ""))
+    if book.get("tags"):
+        parts.append("tags: " + ", ".join(book["tags"][:6]) + (" …" if len(book["tags"]) > 6 else ""))
+    if book.get("languages"):
+        parts.append("language: " + ", ".join(book["languages"]))
+    if book.get("filenames"):
+        parts.append("files: " + ", ".join(book["filenames"]))
+    if book.get("excerpt"):
+        parts.append(f"+ {len(book['excerpt'])} characters of opening text")
+    if book.get("provider_info"):
+        parts.append(f"+ provider: {book['provider_info'].get('provider', 'external')}")
+    if book.get("images"):
+        parts.append("+ picture: " + ", ".join(i["label"] for i in book["images"]))
+    return " | ".join(parts)
+
+
+def describe_change(field, old, new):
+    if field == "series":
+        if isinstance(old, (list, tuple)) or isinstance(new, (list, tuple)):
+
+            def fmt(v):
+                return (
+                    f"{v[0]} #{v[1]:g}"
+                    if isinstance(v, (list, tuple)) and len(v) == 2 and v[0] and v[1] is not None
+                    else (v[0] if isinstance(v, (list, tuple)) and len(v) > 0 else v)
+                ) or "(none)"
+
+            return f"series {fmt(old)} → {fmt(new)}"
+        return f"series {old or '(none)'} → {new or '(none)'}"
+    if field == "series_index":
+
+        def fmt_idx(v):
+            return (f"{v:g}" if isinstance(v, (int, float)) else str(v)) if v is not None else "(none)"
+
+        return f"series_index {fmt_idx(old)} → {fmt_idx(new)}"
+    if field == "isbn":
+        return f"ISBN {old or '(none)'} → {new}"
+    if isinstance(new, list):
+        return f"{field} {', '.join(old) or '(none)'} → {', '.join(new)}"
+    return f"{field} “{old}” → “{new}”"
+
+
+# ---------------------------------------------------------------------------------------------------------------- API
+
+
+def _post(url, headers, body, timeout):
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
+
+
+def _get(url, headers, timeout):
+    request = urllib.request.Request(url, headers=headers, method="GET")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
+
+
+_default_post = _post
+_default_get = _get
+
+
+def exchange_dir_for(configured=""):
+    """The exchange folder: the configured path, else $MUSE_FIXER_EXCHANGE_DIR, else a temp folder.
+
+    The action passes the library-based default (<library>/.muse-fixer) as `configured` when it
+    knows the library path, because that is the folder Muse can reach through Calibre Link.
+    """
+    configured = str(configured or "").strip()
+    if configured:
+        return configured
+    env = os.environ.get("MUSE_FIXER_EXCHANGE_DIR", "").strip()
+    if env:
+        return env
+    import tempfile
+
+    return os.path.join(tempfile.gettempdir(), "muse_library_fixer_exchange")
+
+
+def check_exchange(exchange_dir=None, **kw):
+    """Creates the exchange folder's pending/ and done/ subfolders and returns the folder path."""
+    folder = exchange_dir_for(exchange_dir)
+    try:
+        os.makedirs(os.path.join(folder, "pending"), exist_ok=True)
+        os.makedirs(os.path.join(folder, "done"), exist_ok=True)
+    except OSError as exc:
+        raise MuseError(f"Cannot use the Muse exchange folder {folder}: {exc}") from None
+    return folder
+
+
+def _parse_answer_text(text):
+    """Muse's answer: a JSON list, or an object with suggestions/answers, or an error/blocked note."""
+    cleaned = str(text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.S).strip()
+    if not cleaned:
+        raise MuseError("Muse's answer file was empty.")
+    try:
+        data = json.loads(cleaned)
+    except ValueError:
+        raise MuseError(
+            "Muse's answer was not valid JSON (it may have been cut off). Try a smaller batch size."
+        ) from None
+    if isinstance(data, dict):
+        if data.get("blocked"):
+            raise Blocked(str(data["blocked"]))
+        if data.get("error"):
+            raise MuseError(f"Muse reported a problem: {data['error']}")
+        data = data.get("suggestions") or data.get("answers") or data.get("results")
+    if not isinstance(data, list):
+        raise MuseError("Muse's answer was not a list.")
+    return data
+
+
+def _to_content_blocks(parts):
+    """Converts the plugin's internal parts into plain exchange content blocks."""
+    blocks = []
+    for part in parts:
+        if isinstance(part, str):
+            blocks.append({"type": "text", "text": part})
+        elif part.get("type") in ("text", "image"):
+            blocks.append(part)
+        elif "text" in part:
+            blocks.append({"type": "text", "text": part["text"]})
+        elif "inlineData" in part:
+            d = part["inlineData"]
+            blocks.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": d.get("mimeType", "image/jpeg"),
+                        "data": d.get("data", ""),
+                    },
+                }
+            )
+    return blocks
+
+
+def generate(
+    api_key, model, prompt, system_instruction_mode="append", custom_instructions="", system_instruction=None, **kw
+):
+    """Hands one batch to Muse through the exchange folder and returns the parsed suggestions list.
+
+    Writes pending/<request-id>.json, then polls done/<request-id>.json until it appears, the wait
+    (default DEFAULT_WAIT_SECONDS) runs out, or the user cancels. `api_key` is accepted for signature
+    compatibility with the other fixers and ignored — Muse needs no key.
+    """
+    if system_instruction is not None:
+        sys_inst = system_instruction
+    else:
+        instructions = kw.pop("instructions", None)
+        template_vars = kw.pop("template_vars", None)
+        compiled = compile_instructions(instructions, template_vars, notify=kw.get("notify"))
+        sys_inst = get_system_instructions(system_instruction_mode, custom_instructions, base_instructions=compiled)
+    sys_inst += (
+        "\n\nReturn ONLY a JSON array (no markdown fences, no commentary) of one object per book, each with keys: "
+        "id, title, authors, series, series_index, tags, language, isbn, cover_text, confidence, reason. "
+        "Use null for any field that should be left unchanged."
+    )
+    parts = [{"text": prompt}] if isinstance(prompt, str) else prompt
+    content = _to_content_blocks(parts)
+    transport = kw.pop("transport", None)
+    if transport is not None:
+        body = json.dumps({"model": model or DEFAULT_MODEL, "system": sys_inst, "content": content}).encode("utf-8")
+        raw = transport("muse://exchange", {"Content-Type": "application/json"}, body, kw.get("timeout", 120))
+        return _parse_answer_text(raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw))
+
+    cancelled = kw.get("cancelled", lambda: False)
+    sleep = kw.get("sleep", time.sleep)
+    notify = kw.get("notify", lambda text: None)
+    folder = check_exchange(kw.pop("exchange_dir", None))
+    wait_seconds = float(kw.pop("wait_seconds", DEFAULT_WAIT_SECONDS))
+    poll = float(kw.pop("poll_seconds", POLL_SECONDS))
+    import uuid
+
+    request_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+    payload = {
+        "kind": "muse-library-fixer-request",
+        "version": 1,
+        "id": request_id,
+        "created": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "model": model or DEFAULT_MODEL,
+        "system": sys_inst,
+        "content": content,
+        "answer_file": f"done/{request_id}.json",
+        "answer_format": 'A JSON array of suggestion objects (see system), or {"suggestions": [...]}, or {"blocked": "why"} / {"error": "what went wrong"}.',
+    }
+    pending_path = os.path.join(folder, "pending", request_id + ".json")
+    tmp_path = pending_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=1)
+    os.replace(tmp_path, pending_path)
+    done_path = os.path.join(folder, "done", request_id + ".json")
+    notify(
+        f"Sent this batch to Muse — request {request_id} is waiting in {os.path.join(folder, 'pending')}. "
+        f"Muse picks it up from there (through Calibre Link, or open the folder and hand the file to Muse). "
+        f"Waiting up to {wait_seconds / 60:.0f} min; Cancel stops waiting and the request stays for Muse."
+    )
+    waited = 0.0
+    last_notice = 0.0
+    while waited < wait_seconds:
+        if cancelled():
+            raise MuseError("Cancelled")
+        if os.path.isfile(done_path):
+            try:
+                with open(done_path, encoding="utf-8") as f:
+                    return _parse_answer_text(f.read())
+            finally:
+                try:
+                    os.remove(pending_path)
+                except OSError:
+                    pass
+        sleep(poll)
+        waited += poll
+        if waited - last_notice >= 60:
+            last_notice = waited
+            notify(f"Still waiting for Muse on request {request_id} ({waited / 60:.0f} min)…")
+    raise QuotaExhausted(
+        f"Muse did not answer request {request_id} within {wait_seconds / 60:.0f} min. The request is still in "
+        f"{os.path.join(folder, 'pending')} — once Muse has answered it there, run Check books again, or just "
+        f"wait and retry; nothing was changed."
+    )
+
+
+def validate_api_key(api_key=None, **kw):
+    """Kept for signature compatibility: 'validating' means the exchange folder is usable."""
+    return check_exchange(kw.get("exchange_dir"))
+
+
+def list_models(api_key, **kw):
+    """There is only one Muse."""
+    return [DEFAULT_MODEL]
+
+
+# ------------------------------------------------------------------------------------------------------------- input
+
+
+def epub_excerpt(path, limit=1500):
+    """The first readable text of an EPUB (skipping very short front-matter pages), or ''. Never raises."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = [n for n in z.namelist() if n.lower().endswith((".xhtml", ".html", ".htm"))]
+            names.sort()
+            for name in names:
+                html_content = z.read(name).decode("utf-8", "replace")
+                text = strip_tags(html_content)
+                if len(text) > 400:
+                    return text[:limit]
+    except Exception:
+        pass
+    return ""
+
+
+NUMBERED = re.compile(r"^\s*(?:book|bk\.?|vol(?:ume)?\.?|part|#)\s*(\d+(?:\.\d+)?)\s*[-:\u2013\u2014.]\s*(\S.*)$", re.I)
+
+
+def numbering_in_title(title):
+    """('1', 'the force awakens') for "book 1 - the force awakens"; None when the title has no leading volume marker."""
+    m = NUMBERED.match(title or "")
+    return (m.group(1), m.group(2).strip()) if m else None
+
+
+def build_prompt(books):
+    """books: dicts with id, title, authors, series, series_index, tags, languages, publisher, filenames and optional excerpt."""
+    rows = []
+    for b in books:
+        row = {
+            "id": b["id"],
+            "title": b.get("title") or "",
+            "authors": list(b.get("authors") or []),
+            "series": b.get("series") or "",
+            "series_index": b.get("series_index"),
+            "tags": list(b.get("tags") or []),
+            "language": ", ".join(b.get("languages") or []),
+            "publisher": b.get("publisher") or "",
+            "file_names": list(b.get("filenames") or []),
+        }
+        found = numbering_in_title(b.get("title"))
+        if found:
+            row["numbering_in_title"] = {"volume": float(found[0]), "title_without_it": found[1]}
+        if b.get("excerpt"):
+            row["opening_text"] = b["excerpt"]
+        prov = b.get("provider_info") or b.get("provider_metadata")
+        if prov:
+            row["provider_metadata"] = prov
+        elif b.get("comments"):
+            row["description"] = b["comments"]
+        rows.append(row)
+    return "Books to check:\n" + json.dumps(rows, ensure_ascii=False, indent=1)
+
+
+def _load_zip_entry(path, entry_name):
+    try:
+        with zipfile.ZipFile(path) as z:
+            return z.read(entry_name)
+    except Exception:
+        return None
+
+
+def _get_default_image_hydrator():
+    try:
+        from calibre_plugins.muse_library_fixer.action import prepare_image
+
+        return prepare_image
+    except Exception:
+        try:
+            from muse.action import prepare_image
+
+            return prepare_image
+        except Exception:
+            return None
+
+
+def hydrate_image(image, image_hydrator=None, db=None):
+    """Converts a lightweight image descriptor dict into a hydrated image dict with base64 'data', or returns None if hydration fails.
+    If 'data' is already in image, returns image as-is (backward compatibility)."""
+    if not isinstance(image, dict):
+        return None
+    if "data" in image and image["data"]:
+        return image
+
+    raw_data = None
+    if callable(image.get("loader")):
+        try:
+            raw_data = image["loader"]()
+        except Exception:
+            raw_data = None
+    elif image.get("type") == "front" and db is not None and image.get("book_id"):
+        try:
+            raw_data = db.cover(image["book_id"])
+        except Exception:
+            raw_data = None
+    elif image.get("type") == "back" and image.get("path") and image.get("entry_name"):
+        try:
+            raw_data = _load_zip_entry(image["path"], image["entry_name"])
+        except Exception:
+            raw_data = None
+    elif image.get("raw_bytes"):
+        raw_data = image["raw_bytes"]
+
+    if not raw_data:
+        return None
+
+    hydrator = image_hydrator or _get_default_image_hydrator()
+    b64 = None
+    if hydrator is not None:
+        try:
+            b64 = hydrator(raw_data)
+        except Exception:
+            b64 = None
+    if not b64:
+        try:
+            if isinstance(raw_data, str):
+                b64 = raw_data
+            elif isinstance(raw_data, bytes):
+                import base64
+
+                b64 = base64.b64encode(raw_data).decode("ascii")
+        except Exception:
+            b64 = None
+
+    if not b64:
+        return None
+
+    return {"label": image.get("label", "cover"), "mime": image.get("mime", "image/jpeg"), "data": b64}
+
+
+def build_parts(books, image_hydrator=None, db=None, hydrate=True):
+    """The request parts: the text prompt first, then each book's pictures, every one labelled with its book id."""
+    parts = [{"type": "text", "text": build_prompt(books)}]
+    for b in books:
+        for image in b.get("images") or []:
+            if hydrate:
+                h_img = hydrate_image(image, image_hydrator=image_hydrator, db=db)
+                if h_img and h_img.get("data"):
+                    parts.append({"type": "text", "text": f"Image for book id {b['id']} ({h_img['label']}):"})
+                    parts.append(
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": h_img.get("mime", "image/jpeg"),
+                                "data": h_img["data"],
+                            },
+                        }
+                    )
+            else:
+                parts.append({"type": "text", "text": f"Image for book id {b['id']} ({image['label']}):"})
+    return parts
+
+
+def estimate_batch_usage(
+    books,
+    batch_size=15,
+    covers=False,
+    min_interval=0,
+    model=DEFAULT_MODEL,
+    system_instruction_mode="append",
+    custom_instructions="",
+    system_instruction=None,
+    instructions=None,
+    template_vars=None,
+):
+    """Calculates text characters, text tokens, image tokens, batch counts, estimated duration, and costs
+    before dispatching API requests. Returns a dict with estimation details."""
+    if system_instruction is not None:
+        sys_inst = system_instruction
+    else:
+        if template_vars is None:
+            template_vars = get_default_template_vars(covers=covers, model=model, batch_size=batch_size)
+        compiled = compile_instructions(instructions, template_vars)
+        sys_inst = get_system_instructions(system_instruction_mode, custom_instructions, base_instructions=compiled)
+
+    if not books:
+        return {
+            "books_count": 0,
+            "text_chars": 0,
+            "text_tokens": 0,
+            "image_count": 0,
+            "image_tokens": 0,
+            "prompt_tokens": 0,
+            "batch_count": 0,
+            "per_request": 0,
+            "estimated_duration": 0,
+            "estimated_cost": 0.0,
+        }
+
+    sys_inst_len = len(sys_inst)
+
+    bsize = max(1, int(batch_size))
+    per_request = min(bsize, 8) if covers else bsize
+
+    sorted_books = sorted(
+        books,
+        key=lambda b: (
+            (b.get("authors") or [""])[0].lower(),
+            (b.get("series") or "").lower(),
+            (b.get("title") or "").lower(),
+        ),
+    )
+
+    total_text_chars = 0
+    total_images = 0
+    batch_count = 0
+
+    for start in range(0, len(sorted_books), per_request):
+        batch = sorted_books[start : start + per_request]
+        batch_count += 1
+
+        batch_text_chars = sys_inst_len
+        parts = build_parts(batch, hydrate=False)
+        for part in parts:
+            if "text" in part and part["text"]:
+                batch_text_chars += len(part["text"])
+        total_text_chars += batch_text_chars
+
+        for b in batch:
+            total_images += len(b.get("images") or [])
+
+    text_tokens = (total_text_chars + 3) // 4
+    image_tokens = total_images * IMAGE_TOKENS_PER_IMAGE
+    prompt_tokens = text_tokens + image_tokens
+
+    interval = max(0, int(min_interval or 0))
+    estimated_duration = max(0, batch_count - 1) * interval + batch_count * 2
+
+    rate = MODEL_COST_PER_1M.get(str(model or "").strip().lower(), 0.0)
+    estimated_cost = (prompt_tokens / 1_000_000.0) * rate
+
+    return {
+        "books_count": len(books),
+        "text_chars": total_text_chars,
+        "text_tokens": text_tokens,
+        "image_count": total_images,
+        "image_tokens": image_tokens,
+        "prompt_tokens": prompt_tokens,
+        "batch_count": batch_count,
+        "per_request": per_request,
+        "estimated_duration": estimated_duration,
+        "estimated_cost": round(estimated_cost, 6),
+    }
+
+
+# ------------------------------------------------------------------------------------------------ covers and ISBNs
+
+BACK_NAME = re.compile(r"(^|[^a-z])(back|rear)([^a-z]|$)", re.I)
+IMAGE_EXT = (".jpg", ".jpeg", ".png", ".gif", ".webp")
+MIME = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp"}
+
+
+def _natural_sort_key(s):
+    name = s.filename if hasattr(s, "filename") else str(s)
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", name)]
+
+
+def find_back_cover_descriptor(path, fmt):
+    """Returns a lightweight descriptor dict for the back cover or last page, or None. Never raises."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            images = [
+                i for i in z.infolist() if i.filename.lower().endswith(IMAGE_EXT) and 0 < i.file_size <= IMAGE_LIMIT
+            ]
+            if fmt.upper() == "CBZ" and images:
+                last = sorted(images, key=_natural_sort_key)[-1]
+                name = last.filename.rsplit("/", 1)[-1]
+                return {
+                    "type": "back",
+                    "label": f"last page ({name})",
+                    "mime": "image/jpeg",
+                    "path": path,
+                    "entry_name": last.filename,
+                    "loader": lambda p=path, e=last.filename: _load_zip_entry(p, e),
+                }
+            if fmt.upper() == "EPUB":
+                for info in images:
+                    name = info.filename.rsplit("/", 1)[-1]
+                    if BACK_NAME.search(name):
+                        return {
+                            "type": "back",
+                            "label": f"back cover ({name})",
+                            "mime": "image/jpeg",
+                            "path": path,
+                            "entry_name": info.filename,
+                            "loader": lambda p=path, e=info.filename: _load_zip_entry(p, e),
+                        }
+    except Exception:
+        pass
+    return None
+
+
+def find_back_cover(path, fmt):
+    """(bytes, description) for the back cover of a book file, or None. Calibre stores only a front cover, so this looks inside
+    the file: an EPUB image whose name says back/rear (back-cover.jpg), or the last page of a CBZ comic. Never raises."""
+    desc = find_back_cover_descriptor(path, fmt)
+    if not desc:
+        return None
+    data = desc["loader"]() if callable(desc.get("loader")) else _load_zip_entry(desc["path"], desc["entry_name"])
+    if data:
+        return data, desc["label"]
+    return None
+
+
+def clean_isbn(text):
+    """The ISBN-10 or ISBN-13 in text as digits (final X kept), or '' unless the check digit is right."""
+    if text is None:
+        return ""
+    raw = str(text)
+    text_clean = re.sub(r"(?i)^\s*isbn(?:[\s-]*1[03])?\s*:?\s*", "", raw)
+    candidates = re.finditer(r"\b(?:(?:\d[ -]*){12}\d|(?:\d[ -]*){9}[\dX])\b", text_clean, re.IGNORECASE)
+    for match in candidates:
+        digits = re.sub(r"[\s-]", "", match.group(0).upper())
+        if re.fullmatch(r"\d{13}", digits):
+            if sum(int(c) * (1 if i % 2 == 0 else 3) for i, c in enumerate(digits)) % 10 == 0:
+                return digits
+        elif re.fullmatch(r"\d{9}[\dX]", digits):
+            if sum((10 - i) * (10 if c == "X" else int(c)) for i, c in enumerate(digits)) % 11 == 0:
+                return digits
+    return ""
+
+
+# ------------------------------------------------------------------------------------------------------- validation
+
+
+def _clean(text, limit):
+    text = re.sub(r"\s+", " ", str(text or "")).strip()
+    return text if 0 < len(text) <= limit else ""
+
+
+def _same_ci(a, b):
+    return re.sub(r"\W+", "", a).lower() == re.sub(r"\W+", "", b).lower()
+
+
+def sanitize(book, raw, fields, tags_may_be_removed=False):
+    """Turns one raw model answer into {field: (old, new)} for a real, safe change. Anything doubtful is dropped."""
+    changes = {}
+    if "title" in fields:
+        new = _clean(raw.get("title"), 300)
+        if new and new != book.get("title"):
+            changes["title"] = (book.get("title") or "", new)
+    if "authors" in fields and isinstance(raw.get("authors"), list):
+        new = list(dict.fromkeys(a for a in (_clean(x, 100) for x in raw["authors"]) if a))[:10]
+        old = list(book.get("authors") or [])
+        # "Unknown" is Calibre's placeholder; never write it back as an author name.
+        new = [a for a in new if a.lower() not in ("unknown", "n/a", "none")]
+        if new and new != old:
+            changes["authors"] = (old, new)
+    if "series" in fields or "series_index" in fields:
+        if "series" in fields:
+            series = _clean(raw.get("series"), 200)
+            if series and series != (book.get("series") or ""):
+                changes["series"] = (book.get("series") or "", series)
+        index = raw.get("series_index")
+        try:
+            index = float(index) if index is not None and not isinstance(index, bool) else None
+        except (TypeError, ValueError):
+            index = None
+        if index is not None and not 0 <= index <= 10000:
+            index = None
+        if index is not None and index != book.get("series_index"):
+            changes["series_index"] = (book.get("series_index"), index)
+    if "tags" in fields and isinstance(raw.get("tags"), list):
+        old = list(book.get("tags") or [])
+        proposed = list(dict.fromkeys(t for t in (_clean(x, 60) for x in raw["tags"]) if t))[:40]
+        have = {t.lower() for t in old}
+        if tags_may_be_removed:
+            new = proposed
+        else:
+            new = old + [t for t in proposed if t.lower() not in have][:5]
+        if new and sorted(new) != sorted(old):
+            changes["tags"] = (old, new)
+    if "language" in fields and not book.get("languages"):
+        code = str(raw.get("language") or "").strip().lower()
+        if re.fullmatch(r"[a-z]{3}", code):
+            changes["language"] = ([], [code])
+    if "isbn" in fields:
+        isbn = clean_isbn(raw.get("isbn"))
+        old = clean_isbn((book.get("identifiers") or {}).get("isbn"))
+        if isbn and isbn != old:
+            changes["isbn"] = ((book.get("identifiers") or {}).get("isbn", ""), isbn)
+    return changes
+
+
+def is_big_change(changes):
+    """True when a title or author change looks like a different book rather than a tidy-up."""
+    if "title" in changes:
+        old, new = changes["title"]
+        if (
+            difflib.SequenceMatcher(
+                None, re.sub(r"\W+", " ", old).lower().strip(), re.sub(r"\W+", " ", new).lower().strip()
+            ).ratio()
+            < BIG_CHANGE_RATIO
+        ):
+            return True
+    if "authors" in changes:
+        old, new = changes["authors"]
+        if old and not any(
+            _same_ci(o, n) or set(re.findall(r"\w+", o.lower())) & set(re.findall(r"\w+", n.lower()))
+            for o in old
+            for n in new
+        ):
+            return True
+    return False
+
+
+def get_fallback_model(model):
+    """There is only one Muse; the fallback is always Muse itself."""
+    return DEFAULT_MODEL
+
+
+def is_service_unavailable_error(exc):
+    """Muse exchange has no HTTP service to be unavailable; timeouts surface as QuotaExhausted instead."""
+    return False
+
+
+def is_rate_limit_error(exc):
+    """Muse exchange has no rate limit; a slow answer is a timeout (QuotaExhausted), not a 429."""
+    return False
+
+
+# ------------------------------------------------------------------------------------------------------------- driver
+
+
+def plan_fixes(
+    books,
+    api_key,
+    model=DEFAULT_MODEL,
+    fields=FIELDS,
+    min_confidence="medium",
+    batch_size=15,
+    tags_may_be_removed=False,
+    progress=lambda text: None,
+    cancelled=lambda: False,
+    on_event=lambda kind, **info: None,
+    min_interval=0,
+    sleep=time.sleep,
+    clock=time.monotonic,
+    system_instruction_mode="append",
+    custom_instructions="",
+    system_instruction=None,
+    state=None,
+    image_hydrator=None,
+    db=None,
+    fallback_model="auto",
+    pause_on_quota=True,
+    **kw,
+):
+    """Returns (suggestions, skipped). A suggestion is {'id', 'title', 'changes', 'confidence', 'reason', 'big'}; skipped is a
+    list of 'title: why' strings for books that could not be checked. On cancel, returns what was finished so far.
+
+    on_event(kind, **info) reports the work as it happens: 'sending' (books=batch), 'received' (count), 'answer' (book, changes,
+    confidence, reason, kept, dropped_why), 'notice' (text), 'skipped' (text), 'progress' (done, total)."""
+    active_model = model or DEFAULT_MODEL
+    if state is not None:
+        suggestions = list(state.suggestions)
+        skipped = list(state.skipped)
+        completed_ids = set(state.completed_ids)
+        pending_books = (
+            list(state.pending_books) if state.pending_books else [b for b in books if b["id"] not in completed_ids]
+        )
+    else:
+        suggestions = []
+        skipped = []
+        completed_ids = set()
+        # Books by the same author go in the same request, so volumes of one series can be recognised together.
+        pending_books = sorted(
+            books,
+            key=lambda b: (
+                (b.get("authors") or [""])[0].lower(),
+                (b.get("series") or "").lower(),
+                (b.get("title") or "").lower(),
+            ),
+        )
+
+    state_tracker = {"done": len(completed_ids), "last": None}
+    threshold = CONFIDENCE.get(min_confidence, 1)
+    by_id = {b["id"]: b for b in (books + pending_books)}
+    total = len(completed_ids) + len(pending_books)
+    current_model = [active_model]
+    current_fallback = [fallback_model] if fallback_model else [None]
+
+    instructions = kw.pop("instructions", None)
+    template_vars = kw.pop("template_vars", None)
+    if template_vars is None:
+        template_vars = get_default_template_vars(
+            fields=fields,
+            min_confidence=min_confidence,
+            tags_remove=tags_may_be_removed,
+            batch_size=batch_size,
+            model=active_model,
+        )
+
+    compiled_inst = compile_instructions(instructions, template_vars, notify=lambda msg: on_event("notice", text=msg))
+    if system_instruction is not None:
+        sys_inst = system_instruction
+    else:
+        sys_inst = get_system_instructions(
+            system_instruction_mode, custom_instructions, base_instructions=compiled_inst
+        )
+
+    def finish(count):
+        state_tracker["done"] += count
+        on_event("progress", done=state_tracker["done"], total=total)
+
+    def pace():
+        """Muse tiers allow only so many requests a minute, so leave a gap between requests instead of running into the limit."""
+        if min_interval and state_tracker["last"] is not None:
+            wait = state_tracker["last"] + min_interval - clock()
+            if wait > 2:
+                on_event("notice", text=f"Pausing {wait:.0f}s between requests to stay inside the rate limit")
+            while wait > 0 and not cancelled():
+                sleep(min(1.0, wait))
+                wait -= 1.0
+        state_tracker["last"] = clock()
+
+    def ask_direct(batch):
+        pace()
+        if cancelled():
+            return
+        on_event("sending", books=batch)
+        parts = build_parts(batch, image_hydrator=image_hydrator, db=db, hydrate=True)
+        answers = generate(
+            api_key,
+            current_model[0],
+            parts,
+            system_instruction=sys_inst,
+            cancelled=cancelled,
+            sleep=sleep,
+            notify=lambda t: on_event("notice", text=t),
+            **kw,
+        )
+        wanted = {b["id"] for b in batch}
+        seen = set()
+        on_event("received", count=len(answers))
+        for raw in answers:
+            if not isinstance(raw, dict) or raw.get("id") not in wanted or raw["id"] in seen:
+                continue  # an id we did not ask about, or a repeat, is ignored
+            seen.add(raw["id"])
+            book = by_id[raw["id"]]
+            confidence = str(raw.get("confidence") or "low").lower()
+            changes = sanitize(book, raw, fields, tags_may_be_removed)
+            enough = CONFIDENCE.get(confidence, 0) >= threshold
+            on_event(
+                "answer",
+                book=book,
+                changes=changes,
+                confidence=confidence,
+                reason=_clean(raw.get("reason"), 300),
+                cover_text=_clean(raw.get("cover_text"), 400),
+                kept=bool(changes) and enough,
+                dropped_why=None if (enough or not changes) else f"{confidence} confidence is below your minimum",
+            )
+            if changes and enough:
+                suggestions.append(
+                    {
+                        "id": book["id"],
+                        "title": book.get("title") or "",
+                        "changes": changes,
+                        "confidence": confidence,
+                        "reason": _clean(raw.get("reason"), 300),
+                        "big": is_big_change(changes),
+                    }
+                )
+            completed_ids.add(raw["id"])
+        for missing in wanted - seen:
+            skipped.append(f"{by_id[missing].get('title') or missing}: no answer from Muse")
+            on_event("skipped", text=skipped[-1])
+            completed_ids.add(missing)
+        finish(len(batch))
+
+    def ask(batch):
+        if cancelled():
+            return
+        try:
+            ask_direct(batch)
+        except Blocked as exc:
+            if len(batch) == 1:
+                skipped.append(f"{batch[0].get('title') or batch[0]['id']}: {exc}")
+                on_event("skipped", text=skipped[-1])
+                finish(1)
+                return
+            on_event("notice", text=f"{exc} Splitting these {len(batch)} books to find the one responsible.")
+            half = len(batch) // 2  # find the book that trips the filter instead of losing the whole batch
+            ask(batch[:half])
+            ask(batch[half:])
+            return
+        except Exception as exc:
+            if str(exc) == "Cancelled" or cancelled():
+                raise
+            if is_service_unavailable_error(exc):
+                candidate_fb = None
+                if current_fallback[0] and current_fallback[0] != "auto":
+                    candidate_fb = current_fallback[0]
+                    current_fallback[0] = None
+                else:
+                    candidate_fb = get_fallback_model(current_model[0])
+
+                if candidate_fb and candidate_fb != current_model[0]:
+                    prev_model = current_model[0]
+                    current_model[0] = candidate_fb
+                    on_event(
+                        "notice",
+                        text=f"Model {prev_model} is experiencing high demand (HTTP 503). Falling back to {candidate_fb}.",
+                    )
+                    try:
+                        ask_direct(batch)
+                        return
+                    except Exception as fb_exc:
+                        if str(fb_exc) == "Cancelled" or cancelled():
+                            raise
+                        lite_fallback = "muse"
+                        if current_model[0] != lite_fallback:
+                            prev_model = current_model[0]
+                            current_model[0] = lite_fallback
+                            on_event(
+                                "notice",
+                                text=f"Fallback model {prev_model} also failed. Falling back to lightweight model {lite_fallback}.",
+                            )
+                            try:
+                                ask_direct(batch)
+                                return
+                            except Exception as fb2_exc:
+                                if str(fb2_exc) == "Cancelled" or cancelled():
+                                    raise
+                                exc = fb2_exc
+                        else:
+                            exc = fb_exc
+                raise
+            elif is_rate_limit_error(exc):
+                if len(batch) > 1:
+                    on_event(
+                        "notice",
+                        text=f"Rate limit hit (HTTP 429) on batch of {len(batch)} books. Splitting into single-item requests with pacing delays.",
+                    )
+                    for item in batch:
+                        if cancelled():
+                            break
+                        ask([item])
+                    return
+                else:
+                    item = batch[0]
+                    fallback = get_fallback_model(current_model[0])
+                    can_downgrade = fallback != current_model[0]
+                    if can_downgrade:
+                        on_event(
+                            "notice",
+                            text=f"Rate limit hit on model {current_model[0]}. Downgrading model to {fallback}.",
+                        )
+                        current_model[0] = fallback
+                        try:
+                            ask_direct(batch)
+                            return
+                        except Exception as retry_exc:
+                            if str(retry_exc) == "Cancelled" or cancelled():
+                                raise
+                            if not is_rate_limit_error(retry_exc):
+                                raise
+                            exc = retry_exc
+
+                    backoff = 2.0
+                    for attempt in range(2):
+                        if cancelled():
+                            return
+                        on_event(
+                            "notice",
+                            text=f'Rate limit hit for "{item.get("title") or item["id"]}". Waiting {backoff:.0f}s before retrying single item.',
+                        )
+                        left = backoff
+                        while left > 0 and not cancelled():
+                            sleep(min(1.0, left))
+                            left -= 1.0
+                        if cancelled():
+                            return
+                        try:
+                            ask_direct(batch)
+                            return
+                        except Exception as retry_exc:
+                            if str(retry_exc) == "Cancelled" or cancelled():
+                                raise
+                            if not is_rate_limit_error(retry_exc):
+                                raise
+                            exc = retry_exc
+                        backoff *= 2.0
+
+                    msg = sanitize_error_message(exc, api_key)
+                    skipped.append(f"{item.get('title') or item['id']}: request limit used up ({msg})")
+                    on_event("notice", text=f"Request limit used up for {item.get('title') or item['id']}: {msg}")
+                    on_event("skipped", text=skipped[-1])
+                    finish(1)
+                    return
+            else:
+                raise
+
+    size = max(1, int(batch_size))
+    for start in range(0, len(pending_books), size):
+        if cancelled():
+            break
+        current_batch = pending_books[start : start + size]
+        progress(f"Asking Muse… {min(state_tracker['done'] + len(current_batch), total)} of {total} books")
+        while True:
+            try:
+                ask(current_batch)
+                break
+            except QuotaExhausted as exc:
+                if (
+                    current_fallback[0] is not None
+                    and current_fallback[0] != "auto"
+                    and current_fallback[0] != current_model[0]
+                ):
+                    prev_model = current_model[0]
+                    current_model[0] = current_fallback[0]
+                    current_fallback[0] = "auto"
+                    on_event("notice", text=f"Quota exhausted for {prev_model}. Falling back to {current_model[0]}.")
+                    continue
+                elif current_fallback[0] == "auto":
+                    fallback = MODEL_FALLBACKS.get(current_model[0]) or MODEL_FALLBACKS.get(
+                        (current_model[0] or "").strip().lower()
+                    )
+                    if fallback and fallback != current_model[0]:
+                        prev_model = current_model[0]
+                        current_model[0] = fallback
+                        on_event(
+                            "notice",
+                            text=f"Quota limit reached for {prev_model}; falling back to lighter model {fallback}.",
+                        )
+                        continue
+                if not pause_on_quota:
+                    left = total - state_tracker["done"]
+                    skipped.append(f"{left} book(s) not checked: request limit used up")
+                    on_event("notice", text=str(exc))
+                    on_event("skipped", text=skipped[-1])
+                    break
+                msg = sanitize_error_message(exc, api_key)
+                left_pending = pending_books[start:]
+                model_config = {
+                    "model": model,
+                    "batch_size": batch_size,
+                    "min_interval": min_interval,
+                    "min_confidence": min_confidence,
+                    "fields": list(fields),
+                    "tags_may_be_removed": tags_may_be_removed,
+                }
+                paused_state = BatchExecutionState(
+                    completed_ids=completed_ids,
+                    pending_books=left_pending,
+                    suggestions=suggestions,
+                    skipped=skipped,
+                    model_config=model_config,
+                )
+                on_event("notice", text=msg)
+                raise MuseBatchPausedError(
+                    msg, state=paused_state, suggestions=suggestions, skipped=skipped, original_error=exc
+                ) from exc
+            except MuseError as exc:
+                if str(exc) == "Cancelled":
+                    break
+                msg = sanitize_error_message(exc, api_key)
+                if pause_on_quota and (
+                    "429" in msg
+                    or "limit" in msg.lower()
+                    or "quota" in msg.lower()
+                    or "503" in msg
+                    or "demand" in msg.lower()
+                    or "unavailable" in msg.lower()
+                ):
+                    left_pending = pending_books[start:]
+                    model_config = {
+                        "model": current_model[0],
+                        "batch_size": batch_size,
+                        "min_interval": min_interval,
+                        "min_confidence": min_confidence,
+                        "fields": list(fields),
+                        "tags_may_be_removed": tags_may_be_removed,
+                    }
+                    paused_state = BatchExecutionState(
+                        completed_ids=completed_ids,
+                        pending_books=left_pending,
+                        suggestions=suggestions,
+                        skipped=skipped,
+                        model_config=model_config,
+                    )
+                    on_event("notice", text=msg)
+                    raise MuseBatchPausedError(
+                        msg, state=paused_state, suggestions=suggestions, skipped=skipped, original_error=exc
+                    ) from exc
+                raise MusePartialError(msg, suggestions=suggestions, skipped=skipped, original_error=exc) from exc
+            except Exception as exc:
+                msg = sanitize_error_message(exc, api_key)
+                raise MusePartialError(msg, suggestions=suggestions, skipped=skipped, original_error=exc) from exc
+        if skipped and skipped[-1].endswith("request limit used up"):
+            break
+    return suggestions, skipped
+
+
+# ------------------------------------------------------------------------------------------------ batches and compilation
+
+
+class CompiledBatchResult:
+    """Compiled results from separate batch output files, maintaining backwards compatibility
+    with code that expects a (suggestions, skipped) 2-tuple."""
+
+    def __init__(self, suggestions, skipped, metadata=None, batch_files=None):
+        self.suggestions = list(suggestions) if suggestions is not None else []
+        self.skipped = list(skipped) if skipped is not None else []
+        self.metadata = dict(metadata or {})
+        self.batch_files = list(batch_files or [])
+
+    def __iter__(self):
+        return iter((self.suggestions, self.skipped))
+
+    def __getitem__(self, idx):
+        return (self.suggestions, self.skipped)[idx]
+
+    def __len__(self):
+        return 2
+
+    @property
+    def total_batches(self):
+        return self.metadata.get("total_batches", len(self.batch_files))
+
+    @property
+    def total_suggestions(self):
+        return len(self.suggestions)
+
+    @property
+    def total_skipped(self):
+        return len(self.skipped)
+
+
+def save_batch_output(
+    batch_dir, batch_index, suggestions, skipped=None, book_ids=None, total_batches=None, metadata=None
+):
+    """Saves a single batch's suggestions and skipped items to a separate JSON file in batch_dir.
+    Uses atomic write (.tmp -> rename) so corrupt partial files are avoided.
+    Returns the absolute path to the saved file."""
+    os.makedirs(batch_dir, exist_ok=True)
+    filename = f"batch_{int(batch_index):04d}.json"
+    filepath = os.path.join(batch_dir, filename)
+    tmppath = filepath + ".tmp"
+
+    serialized_suggestions = []
+    for s in suggestions or []:
+        entry = dict(s)
+        if "changes" in entry and isinstance(entry["changes"], dict):
+            raw_changes = {}
+            for field, vals in entry["changes"].items():
+                if isinstance(vals, (list, tuple)) and len(vals) == 2:
+                    raw_changes[field] = [vals[0], vals[1]]
+                else:
+                    raw_changes[field] = vals
+            entry["changes"] = raw_changes
+        serialized_suggestions.append(entry)
+
+    payload = {
+        "version": 1,
+        "batch_index": int(batch_index),
+        "total_batches": int(total_batches) if total_batches is not None else None,
+        "book_ids": list(book_ids or []),
+        "timestamp": time.time(),
+        "suggestions": serialized_suggestions,
+        "skipped": list(skipped or []),
+        "metadata": dict(metadata or {}),
+    }
+
+    with open(tmppath, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    if os.path.exists(filepath):
+        os.replace(tmppath, filepath)
+    else:
+        os.rename(tmppath, filepath)
+    return filepath
+
+
+def load_batch_output(file_path):
+    """Loads a single batch JSON file and returns its payload dictionary,
+    restoring tuple structures for series field changes."""
+    with open(file_path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    for s in data.get("suggestions", []):
+        if "changes" in s and isinstance(s["changes"], dict):
+            fixed_changes = {}
+            for field, pair in s["changes"].items():
+                if isinstance(pair, list) and len(pair) == 2:
+                    old_val, new_val = pair[0], pair[1]
+                    if field == "series":
+                        if isinstance(old_val, list):
+                            old_val = tuple(old_val)
+                        if isinstance(new_val, list):
+                            new_val = tuple(new_val)
+                    fixed_changes[field] = (old_val, new_val)
+                else:
+                    fixed_changes[field] = pair
+            s["changes"] = fixed_changes
+
+    return data
+
+
+def list_batch_files(batch_dir):
+    """Returns a sorted list of batch file paths in batch_dir matching batch_*.json."""
+    if not batch_dir or not os.path.isdir(batch_dir):
+        return []
+    files = []
+    for name in os.listdir(batch_dir):
+        if name.startswith("batch_") and name.endswith(".json") and not name.endswith(".tmp"):
+            files.append(os.path.join(batch_dir, name))
+
+    def sort_key(p):
+        base = os.path.basename(p)
+        m = re.search(r"batch_(\d+)\.json$", base)
+        return (0, int(m.group(1))) if m else (1, base)
+
+    return sorted(files, key=sort_key)
+
+
+def compile_batch_outputs(batch_dir_or_files):
+    """Compiles separate batch JSON files into a unified CompiledBatchResult (suggestions, skipped).
+    Deduplicates suggestions by book id (keeping the latest occurrence) while preserving order.
+    Accepts either a directory path or an iterable of file paths."""
+    if isinstance(batch_dir_or_files, (list, tuple, set)):
+        files = list(batch_dir_or_files)
+    else:
+        files = list_batch_files(batch_dir_or_files)
+
+    all_suggestions = []
+    seen_suggestion_ids = set()
+    all_skipped = []
+    seen_skipped = set()
+    all_book_ids = set()
+
+    for fpath in files:
+        try:
+            data = load_batch_output(fpath)
+        except Exception:
+            continue
+        for s in data.get("suggestions", []):
+            bid = s.get("id")
+            if bid is not None:
+                all_book_ids.add(bid)
+                if bid in seen_suggestion_ids:
+                    all_suggestions = [item for item in all_suggestions if item.get("id") != bid]
+                seen_suggestion_ids.add(bid)
+            all_suggestions.append(s)
+        for sk in data.get("skipped", []):
+            if sk not in seen_skipped:
+                seen_skipped.add(sk)
+                all_skipped.append(sk)
+        for bid in data.get("book_ids", []):
+            all_book_ids.add(bid)
+
+    meta = {
+        "total_batches": len(files),
+        "total_books": len(all_book_ids),
+        "total_suggestions": len(all_suggestions),
+        "total_skipped": len(all_skipped),
+    }
+    return CompiledBatchResult(all_suggestions, all_skipped, metadata=meta, batch_files=files)
+
+
+def save_scan_state(batch_dir, all_ids, completed_ids, scope="all", status="running", metadata=None):
+    """Persist high-level scan state so interrupted or crashed scans can resume exactly where they stopped."""
+    os.makedirs(batch_dir, exist_ok=True)
+    state_file = os.path.join(batch_dir, "scan_state.json")
+    tmp_file = state_file + ".tmp"
+    comp_set = set(completed_ids)
+    all_list = list(all_ids)
+    meta = dict(metadata or {})
+    # Lets load_completed_ids_fast() trust this file instead of re-reading every batch file.
+    meta["batch_count"] = len(list_batch_files(batch_dir))
+    data = {
+        "version": 1,
+        "scope": scope,
+        "status": status,
+        "all_ids": all_list,
+        "completed_ids": list(completed_ids),
+        "remaining_ids": [bid for bid in all_list if bid not in comp_set],
+        "total_books": len(all_list),
+        "completed_count": len(completed_ids),
+        "updated_at": time.time(),
+        "metadata": meta,
+    }
+    with open(tmp_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    os.replace(tmp_file, state_file)
+    return state_file
+
+
+def load_completed_ids_fast(batch_dir):
+    """The set of book ids already checked, read from scan_state.json when it is in step with the batch files on disk
+    (cheap), or None when it cannot be trusted and the batch files must be read with get_completed_batch_book_ids()."""
+    state = load_scan_state(batch_dir)
+    if not state or not isinstance(state.get("completed_ids"), list):
+        return None
+    expected = (state.get("metadata") or {}).get("batch_count")
+    if expected is None or expected != len(list_batch_files(batch_dir)):
+        return None
+    return set(state["completed_ids"])
+
+
+NON_TEXT_MODEL = re.compile(
+    r"(?:^|[-_.])(?:tts|embedding|embed|aqa|imagen|veo|image-generation|native-audio|live|audio|lyria)(?:$|[-_.])", re.I
+)
+
+
+def is_usable_model(name):
+    """False for models that cannot answer a JSON text request (text-to-speech, embeddings, image/video/audio
+    generation, live audio). Picking one of these made every request fail."""
+    name = str(name or "").strip()
+    if not name:
+        return False
+    return not NON_TEXT_MODEL.search(name.split("/", 1)[-1])
+
+
+def load_scan_state(batch_dir):
+    """Load persistent scan state from batch_dir/scan_state.json if present."""
+    if not batch_dir:
+        return None
+    state_file = os.path.join(batch_dir, "scan_state.json")
+    if not os.path.isfile(state_file):
+        return None
+    try:
+        with open(state_file, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def clear_scan_state(batch_dir):
+    """Clear scan_state.json from batch_dir."""
+    if not batch_dir:
+        return
+    state_file = os.path.join(batch_dir, "scan_state.json")
+    tmp_file = state_file + ".tmp"
+    for p in (state_file, tmp_file):
+        try:
+            if os.path.isfile(p):
+                os.remove(p)
+        except OSError:
+            pass
+
+
+def clear_batch_outputs(batch_dir):
+    """Removes all batch_*.json, batch_*.json.tmp, and scan_state.json files in batch_dir.
+    Returns the count of deleted files."""
+    if not batch_dir or not os.path.isdir(batch_dir):
+        return 0
+    clear_scan_state(batch_dir)
+    count = 0
+    for name in os.listdir(batch_dir):
+        if (name.startswith("batch_") and (name.endswith(".json") or name.endswith(".tmp"))) or name.startswith(
+            "scan_state."
+        ):
+            try:
+                os.remove(os.path.join(batch_dir, name))
+                count += 1
+            except OSError:
+                pass
+    return count
+
+
+def get_completed_batch_book_ids(batch_dir):
+    """Returns a set of all book IDs found in any existing batch files in batch_dir."""
+    files = list_batch_files(batch_dir)
+    ids = set()
+    for fpath in files:
+        try:
+            data = load_batch_output(fpath)
+            for bid in data.get("book_ids", []):
+                ids.add(bid)
+            for s in data.get("suggestions", []):
+                if s.get("id") is not None:
+                    ids.add(s["id"])
+        except Exception:
+            pass
+    return ids
+
+
+def estimate_library_summary(
+    total_books,
+    batch_size=10,
+    covers=False,
+    excerpt=False,
+    min_interval=0,
+    model=DEFAULT_MODEL,
+    avg_chars_per_book=200,
+    **kw,
+):
+    """Calculates estimated token counts, durations, and costs for a given number of books
+    without requiring books to be loaded into memory."""
+    bsize = max(1, int(batch_size or 10))
+    per_request = min(bsize, 8) if covers else bsize
+    batch_count = (total_books + per_request - 1) // per_request if total_books > 0 else 0
+    text_chars_per_book = avg_chars_per_book + (1500 if excerpt else 0)
+    total_text_chars = total_books * text_chars_per_book + batch_count * 1200
+    text_tokens = (total_text_chars + 3) // 4
+    image_tokens = total_books * (IMAGE_TOKENS_PER_IMAGE * (2 if covers else 0))
+    prompt_tokens = text_tokens + image_tokens
+    interval = max(0, int(min_interval or 0))
+    estimated_duration = max(0, batch_count - 1) * interval + batch_count * 2
+    rate = MODEL_COST_PER_1M.get(str(model or "").strip().lower(), 0.0)
+    estimated_cost = (prompt_tokens / 1_000_000.0) * rate
+    return {
+        "books_count": total_books,
+        "text_chars": total_text_chars,
+        "text_tokens": text_tokens,
+        "image_tokens": image_tokens,
+        "prompt_tokens": prompt_tokens,
+        "batch_count": batch_count,
+        "per_request": per_request,
+        "estimated_duration": estimated_duration,
+        "estimated_cost": round(estimated_cost, 6),
+    }
+
+
+def plan_fixes_batched(
+    fetch_books_fn,
+    ids,
+    api_key,
+    batch_dir,
+    batch_size=10,
+    model=DEFAULT_MODEL,
+    fields=FIELDS,
+    min_confidence="medium",
+    tags_may_be_removed=False,
+    progress=lambda text: None,
+    cancelled=lambda: False,
+    on_event=lambda kind, **info: None,
+    min_interval=0,
+    resume=False,
+    sleep=time.sleep,
+    clock=time.monotonic,
+    **kw,
+):
+    """Executes library book fixing in batches of batch_size (default 10), saving each batch's output
+    separately to disk in batch_dir as it completes. Then compiles all separate batch outputs together.
+    If an error or cancellation interrupts the process, already saved batches are preserved on disk.
+    If resume=True, already completed book IDs are skipped."""
+    os.makedirs(batch_dir, exist_ok=True)
+    if resume:
+        completed_ids = get_completed_batch_book_ids(batch_dir)
+        target_ids = [bid for bid in ids if bid not in completed_ids]
+        completed_so_far = set(completed_ids)
+        if completed_ids:
+            on_event(
+                "notice",
+                text=f"Resuming: {len(completed_ids)} book(s) previously saved in batches, {len(target_ids)} remaining.",
+            )
+    else:
+        clear_batch_outputs(batch_dir)
+        target_ids = list(ids)
+        completed_so_far = set()
+
+    save_scan_state(batch_dir, ids, completed_so_far, status="running")
+
+    size = max(1, int(batch_size or 10))
+    chunks = [target_ids[i : i + size] for i in range(0, len(target_ids), size)]
+    total_batches = len(chunks)
+
+    existing_files = list_batch_files(batch_dir) if resume else []
+    existing_indices = []
+    for f in existing_files:
+        m = re.search(r"batch_(\d+)", os.path.basename(f))
+        if m:
+            try:
+                existing_indices.append(int(m.group(1)))
+            except ValueError:
+                pass
+    start_batch_num = (max(existing_indices) + 1) if existing_indices else 1
+
+    for idx_offset, chunk_ids in enumerate(chunks):
+        if cancelled():
+            break
+        current_batch_num = start_batch_num + idx_offset
+        batch_label = f"Batch {current_batch_num}" + (
+            f" of {total_batches + len(existing_files)}" if total_batches else ""
+        )
+        progress(f"Processing {batch_label} ({len(chunk_ids)} books)…")
+
+        batch_books = fetch_books_fn(chunk_ids)
+        if not batch_books:
+            continue
+
+        try:
+            batch_suggestions, batch_skipped = plan_fixes(
+                batch_books,
+                api_key,
+                model=model,
+                fields=fields,
+                min_confidence=min_confidence,
+                batch_size=len(batch_books),
+                tags_may_be_removed=tags_may_be_removed,
+                cancelled=cancelled,
+                on_event=on_event,
+                min_interval=min_interval,
+                sleep=sleep,
+                clock=clock,
+                **kw,
+            )
+        except (MuseError, Exception) as exc:
+            compiled = compile_batch_outputs(batch_dir)
+            msg = sanitize_error_message(exc, api_key)
+            raise MusePartialError(
+                msg, suggestions=compiled.suggestions, skipped=compiled.skipped, original_error=exc
+            ) from exc
+
+        saved_path = save_batch_output(
+            batch_dir,
+            current_batch_num,
+            batch_suggestions,
+            skipped=batch_skipped,
+            book_ids=chunk_ids,
+            total_batches=total_batches + len(existing_files),
+        )
+        completed_so_far.update(chunk_ids)
+        save_scan_state(batch_dir, ids, completed_so_far, status="running")
+        on_event(
+            "batch_saved",
+            batch_index=current_batch_num,
+            total_batches=total_batches + len(existing_files),
+            file=saved_path,
+            count=len(batch_suggestions),
+            skipped_count=len(batch_skipped),
+            book_ids=chunk_ids,
+        )
+
+    if not cancelled():
+        save_scan_state(batch_dir, ids, completed_so_far, status="completed")
+
+    return compile_batch_outputs(batch_dir)

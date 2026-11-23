@@ -54,6 +54,32 @@ PLUGINS = {
         ],
         False,
     ),
+    "ClaudeLibraryFixer.zip": (
+        "claude",
+        "claude_library_fixer",
+        [
+            "storykit.py",
+            "guikit.py",
+            "error_handler.py",
+            "log_utils.py",
+            "tree_utils.py",
+            "metakit.py",
+        ],
+        False,
+    ),
+    "MuseLibraryFixer.zip": (
+        "muse",
+        "muse_library_fixer",
+        [
+            "storykit.py",
+            "guikit.py",
+            "error_handler.py",
+            "log_utils.py",
+            "tree_utils.py",
+            "metakit.py",
+        ],
+        False,
+    ),
     "MediaMatcher.zip": (
         "media",
         "media_matcher",
@@ -92,6 +118,7 @@ SOURCES = {
     "FanficMetadataSource.zip": ("fanfic_source", "fanfic_metadata_source", "fanfic", True),
     "RedditMetadataSource.zip": ("reddit_source", "reddit_metadata_source", "reddit", False),
     "GeminiMetadataSource.zip": ("gemini_source", "gemini_metadata_source", "gemini", False),
+    "ClaudeMetadataSource.zip": ("claude_source", "claude_metadata_source", "claude", False),
     "MediaMatcherMetadataSource.zip": ("media_source", "media_matcher_source", "media", False),
     "InkbunnySoFurryMetadataSource.zip": ("furry_source", "inkbunny_sofurry_metadata_source", "furry", False),
 }
@@ -109,6 +136,7 @@ SOURCE_FILES = {
     "fanfic": ["engine.py", "config.py", "metadata_source.py"],
     "reddit": ["core.py", "config.py", "metadata_source.py"],
     "gemini": ["engine.py", "providers.py", "config.py", "metadata_source.py"],
+    "claude": ["engine.py", "providers.py", "config.py", "metadata_source.py"],
     "media": ["sources.py", "matching.py", "tags.py", "config.py", "metadata_source.py"],
     "furry": ["core.py", "config.py", "metadata_source.py"],
 }
@@ -123,6 +151,7 @@ SOURCE_SHARED = {
     "fanfic": [],
     "reddit": ["storykit.py"],
     "gemini": ["storykit.py"],
+    "claude": ["storykit.py"],
     "media": [],
     "furry": ["storykit.py"],
 }

@@ -53,6 +53,18 @@ PACK = [
         "import_name": "gemini_library_fixer",
         "kind": "plugin",
     },
+    {
+        "zip": "ClaudeLibraryFixer.zip",
+        "name": "Claude Library Fixer",
+        "import_name": "claude_library_fixer",
+        "kind": "plugin",
+    },
+    {
+        "zip": "MuseLibraryFixer.zip",
+        "name": "Muse Library Fixer",
+        "import_name": "muse_library_fixer",
+        "kind": "plugin",
+    },
     {"zip": "MediaMatcher.zip", "name": "Media Matcher", "import_name": "media_matcher", "kind": "plugin"},
     {
         "zip": "InkbunnySoFurryDownloader.zip",
@@ -101,6 +113,12 @@ PACK = [
         "zip": "GeminiMetadataSource.zip",
         "name": "Gemini Metadata",
         "import_name": "gemini_metadata_source",
+        "kind": "source",
+    },
+    {
+        "zip": "ClaudeMetadataSource.zip",
+        "name": "Claude Metadata",
+        "import_name": "claude_metadata_source",
         "kind": "source",
     },
     {

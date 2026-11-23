@@ -123,6 +123,8 @@ class PluginImportTests(unittest.TestCase):
                     "metakit",
                 ],
                 "gemini_library_fixer": ["config", "action", "engine", "guikit", "metadata_source", "metakit"],
+                "claude_library_fixer": ["config", "action", "engine", "guikit", "metadata_source", "metakit"],
+                "muse_library_fixer": ["config", "action", "engine", "guikit", "metakit"],
                 "media_matcher": [
                     "config",
                     "action",
@@ -152,6 +154,7 @@ class PluginImportTests(unittest.TestCase):
                 "fanfic_metadata_source": ["metadata_source", "metakit", "engine", "config"],
                 "reddit_metadata_source": ["metadata_source", "metakit", "core", "config", "storykit"],
                 "gemini_metadata_source": ["metadata_source", "metakit", "engine", "providers", "config", "storykit"],
+                "claude_metadata_source": ["metadata_source", "metakit", "engine", "providers", "config", "storykit"],
                 "media_matcher_source": ["metadata_source", "metakit", "sources", "matching", "config"],
                 "inkbunny_sofurry_metadata_source": ["metadata_source", "metakit", "core", "config", "storykit"],
                 "plugin_pack_manager": ["config", "action", "ui", "core", "manifest", "guikit", "error_handler"],
