@@ -368,13 +368,13 @@ def prepare_image(data, max_side=1000):
 
 def show_value(field, value):
     if field == "series":
-        if isinstance(value, (list, tuple)) and len(value) == 2:
+        if isinstance(value, list | tuple) and len(value) == 2:
             name, index = value
             return f"{name} #{index:g}" if name and index is not None else (name or "(none)")
         return value or "(none)"
     if field == "series_index":
         if value is not None:
-            if isinstance(value, (int, float)):
+            if isinstance(value, int | float):
                 return f"{value:g}"
             return str(value)
         return "(none)"
@@ -546,11 +546,7 @@ class ClaudeRecoveryDialog(_DialogBase):
         valid_models = list(engine.MODEL_COST_PER_1M.keys())
         self.model_combo.addItems(valid_models)
         current_model = (state.model_config.get("model") if state else "") or engine.DEFAULT_MODEL
-        default_selection = (
-            "claude-haiku-4-5"
-            if "claude-haiku-4-5" in valid_models
-            else current_model
-        )
+        default_selection = "claude-haiku-4-5" if "claude-haiku-4-5" in valid_models else current_model
         if default_selection in valid_models:
             self.model_combo.setCurrentText(default_selection)
         elif current_model in valid_models:
@@ -821,7 +817,7 @@ class ClaudeFixerAction(DialogAction):
                     elif field == "authors":
                         db.set_field("authors", {book_id: tuple(new)})
                     elif field == "series":
-                        if isinstance(new, (list, tuple)) and len(new) == 2:
+                        if isinstance(new, list | tuple) and len(new) == 2:
                             db.set_field("series", {book_id: new[0]})
                             db.set_field("series_index", {book_id: new[1] if new[1] is not None else 1.0})
                         else:
@@ -841,7 +837,7 @@ class ClaudeFixerAction(DialogAction):
                     if field == "series":
                         saved[field] = (
                             [old[0], old[1] if old[1] is not None else 1.0]
-                            if isinstance(old, (list, tuple)) and len(old) == 2
+                            if isinstance(old, list | tuple) and len(old) == 2
                             else old
                         )
                     elif field == "series_index":
@@ -875,7 +871,7 @@ class ClaudeFixerAction(DialogAction):
                     elif field == "authors":
                         db.set_field("authors", {book_id: tuple(old)})
                     elif field == "series":
-                        if isinstance(old, (list, tuple)) and len(old) == 2:
+                        if isinstance(old, list | tuple) and len(old) == 2:
                             db.set_field("series", {book_id: old[0] or None})
                             db.set_field("series_index", {book_id: old[1] if old[1] is not None else 1.0})
                         else:
@@ -955,9 +951,7 @@ class ClaudeFixerAction(DialogAction):
         row.addWidget(QLabel(_("Anthropic API key:")))
         key = QLineEdit(prefs["api_key"])
         key.setEchoMode(QLineEdit.EchoMode.Password)
-        key.setPlaceholderText(
-            _("Key from https://console.anthropic.com/settings/keys (or set ANTHROPIC_API_KEY)")
-        )
+        key.setPlaceholderText(_("Key from https://console.anthropic.com/settings/keys (or set ANTHROPIC_API_KEY)"))
         row.addWidget(key, 1)
         test_key_btn = create_token_button(_("Test API key"))
         row.addWidget(test_key_btn)
@@ -1192,7 +1186,9 @@ class ClaudeFixerAction(DialogAction):
         overlay.show_empty()
 
         def api_key():
-            return key.text().strip() or os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+            return (
+                key.text().strip() or os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+            )
 
         def chosen_fields():
             return guikit_chosen_fields(boxes, FIELD_LABELS)
@@ -1484,8 +1480,7 @@ class ClaudeFixerAction(DialogAction):
                 if current_fb and current_fb not in task.result:
                     fallback_model.addItem(current_fb)
                 fallback_model.setCurrentText(
-                    current_fb
-                    or ("claude-haiku-4-5" if "claude-haiku-4-5" in task.result else task.result[0])
+                    current_fb or ("claude-haiku-4-5" if "claude-haiku-4-5" in task.result else task.result[0])
                 )
                 info_dialog(
                     dialog,
@@ -1790,9 +1785,7 @@ class ClaudeFixerAction(DialogAction):
             bar.setFormat(_("Fixing books: %v of %m (%p%)"))
 
             fb_model = (
-                (fallback_model.currentText().strip() or "claude-haiku-4-5")
-                if enable_fallback.isChecked()
-                else None
+                (fallback_model.currentText().strip() or "claude-haiku-4-5") if enable_fallback.isChecked() else None
             )
 
             def work():

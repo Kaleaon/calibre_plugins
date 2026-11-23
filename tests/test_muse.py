@@ -232,18 +232,21 @@ def test_sanitize_and_isbn_spot_checks():
 
 
 def test_request_id_is_deterministic():
-    content = [{"type": "text", "text": "Books to check:\n[{\"id\": 1}]"}]
+    content = [{"type": "text", "text": 'Books to check:\n[{"id": 1}]'}]
     a = engine.request_id_for("sys", content)
     assert a == engine.request_id_for("sys", content)
     assert a.startswith("req-")
-    changed = [{"type": "text", "text": "Books to check:\n[{\"id\": 2}]"}]
+    changed = [{"type": "text", "text": 'Books to check:\n[{"id": 2}]'}]
     assert a != engine.request_id_for("sys", changed)
     assert a != engine.request_id_for("other instructions", content)
 
 
 def test_answered_batch_is_reused_on_rerun(tmp_path):
     folder = str(tmp_path / ".muse-fixer")
-    answers = lambda payload: [{"id": 1, "title": "Dune", "confidence": "high", "reason": "ok"}]
+
+    def answers(payload):
+        return [{"id": 1, "title": "Dune", "confidence": "high", "reason": "ok"}]
+
     muse = FakeMuse(folder, answers)
     muse.start()
     out = engine.generate(None, "muse", "Books to check: []", exchange_dir=folder, wait_seconds=30, poll_seconds=0.2)

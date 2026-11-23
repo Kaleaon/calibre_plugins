@@ -370,13 +370,13 @@ def prepare_image(data, max_side=1000):
 
 def show_value(field, value):
     if field == "series":
-        if isinstance(value, (list, tuple)) and len(value) == 2:
+        if isinstance(value, list | tuple) and len(value) == 2:
             name, index = value
             return f"{name} #{index:g}" if name and index is not None else (name or "(none)")
         return value or "(none)"
     if field == "series_index":
         if value is not None:
-            if isinstance(value, (int, float)):
+            if isinstance(value, int | float):
                 return f"{value:g}"
             return str(value)
         return "(none)"
@@ -548,9 +548,7 @@ class MuseRecoveryDialog(_DialogBase):
         valid_models = list(engine.MODEL_COST_PER_1M.keys())
         self.model_combo.addItems(valid_models)
         current_model = (state.model_config.get("model") if state else "") or engine.DEFAULT_MODEL
-        default_selection = (
-            "muse"
-        )
+        default_selection = "muse"
         if default_selection in valid_models:
             self.model_combo.setCurrentText(default_selection)
         elif current_model in valid_models:
@@ -821,7 +819,7 @@ class MuseFixerAction(DialogAction):
                     elif field == "authors":
                         db.set_field("authors", {book_id: tuple(new)})
                     elif field == "series":
-                        if isinstance(new, (list, tuple)) and len(new) == 2:
+                        if isinstance(new, list | tuple) and len(new) == 2:
                             db.set_field("series", {book_id: new[0]})
                             db.set_field("series_index", {book_id: new[1] if new[1] is not None else 1.0})
                         else:
@@ -841,7 +839,7 @@ class MuseFixerAction(DialogAction):
                     if field == "series":
                         saved[field] = (
                             [old[0], old[1] if old[1] is not None else 1.0]
-                            if isinstance(old, (list, tuple)) and len(old) == 2
+                            if isinstance(old, list | tuple) and len(old) == 2
                             else old
                         )
                     elif field == "series_index":
@@ -875,7 +873,7 @@ class MuseFixerAction(DialogAction):
                     elif field == "authors":
                         db.set_field("authors", {book_id: tuple(old)})
                     elif field == "series":
-                        if isinstance(old, (list, tuple)) and len(old) == 2:
+                        if isinstance(old, list | tuple) and len(old) == 2:
                             db.set_field("series", {book_id: old[0] or None})
                             db.set_field("series_index", {book_id: old[1] if old[1] is not None else 1.0})
                         else:
@@ -967,7 +965,9 @@ class MuseFixerAction(DialogAction):
         model.setEditable(False)
         model.addItem("muse")
         model.setCurrentText("muse")
-        model.setToolTip(_("Muse (Meta AI) — there is no model to pick and no API key; batches go through the exchange folder"))
+        model.setToolTip(
+            _("Muse (Meta AI) — there is no model to pick and no API key; batches go through the exchange folder")
+        )
         row.addWidget(model, 1)
         models_btn = create_token_button(_("List models"), tool_tip=_("There is only Muse"))
         models_btn.setVisible(False)
@@ -1063,9 +1063,7 @@ class MuseFixerAction(DialogAction):
         interval.setRange(0, 120)
         interval.setValue(int(prefs["min_interval"]))
         interval.setToolTip(
-            _(
-                "Pause between batches, in seconds. Muse answers one batch at a time, so this is usually 0."
-            )
+            _("Pause between batches, in seconds. Muse answers one batch at a time, so this is usually 0.")
         )
         row.addWidget(interval)
         row.addStretch(1)
@@ -1200,7 +1198,10 @@ class MuseFixerAction(DialogAction):
             if configured:
                 return configured
             library_path = None
-            for obj in (getattr(self.gui, "current_db", None), getattr(getattr(self.gui, "current_db", None), "new_api", None)):
+            for obj in (
+                getattr(self.gui, "current_db", None),
+                getattr(getattr(self.gui, "current_db", None), "new_api", None),
+            ):
                 candidate = getattr(obj, "library_path", None)
                 if callable(candidate):
                     candidate = candidate()
@@ -1471,7 +1472,9 @@ class MuseFixerAction(DialogAction):
             info_dialog(
                 dialog,
                 _("Muse"),
-                _("Exchange folder is ready:\n{path}\n\nMuse picks requests up from its pending folder and answers into done.").format(path=task.result),
+                _(
+                    "Exchange folder is ready:\n{path}\n\nMuse picks requests up from its pending folder and answers into done."
+                ).format(path=task.result),
                 show=True,
             )
 
@@ -1501,10 +1504,7 @@ class MuseFixerAction(DialogAction):
                 fallback_model.addItems(task.result)
                 if current_fb and current_fb not in task.result:
                     fallback_model.addItem(current_fb)
-                fallback_model.setCurrentText(
-                    current_fb
-                    or "muse"
-                )
+                fallback_model.setCurrentText(current_fb or "muse")
                 info_dialog(
                     dialog,
                     _("Muse"),
@@ -1805,11 +1805,7 @@ class MuseFixerAction(DialogAction):
             bar.setValue(0)
             bar.setFormat(_("Fixing books: %v of %m (%p%)"))
 
-            fb_model = (
-                (fallback_model.currentText().strip() or "muse")
-                if enable_fallback.isChecked()
-                else None
-            )
+            fb_model = (fallback_model.currentText().strip() or "muse") if enable_fallback.isChecked() else None
 
             def work():
                 try:
@@ -1924,9 +1920,7 @@ class MuseFixerAction(DialogAction):
                     # A failed batch cancels the rest and lands in the same
                     # partial-results path a single failed batch used before.
                     with ThreadPoolExecutor(max_workers=min(3, len(chunks) or 1)) as pool:
-                        futures = [
-                            pool.submit(run_chunk, offset, chunk_ids) for offset, chunk_ids in enumerate(chunks)
-                        ]
+                        futures = [pool.submit(run_chunk, offset, chunk_ids) for offset, chunk_ids in enumerate(chunks)]
                         for fut in futures:
                             try:
                                 fut.result()
@@ -2318,7 +2312,9 @@ class MuseFixerAction(DialogAction):
             finally:
                 set_busy(False)
 
-        key.editingFinished.connect(save_prefs)  # the folder is remembered as soon as it is typed, not only after a check
+        key.editingFinished.connect(
+            save_prefs
+        )  # the folder is remembered as soon as it is typed, not only after a check
         dialog.finished.connect(lambda _result: save_prefs())
         test_key_btn.clicked.connect(do_test_api_key)
         models_btn.clicked.connect(do_list_models)

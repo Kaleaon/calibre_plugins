@@ -4,13 +4,13 @@ This does not exercise real Calibre or Qt behaviour; it only proves the packaged
 """
 
 import importlib
-from pathlib import Path
 import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import MagicMock
 import zipfile
+from pathlib import Path
+from unittest.mock import MagicMock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))

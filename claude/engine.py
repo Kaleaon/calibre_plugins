@@ -214,7 +214,7 @@ def get_default_template_vars(
     **extra,
 ):
     f_list = fields if fields is not None else FIELDS
-    if isinstance(f_list, (list, tuple)):
+    if isinstance(f_list, list | tuple):
         fields_str = ", ".join(f_list)
     else:
         fields_str = str(f_list)
@@ -420,13 +420,13 @@ def describe_book(book):
 
 def describe_change(field, old, new):
     if field == "series":
-        if isinstance(old, (list, tuple)) or isinstance(new, (list, tuple)):
+        if isinstance(old, list | tuple) or isinstance(new, list | tuple):
 
             def fmt(v):
                 return (
                     f"{v[0]} #{v[1]:g}"
-                    if isinstance(v, (list, tuple)) and len(v) == 2 and v[0] and v[1] is not None
-                    else (v[0] if isinstance(v, (list, tuple)) and len(v) > 0 else v)
+                    if isinstance(v, list | tuple) and len(v) == 2 and v[0] and v[1] is not None
+                    else (v[0] if isinstance(v, list | tuple) and len(v) > 0 else v)
                 ) or "(none)"
 
             return f"series {fmt(old)} → {fmt(new)}"
@@ -434,7 +434,7 @@ def describe_change(field, old, new):
     if field == "series_index":
 
         def fmt_idx(v):
-            return (f"{v:g}" if isinstance(v, (int, float)) else str(v)) if v is not None else "(none)"
+            return (f"{v:g}" if isinstance(v, int | float) else str(v)) if v is not None else "(none)"
 
         return f"series_index {fmt_idx(old)} → {fmt_idx(new)}"
     if field == "isbn":
@@ -1558,7 +1558,7 @@ def save_batch_output(
         if "changes" in entry and isinstance(entry["changes"], dict):
             raw_changes = {}
             for field, vals in entry["changes"].items():
-                if isinstance(vals, (list, tuple)) and len(vals) == 2:
+                if isinstance(vals, list | tuple) and len(vals) == 2:
                     raw_changes[field] = [vals[0], vals[1]]
                 else:
                     raw_changes[field] = vals
@@ -1632,7 +1632,7 @@ def compile_batch_outputs(batch_dir_or_files):
     """Compiles separate batch JSON files into a unified CompiledBatchResult (suggestions, skipped).
     Deduplicates suggestions by book id (keeping the latest occurrence) while preserving order.
     Accepts either a directory path or an iterable of file paths."""
-    if isinstance(batch_dir_or_files, (list, tuple, set)):
+    if isinstance(batch_dir_or_files, list | tuple | set):
         files = list(batch_dir_or_files)
     else:
         files = list_batch_files(batch_dir_or_files)
