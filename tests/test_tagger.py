@@ -253,6 +253,7 @@ class TaggerDialogTests(unittest.TestCase):
         error_handler_mod = MagicMock()
         tagger_pkg.error_handler = error_handler_mod
         sys.modules.pop("common.guikit", None)
+        sys.modules.pop("guikit", None)
         from common.guikit import DialogAction
 
         tagger_pkg.guikit = MagicMock()
@@ -1108,6 +1109,7 @@ class RuleSetManagerDialogTests(unittest.TestCase):
         error_handler_mod = MagicMock()
         tagger_pkg.error_handler = error_handler_mod
         sys.modules.pop("common.guikit", None)
+        sys.modules.pop("guikit", None)
         from common.guikit import DialogAction
 
         tagger_pkg.guikit = MagicMock()
