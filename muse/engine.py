@@ -595,10 +595,18 @@ def generate(
     if os.path.isfile(done_path):
         # An answer for this exact batch is already waiting (Muse answered
         # while a previous run was cancelled or timed out): consume it now
-        # instead of sending the batch again.
-        notify(f"Muse already answered this batch (request {request_id}) — using that answer.")
-        with open(done_path, encoding="utf-8") as f:
-            return _parse_answer_text(f.read())
+        # instead of sending the batch again. A file that is still being
+        # written (empty or half-written) does not parse — fall through and
+        # wait for the finished answer below instead of failing on it.
+        try:
+            with open(done_path, encoding="utf-8") as f:
+                waiting_text = f.read()
+            waiting_answer = _parse_answer_text(waiting_text)
+        except (MuseError, OSError):
+            waiting_answer = None
+        if waiting_answer is not None:
+            notify(f"Muse already answered this batch (request {request_id}) — using that answer.")
+            return waiting_answer
     payload = {
         "kind": "muse-library-fixer-request",
         "version": 1,
@@ -622,18 +630,34 @@ def generate(
     )
     waited = 0.0
     last_notice = 0.0
+    unsettled_polls = 0
     while waited < wait_seconds:
         if cancelled():
             raise MuseError("Cancelled")
         if os.path.isfile(done_path):
             try:
                 with open(done_path, encoding="utf-8") as f:
-                    return _parse_answer_text(f.read())
-            finally:
+                    answer_text = f.read()
+            except OSError:
+                answer_text = ""
+            if answer_text.strip():
+                try:
+                    answer = _parse_answer_text(answer_text)
+                except MuseError:
+                    # Half-written JSON: the upload is still landing. Give it
+                    # a short grace window before treating it as a bad answer.
+                    unsettled_polls += 1
+                    if unsettled_polls <= 20:
+                        sleep(poll)
+                        waited += poll
+                        continue
+                    raise
                 try:
                     os.remove(pending_path)
                 except OSError:
                     pass
+                return answer
+            # Empty file: created by the upload but not written yet — keep waiting.
         sleep(poll)
         waited += poll
         if waited - last_notice >= 60:

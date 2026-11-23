@@ -89,6 +89,44 @@ def test_exchange_round_trip(tmp_path):
     assert not list((Path(folder) / "pending").glob("*.json"))
 
 
+class SlowWriterMuse(threading.Thread):
+    """Answers like a chunked upload does: the done file appears empty first,
+    then holds half-written JSON, and only then the finished answer."""
+
+    def __init__(self, folder, answers):
+        super().__init__(daemon=True)
+        self.folder = Path(folder)
+        self.answers = answers
+
+    def run(self):
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            for req_path in sorted((self.folder / "pending").glob("*.json")):
+                payload = json.loads(req_path.read_text(encoding="utf-8"))
+                done = self.folder / "done" / req_path.name
+                if done.exists():
+                    return
+                text = json.dumps(self.answers(payload))
+                done.write_text("", encoding="utf-8")
+                time.sleep(0.4)
+                done.write_text(text[: len(text) // 2], encoding="utf-8")
+                time.sleep(0.4)
+                done.write_text(text, encoding="utf-8")
+                return
+            time.sleep(0.05)
+
+
+def test_exchange_slow_written_answer_is_consumed(tmp_path):
+    """Regression: reading the answer file the moment it appears used to fail
+    with "Muse's answer file was empty" whenever the upload was still landing."""
+    folder = str(tmp_path / ".muse-fixer")
+    muse = SlowWriterMuse(folder, lambda payload: [{"id": 1, "title": "Dune", "confidence": "high", "reason": "ok"}])
+    muse.start()
+    out = engine.generate(None, "muse", "Books to check: []", exchange_dir=folder, wait_seconds=30, poll_seconds=0.1)
+    assert out[0]["title"] == "Dune"
+    muse.join(timeout=5)
+
+
 def test_exchange_timeout_keeps_the_request(tmp_path):
     folder = str(tmp_path / ".muse-fixer")
     try:
