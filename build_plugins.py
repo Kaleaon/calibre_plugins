@@ -110,17 +110,17 @@ PLUGINS_BY_IMPORT = [v[1] for v in PLUGINS.values()]
 
 # Companion metadata sources: zip name -> (source folder, import name, plugin folder, vendored FanFicFare?)
 SOURCES = {
-    'TakeoutGoogleBooksSource.zip': ('plugin_source', 'takeout_google_books_source', 'plugin', False),
-    'EpubPromoScrubberSource.zip': ('scrubber_source', 'epub_promo_scrubber_source', 'scrubber_plugin', False),
-    'MetabodsMetadataSource.zip': ('metabods_source', 'metabods_metadata_source', 'metabods', False),
-    'NiftyMetadataSource.zip': ('nifty_source', 'nifty_metadata_source', 'nifty', False),
-    'StoryCollectionTaggerSource.zip': ('tagger_source', 'story_collection_tagger_source', 'tagger', False),
-    'FanficMetadataSource.zip': ('fanfic_source', 'fanfic_metadata_source', 'fanfic', True),
-    'RedditMetadataSource.zip': ('reddit_source', 'reddit_metadata_source', 'reddit', False),
-    'GeminiMetadataSource.zip': ('gemini_source', 'gemini_metadata_source', 'gemini', False),
-    'ClaudeMetadataSource.zip': ('claude_source', 'claude_metadata_source', 'claude', False),
-    'MediaMatcherMetadataSource.zip': ('media_source', 'media_matcher_source', 'media', False),
-    'InkbunnySoFurryMetadataSource.zip': ('furry_source', 'inkbunny_sofurry_metadata_source', 'furry', False),
+    "TakeoutGoogleBooksSource.zip": ("plugin_source", "takeout_google_books_source", "plugin", False),
+    "EpubPromoScrubberSource.zip": ("scrubber_source", "epub_promo_scrubber_source", "scrubber_plugin", False),
+    "MetabodsMetadataSource.zip": ("metabods_source", "metabods_metadata_source", "metabods", False),
+    "NiftyMetadataSource.zip": ("nifty_source", "nifty_metadata_source", "nifty", False),
+    "StoryCollectionTaggerSource.zip": ("tagger_source", "story_collection_tagger_source", "tagger", False),
+    "FanficMetadataSource.zip": ("fanfic_source", "fanfic_metadata_source", "fanfic", True),
+    "RedditMetadataSource.zip": ("reddit_source", "reddit_metadata_source", "reddit", False),
+    "GeminiMetadataSource.zip": ("gemini_source", "gemini_metadata_source", "gemini", False),
+    "ClaudeMetadataSource.zip": ("claude_source", "claude_metadata_source", "claude", False),
+    "MediaMatcherMetadataSource.zip": ("media_source", "media_matcher_source", "media", False),
+    "InkbunnySoFurryMetadataSource.zip": ("furry_source", "inkbunny_sofurry_metadata_source", "furry", False),
 }
 SOURCES_BY_IMPORT = [v[1] for v in SOURCES.values()]
 
@@ -128,32 +128,32 @@ SOURCES_BY_IMPORT = [v[1] for v in SOURCES.values()]
 # (transitively) imports. GUI modules (action.py, ui.py, ...) are left out — they import the plugin's own
 # import name and Qt, neither of which a metadata source may touch.
 SOURCE_FILES = {
-    'plugin': ['metadata_source.py'],
-    'scrubber_plugin': ['core.py', 'profiles.py', 'image_classifier.py', 'metadata_source.py'],
-    'metabods': ['core.py', 'metadata_source.py'],
-    'nifty': ['core.py', 'metadata_source.py'],
-    'tagger': ['rules.py', 'fff_sites.py', 'config.py', 'metadata_source.py'],
-    'fanfic': ['engine.py', 'config.py', 'metadata_source.py'],
-    'reddit': ['core.py', 'config.py', 'metadata_source.py'],
-    'gemini': ['engine.py', 'providers.py', 'config.py', 'metadata_source.py'],
-    'claude': ['engine.py', 'providers.py', 'config.py', 'metadata_source.py'],
-    'media': ['sources.py', 'matching.py', 'tags.py', 'config.py', 'metadata_source.py'],
-    'furry': ['core.py', 'config.py', 'metadata_source.py'],
+    "plugin": ["metadata_source.py"],
+    "scrubber_plugin": ["core.py", "profiles.py", "image_classifier.py", "metadata_source.py"],
+    "metabods": ["core.py", "metadata_source.py"],
+    "nifty": ["core.py", "metadata_source.py"],
+    "tagger": ["rules.py", "fff_sites.py", "config.py", "metadata_source.py"],
+    "fanfic": ["engine.py", "config.py", "metadata_source.py"],
+    "reddit": ["core.py", "config.py", "metadata_source.py"],
+    "gemini": ["engine.py", "providers.py", "config.py", "metadata_source.py"],
+    "claude": ["engine.py", "providers.py", "config.py", "metadata_source.py"],
+    "media": ["sources.py", "matching.py", "tags.py", "config.py", "metadata_source.py"],
+    "furry": ["core.py", "config.py", "metadata_source.py"],
 }
 
 # Shared modules from common/ a metadata source needs (metakit.py is always added on top of these).
 SOURCE_SHARED = {
-    'plugin': ['storykit.py'],
-    'scrubber_plugin': [],
-    'metabods': ['storykit.py'],
-    'nifty': ['storykit.py'],
-    'tagger': [],
-    'fanfic': [],
-    'reddit': ['storykit.py'],
-    'gemini': ['storykit.py'],
-    'claude': ['storykit.py'],
-    'media': [],
-    'furry': ['storykit.py'],
+    "plugin": ["storykit.py"],
+    "scrubber_plugin": [],
+    "metabods": ["storykit.py"],
+    "nifty": ["storykit.py"],
+    "tagger": [],
+    "fanfic": [],
+    "reddit": ["storykit.py"],
+    "gemini": ["storykit.py"],
+    "claude": ["storykit.py"],
+    "media": [],
+    "furry": ["storykit.py"],
 }
 
 # FanFicFare parts left out: the command line, and the txt/html/mobi writers (the txt writer needs the GPL-licensed
@@ -364,22 +364,48 @@ def build_all(dest, skip_unavailable=False):
     for zip_name, (source_folder, import_name, folder, vendored) in SOURCES.items():
         target = dest / zip_name
         try:
-            with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as z:
-                z.write(root / source_folder / '__init__.py', '__init__.py')
+            with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as z:
+                z.write(root / source_folder / "__init__.py", "__init__.py")
                 for name in SOURCE_FILES[folder]:
                     z.write(root / folder / name, name)
-                for name in dict.fromkeys([*SOURCE_SHARED[folder], 'metakit.py']):
-                    z.write(root / 'common' / name, name)
-                z.writestr(f'plugin-import-name-{import_name}.txt', '')
+                for name in dict.fromkeys([*SOURCE_SHARED[folder], "metakit.py"]):
+                    z.write(root / "common" / name, name)
+                z.writestr(f"plugin-import-name-{import_name}.txt", "")
                 if vendored:
                     add_vendored(z)
         except ImportError as exc:
             target.unlink(missing_ok=True)
             if not skip_unavailable:
                 raise
-            print(f'Skipped {zip_name}: {exc}', file=sys.stderr)
+            print(f"Skipped {zip_name}: {exc}", file=sys.stderr)
             continue
         built[import_name] = target
+
+    calibre_link_zip = root / "calibre_link" / "CalibreLink.zip"
+    if calibre_link_zip.exists():
+        import shutil
+
+        target = dest / "CalibreLink.zip"
+        shutil.copy2(calibre_link_zip, target)
+        built["calibre_link"] = target
+    elif (root / "calibre_link").exists():
+        try:
+            import subprocess
+
+            subprocess.run(
+                [sys.executable, str(root / "calibre_link" / "build_zip.py")],
+                check=True,
+                cwd=str(root / "calibre_link"),
+            )
+            if calibre_link_zip.exists():
+                import shutil
+
+                target = dest / "CalibreLink.zip"
+                shutil.copy2(calibre_link_zip, target)
+                built["calibre_link"] = target
+        except Exception:
+            pass
+
     return built
 
 

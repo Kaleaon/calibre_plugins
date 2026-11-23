@@ -4,13 +4,13 @@ This does not exercise real Calibre or Qt behaviour; it only proves the packaged
 """
 
 import importlib
-from pathlib import Path
 import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import MagicMock
 import zipfile
+from pathlib import Path
+from unittest.mock import MagicMock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -158,6 +158,7 @@ class PluginImportTests(unittest.TestCase):
                 "media_matcher_source": ["metadata_source", "metakit", "sources", "matching", "config"],
                 "inkbunny_sofurry_metadata_source": ["metadata_source", "metakit", "core", "config", "storykit"],
                 "plugin_pack_manager": ["config", "action", "ui", "core", "manifest", "guikit", "error_handler"],
+                "calibre_link": ["config", "ui", "adapter", "server"],
             }.get(import_name, ["config", "action", "ui", "core", "guikit", "metadata_source", "metakit"])
             for module in modules:
                 with self.subTest(plugin=import_name, module=module):
