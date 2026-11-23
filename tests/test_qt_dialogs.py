@@ -1997,6 +1997,220 @@ class GeminiDialogTests(QtCase):
 
 
 @unittest.skipUnless(HAVE_QT, "PyQt6 (with its system libraries) is not installed")
+class ClaudeDialogTests(QtCase):
+    """The Claude fixer window over a stand-in library, with Anthropic replaced by canned answers."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp_batch_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp_batch_dir.cleanup)
+
+    def test_check_apply_and_undo_through_the_real_window(self):
+        import json
+
+        package = self.load("claude_library_fixer")
+        sys.modules["calibre.gui2.actions"].InterfaceAction = object
+        engine = importlib.import_module(package + ".engine")
+        action_mod = importlib.import_module(package + ".action")
+        action_mod.prefs["batch_dir"] = self.tmp_batch_dir.name
+        answers = [
+            {
+                "id": 1,
+                "title": "Dune Messiah",
+                "authors": ["Frank Herbert"],
+                "series": "Dune",
+                "series_index": 2,
+                "tags": ["Science Fiction"],
+                "language": "eng",
+                "confidence": "high",
+                "reason": "junk in title",
+            },
+            {"id": 2, "confidence": "high", "reason": "already fine"},
+            {"id": 3, "title": "Totally Different Novel", "confidence": "high", "reason": "guess"},
+        ]
+        canned = json.dumps(
+            {
+                "id": "msg_test",
+                "type": "message",
+                "content": [{"type": "text", "text": json.dumps(answers)}],
+                "stop_reason": "end_turn",
+            }
+        ).encode()
+        sent = []
+
+        def post(url, headers, body, timeout):
+            sent.append((url, headers, json.loads(body)))
+            return canned
+
+        engine._post = post  # Anthropic is replaced; the key never leaves this process
+
+        db = GeminiDb()
+        gui = QtWidgets.QWidget()
+        gui.current_db = MagicMock(new_api=db)
+        gui.library_view = MagicMock()
+        gui.library_view.get_selected_ids.return_value = [1, 2, 3]
+        gui.tags_view = MagicMock()
+        action = action_mod.ClaudeFixerAction()
+        action.gui = gui
+        importlib.import_module(package + ".config")
+        action_mod.prefs["api_key"] = "test-key"
+        action_mod.prefs["min_interval"] = 0
+        seen = {}
+
+        def drive(dialog):
+            def button(text):
+                return next(b for b in dialog.findChildren(QtWidgets.QPushButton) if b.text() == text)
+
+            tree = dialog.findChild(QtWidgets.QTreeWidget)
+            button("Check books").click()
+            seen["log"] = next(e for e in dialog.findChildren(QtWidgets.QPlainTextEdit) if e.isReadOnly()).toPlainText()
+            seen["rows"] = [
+                (tree.topLevelItem(i).text(0), tree.topLevelItem(i).checkState(0))
+                for i in range(tree.topLevelItemCount())
+            ]
+            self.assertTrue(button("Apply ticked changes").isEnabled())
+            button("Apply ticked changes").click()
+            seen["writes_after_apply"] = list(db.writes)
+            self.assertTrue(button("Undo last run").isEnabled())
+            button("Undo last run").click()
+
+        with patch.object(QtWidgets.QDialog, "exec", drive):
+            action.show_dialog()
+
+        # The request really was an Anthropic Messages call.
+        self.assertTrue(sent, "a request was sent")
+        url, headers, body = sent[0]
+        self.assertEqual(url, "https://api.anthropic.com/v1/messages")
+        self.assertEqual(headers["x-api-key"], "test-key")
+        self.assertEqual(headers["anthropic-version"], engine.ANTHROPIC_VERSION)
+        self.assertEqual(body["model"], engine.DEFAULT_MODEL)
+        self.assertIn("clean up the metadata", body["system"])
+        self.assertEqual(body["messages"][0]["content"][0]["type"], "text")
+        self.assertIn("Books to check:", body["messages"][0]["content"][0]["text"])
+
+        log = seen["log"]
+        self.assertIn("Sending 3 book(s) to Claude", log)
+        self.assertIn("✔ “dune messiah [epub]” [high]: title “dune messiah [epub]” → “Dune Messiah”", log)
+        self.assertIn("Done: 2 of 3 book(s) have suggested changes", log)
+        T = QtCore.Qt.CheckState
+        rows = dict(seen["rows"])
+        self.assertEqual(rows["dune messiah [epub]"], T.Checked)
+        self.assertEqual(rows["Cooking Today"], T.Unchecked, "a BIG CHANGE starts unticked")
+        writes = dict(((n, tuple(m.items())) for n, m in seen["writes_after_apply"]))
+        self.assertEqual(writes["title"], ((1, "Dune Messiah"),))
+        self.assertEqual(writes["authors"], ((1, ("Frank Herbert",)),))
+        self.assertEqual(writes["series"], ((1, "Dune"),))
+        restored = {n: list(m.values())[0] for n, m in db.writes[len(seen["writes_after_apply"]) :]}
+        self.assertEqual(restored["title"], "dune messiah [epub]")
+
+
+@unittest.skipUnless(HAVE_QT, "PyQt6 (with its system libraries) is not installed")
+class MuseDialogTests(QtCase):
+    """The Muse fixer window, with a watcher thread playing Muse over the exchange folder."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp_batch_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp_batch_dir.cleanup)
+        self.tmp_exchange_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp_exchange_dir.cleanup)
+
+    def test_check_apply_and_undo_through_the_real_window(self):
+        import json
+        import threading
+        import time
+
+        package = self.load("muse_library_fixer")
+        sys.modules["calibre.gui2.actions"].InterfaceAction = object
+        engine = importlib.import_module(package + ".engine")
+        action_mod = importlib.import_module(package + ".action")
+        action_mod.prefs["batch_dir"] = self.tmp_batch_dir.name
+        action_mod.prefs["exchange_dir"] = self.tmp_exchange_dir.name
+        action_mod.prefs["wait_minutes"] = 5
+        answers = [
+            {
+                "id": 1,
+                "title": "Dune Messiah",
+                "authors": ["Frank Herbert"],
+                "series": "Dune",
+                "series_index": 2,
+                "tags": ["Science Fiction"],
+                "language": "eng",
+                "confidence": "high",
+                "reason": "junk in title",
+            },
+            {"id": 2, "confidence": "high", "reason": "already fine"},
+            {"id": 3, "title": "Totally Different Novel", "confidence": "high", "reason": "guess"},
+        ]
+        seen_requests = []
+
+        def answer_like_muse():
+            folder = Path(self.tmp_exchange_dir.name)
+            deadline = time.time() + 60
+            while time.time() < deadline:
+                pending = sorted((folder / "pending").glob("*.json")) if (folder / "pending").exists() else []
+                if pending:
+                    payload = json.loads(pending[0].read_text(encoding="utf-8"))
+                    seen_requests.append(payload)
+                    (folder / "done" / pending[0].name).write_text(json.dumps(answers), encoding="utf-8")
+                    return
+                time.sleep(0.05)
+
+        watcher = threading.Thread(target=answer_like_muse, daemon=True)
+        watcher.start()
+
+        db = GeminiDb()
+        gui = QtWidgets.QWidget()
+        gui.current_db = MagicMock(new_api=db)
+        gui.library_view = MagicMock()
+        gui.library_view.get_selected_ids.return_value = [1, 2, 3]
+        gui.tags_view = MagicMock()
+        action = action_mod.MuseFixerAction()
+        action.gui = gui
+        importlib.import_module(package + ".config")
+        action_mod.prefs["min_interval"] = 0
+        seen = {}
+
+        def drive(dialog):
+            def button(text):
+                return next(b for b in dialog.findChildren(QtWidgets.QPushButton) if b.text() == text)
+
+            tree = dialog.findChild(QtWidgets.QTreeWidget)
+            button("Check books").click()
+            seen["log"] = next(e for e in dialog.findChildren(QtWidgets.QPlainTextEdit) if e.isReadOnly()).toPlainText()
+            seen["rows"] = [
+                (tree.topLevelItem(i).text(0), tree.topLevelItem(i).checkState(0))
+                for i in range(tree.topLevelItemCount())
+            ]
+            self.assertTrue(button("Apply ticked changes").isEnabled())
+            button("Apply ticked changes").click()
+            seen["writes_after_apply"] = list(db.writes)
+            self.assertTrue(button("Undo last run").isEnabled())
+            button("Undo last run").click()
+
+        with patch.object(QtWidgets.QDialog, "exec", drive):
+            action.show_dialog()
+
+        watcher.join(timeout=5)
+        self.assertTrue(seen_requests, "a request file reached the exchange folder")
+        payload = seen_requests[0]
+        self.assertEqual(payload["kind"], "muse-library-fixer-request")
+        self.assertEqual(payload["model"], "muse")
+        self.assertIn("clean up the metadata", payload["system"])
+        log = seen["log"]
+        self.assertIn("Sending 3 book(s) to Muse", log)
+        self.assertIn("✔ “dune messiah [epub]” [high]: title “dune messiah [epub]” → “Dune Messiah”", log)
+        T = QtCore.Qt.CheckState
+        rows = dict(seen["rows"])
+        self.assertEqual(rows["dune messiah [epub]"], T.Checked)
+        self.assertEqual(rows["Cooking Today"], T.Unchecked, "a BIG CHANGE starts unticked")
+        writes = dict(((n, tuple(m.items())) for n, m in seen["writes_after_apply"]))
+        self.assertEqual(writes["title"], ((1, "Dune Messiah"),))
+        restored = {n: list(m.values())[0] for n, m in db.writes[len(seen["writes_after_apply"]) :]}
+        self.assertEqual(restored["title"], "dune messiah [epub]")
+
+
+@unittest.skipUnless(HAVE_QT, "PyQt6 (with its system libraries) is not installed")
 class FanficDialogTests(QtCase):
     @classmethod
     def setUpClass(cls):

@@ -123,6 +123,8 @@ class PluginImportTests(unittest.TestCase):
                     "metakit",
                 ],
                 "gemini_library_fixer": ["config", "action", "engine", "guikit", "metadata_source", "metakit"],
+                "claude_library_fixer": ["config", "action", "engine", "guikit", "metadata_source", "metakit"],
+                "muse_library_fixer": ["config", "action", "engine", "guikit", "metakit"],
                 "media_matcher": [
                     "config",
                     "action",
@@ -152,6 +154,7 @@ class PluginImportTests(unittest.TestCase):
                 "fanfic_metadata_source": ["metadata_source", "metakit", "engine", "config"],
                 "reddit_metadata_source": ["metadata_source", "metakit", "core", "config", "storykit"],
                 "gemini_metadata_source": ["metadata_source", "metakit", "engine", "providers", "config", "storykit"],
+                "claude_metadata_source": ["metadata_source", "metakit", "engine", "providers", "config", "storykit"],
                 "media_matcher_source": ["metadata_source", "metakit", "sources", "matching", "config"],
                 "inkbunny_sofurry_metadata_source": ["metadata_source", "metakit", "core", "config", "storykit"],
                 "plugin_pack_manager": ["config", "action", "ui", "core", "manifest", "guikit", "error_handler"],
@@ -175,10 +178,7 @@ class PluginImportTests(unittest.TestCase):
             }
         ]
         mi = libkit.metadata_for(group, None, "metabods", "Metabods")
-        self.assertEqual(
-            (mi.title, mi.authors, mi.ids, mi.tags),
-            ("T", ["Au"], {"metabods": "a"}, ["x", "c"]),
-        )
+        self.assertEqual((mi.title, mi.authors, mi.ids, mi.tags), ("T", ["Au"], {"metabods": "a"}, ["x", "c"]))
         self.assertEqual(mi.comments, "<p>S &amp; s</p>")
         two = libkit.metadata_for(group + [dict(group[0], id="b", title="U")], "Omni", "metabods", "Metabods")
         self.assertEqual((two.title, two.ids), ("Omni", {}))
@@ -198,26 +198,12 @@ class PluginImportTests(unittest.TestCase):
         mi = libkit.metadata_for([story], None, "nifty", "Nifty")
         self.assertEqual((mi.series, mi.series_index), ("My Series", 2.0))
         plain = libkit.metadata_for(
-            [
-                {
-                    "id": "b",
-                    "title": "Solo",
-                    "author": "Au",
-                    "tags": [],
-                    "categories": [],
-                }
-            ],
-            None,
-            "nifty",
-            "Nifty",
+            [{"id": "b", "title": "Solo", "author": "Au", "tags": [], "categories": []}], None, "nifty", "Nifty"
         )
         self.assertFalse(hasattr(plain, "series"), "a story outside a series gets no series fields")
 
     def test_downloader_action_existing_ids(self):
-        for plugin, ident in (
-            ("metabods_downloader", "metabods"),
-            ("nifty_downloader", "nifty"),
-        ):
+        for plugin, ident in (("metabods_downloader", "metabods"), ("nifty_downloader", "nifty")):
             package = self.load(plugin)
             libkit = importlib.import_module(package + ".libkit")
             action_mod = importlib.import_module(package + ".action")
@@ -228,10 +214,7 @@ class PluginImportTests(unittest.TestCase):
 
             mock_gui = MagicMock()
             mock_gui.current_db.new_api.all_book_ids.return_value = [1, 2]
-            mock_gui.current_db.new_api.all_field_for.return_value = {
-                1: {ident: "id1"},
-                2: {ident: "id2"},
-            }
+            mock_gui.current_db.new_api.all_field_for.return_value = {1: {ident: "id1"}, 2: {ident: "id2"}}
 
             action = action_cls()
             action.gui = mock_gui
@@ -272,10 +255,7 @@ class PluginImportTests(unittest.TestCase):
             package = self.load(plugin)
             libkit = importlib.import_module(package + ".libkit")
             self.assertTrue(hasattr(libkit, "merge_epubs"), f"{plugin} libkit missing merge_epubs")
-            self.assertTrue(
-                callable(libkit.merge_epubs),
-                f"{plugin} libkit merge_epubs is not callable",
-            )
+            self.assertTrue(callable(libkit.merge_epubs), f"{plugin} libkit merge_epubs is not callable")
 
     def test_import_books_chunked_duplicate_checking(self):
         from plugin import importer
@@ -411,10 +391,7 @@ class PluginImportTests(unittest.TestCase):
                 if field == "title":
                     return {101: "Existing Title A", 102: "Pride and Prejudice"}
                 if field == "identifiers":
-                    return {
-                        101: {"isbn": "978-1-111-11111-1"},
-                        102: {"isbn": "0-306-40615-2"},
-                    }
+                    return {101: {"isbn": "978-1-111-11111-1"}, 102: {"isbn": "0-306-40615-2"}}
                 if field == "formats":
                     return {101: ("EPUB",), 102: ("EPUB",)}
                 return default or {}
@@ -472,10 +449,7 @@ class PluginImportTests(unittest.TestCase):
                 "output": str(path_2),
                 "format": "epub",
                 "source": "NovelBook.epub",
-                "metadata": {
-                    "title": "Novel Unique Book Title",
-                    "isbn": "978-9-999-99999-9",
-                },
+                "metadata": {"title": "Novel Unique Book Title", "isbn": "978-9-999-99999-9"},
             }
             imported, errors = importer.import_books(mock_gui, [row_novel])
             self.assertEqual(imported, [200])
@@ -487,19 +461,13 @@ class PluginImportTests(unittest.TestCase):
                 "output": str(path_2),
                 "format": "epub",
                 "source": "BatchOne.epub",
-                "metadata": {
-                    "title": "Batch Unique Title",
-                    "isbn": "978-8-888-88888-8",
-                },
+                "metadata": {"title": "Batch Unique Title", "isbn": "978-8-888-88888-8"},
             }
             row_batch_2 = {
                 "output": str(path_3),
                 "format": "epub",
                 "source": "BatchTwo.epub",
-                "metadata": {
-                    "title": "Batch Unique Title (Duplicate)",
-                    "isbn": "978-8-888-88888-8",
-                },
+                "metadata": {"title": "Batch Unique Title (Duplicate)", "isbn": "978-8-888-88888-8"},
             }
             imported, errors = importer.import_books(mock_gui, [row_batch_1, row_batch_2])
             self.assertEqual(imported, [201])

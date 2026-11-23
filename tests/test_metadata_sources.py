@@ -649,6 +649,7 @@ SOURCE_FOLDERS = {
     "fanfic_source": ("fanfic", "ms_fanfic"),
     "reddit_source": ("reddit", "ms_reddit"),
     "gemini_source": ("gemini", "ms_gemini"),
+    "claude_source": ("claude", "ms_claude"),
     "media_source": ("media", "ms_media"),
     "furry_source": ("furry", "ms_furry"),
 }
