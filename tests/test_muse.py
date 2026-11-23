@@ -191,3 +191,33 @@ def test_sanitize_and_isbn_spot_checks():
     assert engine.clean_isbn("978-0-441-17271-9") == "9780441172719"
     assert not engine.clean_isbn("9780441172710")  # bad check digit is rejected
     assert engine.numbering_in_title("book 1 - the force awakens") == ("1", "the force awakens")
+
+
+def test_request_id_is_deterministic():
+    content = [{"type": "text", "text": 'Books to check:\n[{"id": 1}]'}]
+    a = engine.request_id_for("sys", content)
+    assert a == engine.request_id_for("sys", content)
+    assert a.startswith("req-")
+    changed = [{"type": "text", "text": 'Books to check:\n[{"id": 2}]'}]
+    assert a != engine.request_id_for("sys", changed)
+    assert a != engine.request_id_for("other instructions", content)
+
+
+def test_answered_batch_is_reused_on_rerun(tmp_path):
+    folder = str(tmp_path / ".muse-fixer")
+
+    def answers(payload):
+        return [{"id": 1, "title": "Dune", "confidence": "high", "reason": "ok"}]
+
+    muse = FakeMuse(folder, answers)
+    muse.start()
+    out = engine.generate(None, "muse", "Books to check: []", exchange_dir=folder, wait_seconds=30, poll_seconds=0.2)
+    assert out[0]["title"] == "Dune"
+    muse.join(timeout=5)
+    rid = muse.requests[0]["id"]
+    assert (Path(folder) / "done" / f"{rid}.json").exists()
+    # Second run of the identical batch: no watcher at all — the waiting
+    # answer must be picked up instantly instead of a new request going out.
+    out2 = engine.generate(None, "muse", "Books to check: []", exchange_dir=folder, wait_seconds=5, poll_seconds=0.05)
+    assert out2[0]["title"] == "Dune"
+    assert not list((Path(folder) / "pending").glob("*.json"))

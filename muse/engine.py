@@ -63,6 +63,7 @@ __all__ = [
     "describe_book",
     "describe_change",
     "generate",
+    "request_id_for",
     "list_models",
     "validate_api_key",
     "epub_excerpt",
@@ -104,7 +105,7 @@ __all__ = [
 EXCHANGE_DIRNAME = ".muse-fixer"
 DEFAULT_MODEL = "muse"
 DEFAULT_WAIT_SECONDS = 1800
-POLL_SECONDS = 2
+POLL_SECONDS = 1
 CONFIDENCE = {"low": 0, "medium": 1, "high": 2}
 FIELDS = ("title", "authors", "series", "tags", "language", "isbn")
 IMAGE_LIMIT = 6_000_000  # bytes; a bigger cover or back page is skipped rather than uploaded
@@ -539,6 +540,20 @@ def _to_content_blocks(parts):
     return blocks
 
 
+def request_id_for(sys_inst, content):
+    """Deterministic request id: a hash of the instructions plus the batch.
+
+    The same books under the same instructions always produce the same id, so
+    re-running a check after a cancel/timeout finds the answer Muse already
+    left in done/ instead of sending the batch again. Any change to a book's
+    data or the instructions changes the id and sends a fresh request.
+    """
+    import hashlib
+
+    blob = json.dumps({"system": sys_inst, "content": content}, ensure_ascii=False, sort_keys=True, default=str)
+    return "req-" + hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
 def generate(
     api_key, model, prompt, system_instruction_mode="append", custom_instructions="", system_instruction=None, **kw
 ):
@@ -574,9 +589,16 @@ def generate(
     folder = check_exchange(kw.pop("exchange_dir", None))
     wait_seconds = float(kw.pop("wait_seconds", DEFAULT_WAIT_SECONDS))
     poll = float(kw.pop("poll_seconds", POLL_SECONDS))
-    import uuid
 
-    request_id = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
+    request_id = request_id_for(sys_inst, content)
+    done_path = os.path.join(folder, "done", request_id + ".json")
+    if os.path.isfile(done_path):
+        # An answer for this exact batch is already waiting (Muse answered
+        # while a previous run was cancelled or timed out): consume it now
+        # instead of sending the batch again.
+        notify(f"Muse already answered this batch (request {request_id}) — using that answer.")
+        with open(done_path, encoding="utf-8") as f:
+            return _parse_answer_text(f.read())
     payload = {
         "kind": "muse-library-fixer-request",
         "version": 1,
@@ -593,7 +615,6 @@ def generate(
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=1)
     os.replace(tmp_path, pending_path)
-    done_path = os.path.join(folder, "done", request_id + ".json")
     notify(
         f"Sent this batch to Muse — request {request_id} is waiting in {os.path.join(folder, 'pending')}. "
         f"Muse picks it up from there (through Calibre Link, or open the folder and hand the file to Muse). "
