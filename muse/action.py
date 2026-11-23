@@ -1052,10 +1052,10 @@ class MuseFixerAction(DialogAction):
         row.addWidget(confidence)
         row.addWidget(QLabel(_("Batch size (books per batch):")))
         batch = QSpinBox()
-        batch.setRange(1, 50)
+        batch.setRange(1, 200)
         batch.setValue(int(prefs["batch_size"]))
         batch.setToolTip(
-            _("Number of books processed in each separate batch request (default 10). Each batch is saved separately.")
+            _("Number of books processed in each separate batch request (default 50). Each batch is saved separately.")
         )
         row.addWidget(batch)
         row.addWidget(QLabel(_("Seconds between requests:")))
@@ -1691,7 +1691,7 @@ class MuseFixerAction(DialogAction):
                 active_text = get_active_template_text()
                 tpl_vars = get_current_sample_vars()
                 bsize = max(1, batch.value())
-                per_req = min(bsize, 8) if covers.isChecked() else bsize
+                per_req = min(bsize, 20) if covers.isChecked() else bsize
 
                 est = engine.estimate_library_summary(
                     len(ids),
@@ -1780,7 +1780,7 @@ class MuseFixerAction(DialogAction):
             if all_scan_ids is None:
                 all_scan_ids = list(target_ids)
             bsize = max(1, batch.value())
-            per_request = min(bsize, 8) if covers.isChecked() else bsize
+            per_request = min(bsize, 20) if covers.isChecked() else bsize
             chunks = [target_ids[i : i + per_request] for i in range(0, len(target_ids), per_request)]
             total_chunks = len(chunks)
 
@@ -1815,9 +1815,26 @@ class MuseFixerAction(DialogAction):
                     completed_ids_set = set(engine.get_completed_batch_book_ids(b_dir)) if resume else set()
                     engine.save_scan_state(b_dir, all_scan_ids, completed_ids_set, scope=scan_scope, status="running")
 
-                    for offset, chunk_ids in enumerate(chunks):
+                    # Read the dialog/prefs once, up front: the batch workers
+                    # below never touch widgets, and nothing is re-read per batch.
+                    m_name = model.currentText().strip() or engine.DEFAULT_MODEL
+                    m_fields = chosen_fields()
+                    m_confidence = confidence.currentText()
+                    m_tags_remove = tags_remove.isChecked()
+                    m_interval = interval.value()
+                    m_excerpt = excerpt.isChecked()
+                    m_covers = covers.isChecked()
+                    m_providers = provider_enrich.isChecked()
+                    m_key = api_key()
+                    m_exchange = exchange_dir()
+                    m_wait = int(prefs.get("wait_minutes", 30)) * 60
+                    state_lock = threading.Lock()
+                    errors = []
+
+                    def run_chunk(offset, chunk_ids):
+                        nonlocal books_done
                         if cancel_flag.is_set():
-                            break
+                            return
                         curr_batch_idx = start_batch_num + offset
                         messages.put(
                             (
@@ -1834,26 +1851,26 @@ class MuseFixerAction(DialogAction):
                         # 1. Read ONLY this batch of books
                         batch_books = self.books_for(
                             chunk_ids,
-                            excerpt.isChecked(),
+                            m_excerpt,
                             on_book=lambda index, total, book: messages.put(("read_progress", (index, total, book))),
                             should_stop=cancel_flag.is_set,
-                            with_covers=covers.isChecked(),
-                            with_providers=provider_enrich.isChecked(),
+                            with_covers=m_covers,
+                            with_providers=m_providers,
                         )
                         if cancel_flag.is_set():
-                            break
+                            return
 
                         # 2. Process this batch with Muse
                         batch_suggestions, batch_skipped = engine.plan_fixes(
                             batch_books,
-                            api_key(),
-                            model.currentText().strip() or engine.DEFAULT_MODEL,
-                            chosen_fields(),
-                            confidence.currentText(),
+                            m_key,
+                            m_name,
+                            m_fields,
+                            m_confidence,
                             per_request,
-                            tags_remove.isChecked(),
+                            m_tags_remove,
                             cancelled=cancel_flag.is_set,
-                            min_interval=interval.value(),
+                            min_interval=m_interval,
                             instructions=active_text,
                             template_vars=tpl_vars,
                             system_instruction_mode=prefs["system_instruction_mode"],
@@ -1862,8 +1879,8 @@ class MuseFixerAction(DialogAction):
                             image_hydrator=prepare_image,
                             db=self.gui.current_db.new_api,
                             fallback_model=fb_model,
-                            exchange_dir=exchange_dir(),
-                            wait_seconds=int(prefs.get("wait_minutes", 30)) * 60,
+                            exchange_dir=m_exchange,
+                            wait_seconds=m_wait,
                         )
 
                         # 3. Save output SEPARATELY immediately!
@@ -1875,11 +1892,13 @@ class MuseFixerAction(DialogAction):
                             book_ids=chunk_ids,
                             total_batches=total_all_batches,
                         )
-                        books_done += len(chunk_ids)
-                        completed_ids_set.update(chunk_ids)
-                        engine.save_scan_state(
-                            b_dir, all_scan_ids, completed_ids_set, scope=scan_scope, status="running"
-                        )
+                        with state_lock:
+                            books_done += len(chunk_ids)
+                            completed_ids_set.update(chunk_ids)
+                            done_now = books_done
+                            engine.save_scan_state(
+                                b_dir, all_scan_ids, completed_ids_set, scope=scan_scope, status="running"
+                            )
 
                         messages.put(
                             (
@@ -1890,15 +1909,26 @@ class MuseFixerAction(DialogAction):
                                     "path": saved_path,
                                     "suggestions_count": len(batch_suggestions),
                                     "skipped_count": len(batch_skipped),
-                                    "done": books_done,
+                                    "done": done_now,
                                 },
                             )
                         )
 
-                        # Free memory immediately
-                        del batch_books
-                        del batch_suggestions
-                        del batch_skipped
+                    # Up to three batches in flight at once: while Muse is
+                    # answering one batch, the next ones are already being read
+                    # and sent, and Muse's pickup answers the queue together.
+                    # A failed batch cancels the rest and lands in the same
+                    # partial-results path a single failed batch used before.
+                    with ThreadPoolExecutor(max_workers=min(3, len(chunks) or 1)) as pool:
+                        futures = [pool.submit(run_chunk, offset, chunk_ids) for offset, chunk_ids in enumerate(chunks)]
+                        for fut in futures:
+                            try:
+                                fut.result()
+                            except Exception as exc:  # noqa: BLE001 - surfaced below
+                                errors.append(exc)
+                                cancel_flag.set()
+                    if errors:
+                        raise errors[0]
 
                     # 4. Compile it together!
                     messages.put(("compiling", {}))
@@ -1975,7 +2005,7 @@ class MuseFixerAction(DialogAction):
                             sk_count=info["skipped_count"],
                         )
                     )
-                    completed_books = info["done"]
+                    completed_books = max(completed_books, info["done"])
                     bar.setRange(0, max(1, total_books))
                     bar.setValue(info["done"])
                     bar.setFormat(_("Fixing books: %v of %m (%p%)"))
@@ -2043,7 +2073,7 @@ class MuseFixerAction(DialogAction):
                 elif kind == "skipped":
                     log(_("✖ {text}").format(text=info["text"]))
                 elif kind == "progress":
-                    completed_books = info["done"]
+                    completed_books = max(completed_books, info["done"])
                     bar.setRange(0, max(1, total_books))
                     bar.setValue(completed_books)
                     bar.setFormat(_("Fixing books: %v of %m (%p%)"))
