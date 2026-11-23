@@ -22,6 +22,7 @@ for module in (QtWidgets, QtGui, QtCore):
         setattr(qtcore, name, getattr(module, name))
 sys.modules['qt.core'] = qtcore
 sys.modules['qt'] = types.ModuleType('qt')
+sys.modules['qt'].core = qtcore
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))

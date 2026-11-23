@@ -18,6 +18,7 @@ try:
             if not attr.startswith("_"):
                 setattr(qt_core, attr, getattr(mod, attr))
     sys.modules["qt"] = type(sys)("qt")
+    sys.modules["qt"].core = qt_core
     sys.modules["qt.core"] = qt_core
 except ImportError:
     pass

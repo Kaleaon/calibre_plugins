@@ -53,6 +53,7 @@ try:
         for attr in dir(module):
             setattr(qtcore, attr, getattr(module, attr))
     sys.modules['qt'] = types.ModuleType('qt')
+    sys.modules['qt'].core = qtcore
     sys.modules['qt.core'] = qtcore
 except ImportError:
     qt_mock = MagicMock()

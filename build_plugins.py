@@ -219,14 +219,14 @@ def _licenses():
         for f in dist.files or []:
             if re.search(r"(?i)(^|[/\\])(licen[cs]e|notice)[^/\\]*$", str(f)):
                 try:
-                    file_path = dist.locate_file(f)
+                    file_path = Path(dist.locate_file(f))
                     if hasattr(file_path, "is_file") and not file_path.is_file():
                         continue
                     parts.append(
-                        f"\n===== {dist_name} {dist.version}: {f.name} =====\n"
+                        f"\n===== {dist_name} {dist.version}: {getattr(f, 'name', str(f))} =====\n"
                         + file_path.read_text(encoding="utf-8", errors="replace")
                     )
-                except (OSError, ValueError):
+                except Exception:
                     continue
     return "\n".join(parts)
 
